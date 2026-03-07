@@ -1,0 +1,17 @@
+{
+  "name": "ai-paper-workshop",
+  "version": "1.0.0",
+  "description": "AI Paper Workshop 2026 - PPTX slide generation system for a 2-day research methodology course",
+  "author": "Alan Chen <alan.chen75@gmail.com>",
+  "license": "MIT",
+  "scripts": {
+    "build:day1": "node src/gen_day1_full.js",
+    "build:day2": "node src/gen_day2_full.js",
+    "build:intro": "node src/gen_course_intro.js",
+    "build:all": "npm run build:day1 && npm run build:day2 && npm run build:intro",
+    "qa": "bash scripts/qa-screenshots.sh"
+  },
+  "dependencies": {
+    "pptxgenjs": "^3.12.0"
+  }
+}

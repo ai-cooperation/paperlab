@@ -4,3 +4,8 @@ resources/
 .DS_Store
 node_modules/
 .env
+*.pdf
+!static/cases/**/*.pdf
+qa_screenshots/
+~$*
+__pycache__/
