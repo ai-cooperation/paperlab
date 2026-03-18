@@ -1,7 +1,6 @@
 baseURL = "https://paperlab.cooperation.tw/"
 languageCode = "zh-tw"
 title = "Paper Lab — 寫論文，找方法"
-theme = "PaperMod"
 paginate = 20
 
 enableRobotsTXT = true
@@ -15,32 +14,6 @@ buildExpired = false
   description = "AI 論文方法學 — 11 步帶你從零到發表"
   keywords = ["寫論文找方法", "論文方法學", "AI 寫論文", "AI 論文工具", "research gap"]
   author = "陳重光"
-  defaultTheme = "light"
-  ShowReadingTime = true
-  ShowShareButtons = true
-  ShowPostNavLinks = true
-  ShowBreadCrumbs = true
-  ShowCodeCopyButtons = true
-  ShowToc = true
-  TocOpen = false
-
-  [params.homeInfoParams]
-    Title = "寫論文，找方法"
-    Content = """
-AI 論文方法學 — 11 個階段，帶你從零到發表。
-
-每個階段都告訴你：**下一步做什麼、用什麼工具、怎麼用 AI 做到位。**
-"""
-
-  [[params.socialIcons]]
-    name = "github"
-    url = "https://github.com/ai-cooperation/paperlab"
-
-[params.assets]
-  favicon = "/favicon.ico"
-
-[params.label]
-  text = "Paper Lab"
 
 # SEO
 [sitemap]
@@ -49,7 +22,7 @@ AI 論文方法學 — 11 個階段，帶你從零到發表。
   priority = 0.5
 
 [outputs]
-  home = ["HTML", "RSS", "JSON"]
+  home = ["HTML", "RSS"]
 
 # Menu
 [menu]

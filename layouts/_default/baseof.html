@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ if .IsHome }}{{ .Site.Title }}{{ else }}{{ .Title }} | Paper Lab{{ end }}</title>
+  <meta name="description" content="{{ with .Description }}{{ . }}{{ else }}{{ .Site.Params.description }}{{ end }}">
+  <meta name="keywords" content="{{ delimit .Site.Params.keywords ", " }}">
+  <meta name="author" content="{{ .Site.Params.author }}">
+  <link rel="canonical" href="{{ .Permalink }}">
+
+  <!-- OG -->
+  <meta property="og:title" content="{{ if .IsHome }}{{ .Site.Title }}{{ else }}{{ .Title }}{{ end }}">
+  <meta property="og:description" content="{{ with .Description }}{{ . }}{{ else }}{{ .Site.Params.description }}{{ end }}">
+  <meta property="og:url" content="{{ .Permalink }}">
+  <meta property="og:type" content="{{ if .IsPage }}article{{ else }}website{{ end }}">
+  <meta property="og:site_name" content="Paper Lab">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: { DEFAULT: '#0B3C5D', light: '#134B6E', dark: '#072A42' },
+            secondary: { DEFAULT: '#0F9D8A', light: '#12B89F', dark: '#0A7A6B' },
+            accent: { DEFAULT: '#FFC857', dark: '#E6A820' },
+            surface: '#F5F7FA',
+            tip: '#E8F4F2',
+            slate2: '#2C3E50',
+          },
+          fontFamily: {
+            sans: ['"Inter"', '"Noto Sans TC"', 'system-ui', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'Consolas', 'monospace'],
+          },
+        }
+      }
+    }
+  </script>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Noto+Sans+TC:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+
+  <style>
+    html { scroll-behavior: smooth; }
+    body { font-family: 'Inter', 'Noto Sans TC', system-ui, sans-serif; }
+
+    /* Prose styles for article content */
+    .prose h2 { font-size: 1.5rem; font-weight: 700; color: #0B3C5D; margin-top: 2.5rem; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid #E8F4F2; }
+    .prose h3 { font-size: 1.25rem; font-weight: 600; color: #134B6E; margin-top: 2rem; margin-bottom: 0.75rem; }
+    .prose p { line-height: 1.8; margin-bottom: 1.25rem; color: #374151; }
+    .prose a { color: #0F9D8A; text-decoration: underline; text-underline-offset: 2px; }
+    .prose a:hover { color: #12B89F; }
+    .prose ul, .prose ol { margin-bottom: 1.25rem; padding-left: 1.5rem; }
+    .prose li { line-height: 1.8; margin-bottom: 0.5rem; color: #374151; }
+    .prose blockquote { border-left: 4px solid #0F9D8A; background: #F5F7FA; padding: 1rem 1.5rem; margin: 1.5rem 0; border-radius: 0 8px 8px 0; }
+    .prose blockquote p { color: #5A6B7A; font-style: italic; margin-bottom: 0; }
+    .prose code { background: #F3F4F6; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.9em; color: #0B3C5D; }
+    .prose pre { background: #1A1A1A; color: #E5E7EB; padding: 1.25rem; border-radius: 8px; overflow-x: auto; margin: 1.5rem 0; }
+    .prose pre code { background: none; padding: 0; color: inherit; }
+    .prose strong { color: #0B3C5D; }
+    .prose hr { border-color: #E5E7EB; margin: 2rem 0; }
+
+    /* Tip box */
+    .tip-box { background: #E8F4F2; border-left: 4px solid #0F9D8A; border-radius: 0 8px 8px 0; padding: 1rem 1.5rem; margin: 1.5rem 0; }
+  </style>
+
+  {{ block "head" . }}{{ end }}
+</head>
+<body class="bg-surface text-gray-800 antialiased">
+
+  <!-- Navigation -->
+  <nav class="bg-primary shadow-lg sticky top-0 z-50">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6">
+      <div class="flex items-center justify-between h-16">
+        <a href="/" class="flex items-center gap-2 text-white font-bold text-lg tracking-tight hover:opacity-90 transition">
+          <span class="text-accent text-2xl font-black">P</span>
+          <span>Paper Lab</span>
+        </a>
+        <!-- Desktop menu -->
+        <div class="hidden md:flex items-center gap-8">
+          {{ range .Site.Menus.main }}
+          <a href="{{ .URL }}" class="text-white/80 hover:text-accent font-medium text-sm tracking-wide transition">{{ .Name }}</a>
+          {{ end }}
+        </div>
+        <!-- Mobile menu button -->
+        <button id="mobile-menu-btn" class="md:hidden text-white p-2" onclick="document.getElementById('mobile-menu').classList.toggle('hidden')">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+      </div>
+      <!-- Mobile menu -->
+      <div id="mobile-menu" class="hidden md:hidden pb-4">
+        {{ range .Site.Menus.main }}
+        <a href="{{ .URL }}" class="block text-white/80 hover:text-accent py-2 px-2 font-medium">{{ .Name }}</a>
+        {{ end }}
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    {{ block "main" . }}{{ end }}
+  </main>
+
+  <!-- Footer -->
+  <footer class="bg-primary-dark text-white/60 py-12">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6">
+      <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+        <div>
+          <span class="text-white font-bold text-lg">Paper Lab</span>
+          <span class="text-white/40 mx-2">|</span>
+          <span>寫論文，找方法</span>
+        </div>
+        <div class="text-sm">
+          &copy; {{ now.Year }} Paper Lab. AI 論文方法學
+        </div>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>

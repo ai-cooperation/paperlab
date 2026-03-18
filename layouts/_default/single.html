@@ -1,0 +1,47 @@
+{{ define "main" }}
+<article class="py-12 sm:py-16">
+  <div class="max-w-3xl mx-auto px-4 sm:px-6">
+    <!-- Breadcrumb -->
+    <nav class="text-sm text-gray-400 mb-6">
+      <a href="/" class="hover:text-secondary transition">首頁</a>
+      <span class="mx-2">/</span>
+      <a href="/phases/" class="hover:text-secondary transition">11 Phase</a>
+      <span class="mx-2">/</span>
+      <span class="text-gray-600">{{ .Title }}</span>
+    </nav>
+
+    <!-- Tags -->
+    {{ with .Params.tags }}
+    <div class="flex flex-wrap gap-2 mb-4">
+      {{ range . }}
+      <span class="text-xs bg-tip text-secondary px-3 py-1 rounded-full font-semibold">{{ . }}</span>
+      {{ end }}
+    </div>
+    {{ end }}
+
+    <!-- Title -->
+    <h1 class="text-3xl sm:text-4xl font-bold text-primary leading-tight mb-4">{{ .Title }}</h1>
+
+    <!-- Meta -->
+    <div class="flex items-center gap-4 text-sm text-gray-400 mb-8 pb-8 border-b border-gray-200">
+      {{ with .Params.summary }}
+      <p class="text-gray-500 text-base">{{ . }}</p>
+      {{ end }}
+    </div>
+
+    <!-- Content -->
+    <div class="prose max-w-none">
+      {{ .Content }}
+    </div>
+
+    <!-- Bottom CTA -->
+    <div class="mt-12 bg-gradient-to-br from-primary to-primary-light rounded-2xl p-8 text-center">
+      <h3 class="text-xl font-bold text-white mb-2">想看更多 Phase？</h3>
+      <p class="text-white/70 mb-6">11 個階段的完整論文方法學</p>
+      <a href="/phases/" class="inline-flex items-center justify-center bg-accent hover:bg-accent-dark text-primary font-bold px-8 py-3 rounded-xl transition hover:-translate-y-0.5">
+        查看所有 Phase →
+      </a>
+    </div>
+  </div>
+</article>
+{{ end }}
