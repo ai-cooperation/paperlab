@@ -1,6 +1,6 @@
 baseURL = "https://paperlab.cooperation.tw/"
 languageCode = "zh-tw"
-title = "Paper Lab — 寫論文，找方法"
+title = "論文方法學 — 寫論文 找方法 | Paper Lab"
 paginate = 20
 
 enableRobotsTXT = true
@@ -11,7 +11,7 @@ buildExpired = false
 [params]
   env = "production"
   title = "Paper Lab"
-  description = "AI 論文方法學 — 11 步帶你從零到發表"
+  description = "論文方法學 — 寫論文 找方法 — 12 個階段帶你從零到發表"
   keywords = ["寫論文找方法", "論文方法學", "AI 寫論文", "AI 論文工具", "research gap"]
   author = "陳重光"
 
