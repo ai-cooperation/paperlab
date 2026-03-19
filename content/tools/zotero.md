@@ -1,10 +1,10 @@
 ---
 title: "為什麼論文寫作一定要學 Zotero？"
-description: "一鍵存文獻、自動抓 metadata、BibTeX 輸出 — 引用管理的終極工具"
+description: "免費開源的文獻管理工具，一鍵從瀏覽器存文獻、自動抓 metadata、輸出 BibTeX 搭配 Quarto 使用"
 date: 2026-03-19
 tags: ["工具", "Zotero", "引用管理", "BibTeX"]
 keywords: ["Zotero 教學", "引用管理工具", "BibTeX 匯出", "Zotero vs Endnote", "文獻管理"]
-summary: "Zotero 是免費的引用管理工具，一鍵從瀏覽器存文獻、自動抓 metadata、輸出 BibTeX 搭配 Quarto 使用。"
+summary: "Zotero 是免費開源的文獻管理工具，一鍵從瀏覽器存文獻、自動抓 metadata、輸出 BibTeX 搭配 Quarto 使用。"
 weight: 102
 ---
 
