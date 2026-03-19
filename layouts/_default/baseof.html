@@ -70,6 +70,18 @@
     .prose strong { color: #0B3C5D; }
     .prose hr { border-color: #E5E7EB; margin: 2rem 0; }
 
+    /* Tables in prose */
+    .prose table { width: 100%; border-collapse: collapse; margin: 1.5rem 0; font-size: 0.9rem; }
+    .prose thead { background: #0B3C5D; color: #fff; }
+    .prose th { padding: 0.75rem 1rem; text-align: left; font-weight: 600; white-space: nowrap; }
+    .prose td { padding: 0.75rem 1rem; border-bottom: 1px solid #E5E7EB; color: #374151; }
+    .prose tbody tr:hover { background: #F5F7FA; }
+    .prose table code { font-size: 0.85em; }
+    @media (max-width: 640px) {
+      .prose table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .prose th, .prose td { padding: 0.5rem 0.75rem; font-size: 0.85rem; }
+    }
+
     /* Tip box */
     .tip-box { background: #E8F4F2; border-left: 4px solid #0F9D8A; border-radius: 0 8px 8px 0; padding: 1rem 1.5rem; margin: 1.5rem 0; }
   </style>
