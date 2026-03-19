@@ -100,4 +100,4 @@ weight: 5
 
 ---
 
-*這是 [Paper Lab 12 Phase 方法學](/phases/) 的 Phase 5：實驗設計。*
+*這是 [論文方法學 12 Phase](/phases/) 的 Phase 5：實驗設計。*

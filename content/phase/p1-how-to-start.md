@@ -90,4 +90,4 @@ Storm 完之後，用 CARE Framework 把散亂的想法收斂成研究問題：
 
 ---
 
-*這是 [Paper Lab 12 Phase 方法學](/phases/) 的 Phase 1：概念探索。*
+*這是 [論文方法學 12 Phase](/phases/) 的 Phase 1：概念探索。*

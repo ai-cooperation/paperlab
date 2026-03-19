@@ -105,4 +105,4 @@ LaTeX 功能更強大，但學習曲線陡峭。Markdown + Quarto 能達到 LaTe
 
 ---
 
-*這是 Paper Lab 工具指南系列。搭配 [Obsidian](/tools/obsidian/) 和 [Zotero](/tools/zotero/) 一起使用效果更好。*
+*這是 論文方法學工具指南系列。搭配 [Obsidian](/tools/obsidian/) 和 [Zotero](/tools/zotero/) 一起使用效果更好。*

@@ -89,7 +89,7 @@ weight: 6
 
 **Q：我不會寫 Telegram Bot 怎麼辦？**
 
-最簡單的版本只需要 3 行 Python：用 `requests` 庫呼叫 Telegram Bot API 的 `sendMessage` 端點。建立 Bot 只需要跟 BotFather 說話 5 分鐘。完整的教學在 Paper Lab 的工具包中提供。
+最簡單的版本只需要 3 行 Python：用 `requests` 庫呼叫 Telegram Bot API 的 `sendMessage` 端點。建立 Bot 只需要跟 BotFather 說話 5 分鐘。完整的教學在 論文方法學的工具包中提供。
 
 **Q：wandb 免費版夠用嗎？**
 
@@ -97,4 +97,4 @@ weight: 6
 
 ---
 
-*這是 [Paper Lab 12 Phase 方法學](/phases/) 的 Phase 6：實驗執行。*
+*這是 [論文方法學 12 Phase](/phases/) 的 Phase 6：實驗執行。*

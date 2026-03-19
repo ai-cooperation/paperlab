@@ -89,4 +89,4 @@ Zotero 搭配 CrossRef 多重驗證，可以半自動化這個流程。完整的
 
 ---
 
-*這是 [Paper Lab 12 Phase 方法學](/phases/) 的 Phase 2：文獻調研。*
+*這是 [論文方法學 12 Phase](/phases/) 的 Phase 2：文獻調研。*

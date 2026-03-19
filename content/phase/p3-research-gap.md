@@ -96,4 +96,4 @@ Gap 的大小不等於研究的價值。一個小但明確的 gap（例如「這
 
 ---
 
-*這是 [Paper Lab 12 Phase 方法學](/phases/) 的 Phase 3：研究定位。*
+*這是 [論文方法學 12 Phase](/phases/) 的 Phase 3：研究定位。*

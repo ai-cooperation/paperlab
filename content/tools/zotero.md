@@ -99,4 +99,4 @@ Zotero 貫穿整個研究流程：
 
 ---
 
-*這是 Paper Lab 工具指南系列。搭配 [Markdown](/tools/markdown/) 和 [Obsidian](/tools/obsidian/) 一起使用效果更好。*
+*這是 論文方法學工具指南系列。搭配 [Markdown](/tools/markdown/) 和 [Obsidian](/tools/obsidian/) 一起使用效果更好。*

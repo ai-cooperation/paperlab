@@ -102,4 +102,4 @@ weight: 11
 
 ---
 
-*這是 [Paper Lab 12 Phase 方法學](/phases/) 的 Phase 11：投稿準備。*
+*這是 [論文方法學 12 Phase](/phases/) 的 Phase 11：投稿準備。*
