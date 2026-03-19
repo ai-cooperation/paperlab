@@ -24,6 +24,43 @@
 
     <!-- ===== 論文流程圖 ===== -->
     <div class="bg-white/10 backdrop-blur-sm rounded-3xl p-6 sm:p-8 max-w-5xl mx-auto">
+
+      <!-- 痛點→解方 輪播（上方） -->
+      <div class="mb-6 pb-6 border-b border-white/20">
+        <div id="pain-carousel" class="text-center min-h-[3.5rem] flex items-center justify-center">
+        </div>
+      </div>
+      <script>
+      (function(){
+        const items = [
+          { pain: "卡在文獻三個月，不知道該讀哪篇", solve: "方法學教你快速篩選，建立核心文獻庫" },
+          { pain: "統計方法選不出來，SPSS 開了就發呆", solve: "情境對照表幫你 10 分鐘選對方法" },
+          { pain: "ChatGPT 給的引用是假的，整篇要重寫", solve: "交叉驗證法，5 步杜絕假文獻" },
+          { pain: "Discussion 一個字都擠不出來", solve: "章節專屬模板，每段都知道該寫什麼" },
+          { pain: "投了三家期刊全被退，不知道問題在哪", solve: "投稿前七維度自我審查，先找到問題再投" },
+        ];
+        let i = 0;
+        const el = document.getElementById('pain-carousel');
+        function render() {
+          const item = items[i];
+          el.innerHTML = '<div class="flex items-center justify-center gap-3 sm:gap-5 flex-wrap">'
+            + '<div class="flex items-center gap-2"><span class="text-red-400 text-xl">✗</span>'
+            + '<span class="text-white/50 text-lg line-through">' + item.pain + '</span></div>'
+            + '<span class="text-accent text-xl font-bold">→</span>'
+            + '<div class="flex items-center gap-2"><span class="text-accent text-xl">✓</span>'
+            + '<span class="text-white/90 text-lg font-semibold">' + item.solve + '</span></div>'
+            + '</div>';
+          i = (i + 1) % items.length;
+        }
+        render();
+        setInterval(function(){
+          el.style.opacity = '0';
+          setTimeout(function(){ render(); el.style.opacity = '1'; }, 300);
+        }, 4000);
+        el.style.transition = 'opacity 0.3s ease';
+      })();
+      </script>
+
       <div class="grid grid-cols-4 sm:grid-cols-6 gap-2 sm:gap-3 items-center">
         <!-- Row 1: Phase 1-6 -->
         <div class="text-center">
@@ -100,50 +137,13 @@
         </div>
       </div>
 
-      <!-- 痛點→解方 輪播 -->
-      <div class="mt-6 pt-6 border-t border-white/20">
-        <div id="pain-carousel" class="text-center min-h-[3.5rem] flex items-center justify-center">
-        </div>
-      </div>
-      <script>
-      (function(){
-        const items = [
-          { pain: "卡在文獻三個月，不知道該讀哪篇", solve: "方法學教你快速篩選，建立核心文獻庫" },
-          { pain: "統計方法選不出來，SPSS 開了就發呆", solve: "情境對照表幫你 10 分鐘選對方法" },
-          { pain: "ChatGPT 給的引用是假的，整篇要重寫", solve: "交叉驗證法，5 步杜絕假文獻" },
-          { pain: "Discussion 一個字都擠不出來", solve: "章節專屬模板，每段都知道該寫什麼" },
-          { pain: "投了三家期刊全被退，不知道問題在哪", solve: "投稿前七維度自我審查，先找到問題再投" },
-        ];
-        let i = 0;
-        const el = document.getElementById('pain-carousel');
-        function render() {
-          const item = items[i];
-          el.innerHTML = '<div class="flex items-center justify-center gap-3 sm:gap-5 flex-wrap transition-opacity duration-500">'
-            + '<div class="flex items-center gap-2"><span class="text-red-400 text-xl">✗</span>'
-            + '<span class="text-white/50 text-lg line-through">' + item.pain + '</span></div>'
-            + '<span class="text-accent text-xl font-bold">→</span>'
-            + '<div class="flex items-center gap-2"><span class="text-accent text-xl">✓</span>'
-            + '<span class="text-white/90 text-lg font-semibold">' + item.solve + '</span></div>'
-            + '</div>';
-          i = (i + 1) % items.length;
-        }
-        render();
-        setInterval(function(){
-          el.style.opacity = '0';
-          setTimeout(function(){ render(); el.style.opacity = '1'; }, 300);
-        }, 4000);
-        el.style.transition = 'opacity 0.3s ease';
-      })();
-      </script>
+      <!-- (carousel moved to top) -->
     </div>
 
     <!-- CTA -->
-    <div class="flex flex-col sm:flex-row gap-4 justify-center mt-10">
+    <div class="flex justify-center mt-10">
       <a href="/phases/" class="inline-flex items-center justify-center bg-secondary hover:bg-secondary-light text-white font-bold px-8 py-4 rounded-xl min-h-[48px] text-lg transition shadow-lg shadow-secondary/25 hover:shadow-secondary/40 hover:-translate-y-0.5">
         查看 12 Phase 方法學 →
-      </a>
-      <a href="#pain-points" class="inline-flex items-center justify-center bg-white/10 hover:bg-white/20 text-white font-semibold px-8 py-4 rounded-xl min-h-[48px] text-lg transition backdrop-blur-sm border border-white/20">
-        常見痛點
       </a>
     </div>
   </div>
