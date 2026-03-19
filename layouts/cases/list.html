@@ -1,0 +1,37 @@
+{{ define "main" }}
+<section class="py-12 sm:py-16">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6">
+    <div class="text-center mb-12">
+      <h1 class="text-3xl sm:text-4xl font-bold text-primary mb-3">案例演練</h1>
+      <p class="text-gray-500 text-lg">用論文方法學實際找出不同領域的研究缺口 — 做給你看</p>
+    </div>
+
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+
+      <a href="/cases/esg/" class="group block bg-white rounded-2xl p-7 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border-2 border-teal-200 hover:border-teal-400">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-12 h-12 bg-teal-50 rounded-xl flex items-center justify-center text-2xl shrink-0">🌱</div>
+          <div>
+            <span class="text-secondary font-bold text-base">案例 1</span>
+            <h3 class="font-bold text-primary text-xl group-hover:text-secondary transition">AI × ESG</h3>
+          </div>
+        </div>
+        <div class="mb-3">
+          <span class="inline-block text-base bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-medium mr-2">商管</span>
+          <span class="inline-block text-base bg-green-50 text-green-600 px-3 py-1 rounded-full font-medium">永續發展</span>
+        </div>
+        <p class="text-gray-500 text-lg leading-relaxed mb-3">台灣上市櫃永續報告書 × NLP/LLM 分析 — 繁體中文 ESG 文本分析的系統性研究缺口</p>
+        <span class="text-secondary font-semibold text-base group-hover:translate-x-1 transition-transform inline-block">查看完整分析 →</span>
+      </a>
+
+      <!-- 未來案例預留位 -->
+      <div class="bg-surface rounded-2xl p-7 border-2 border-dashed border-gray-200 flex flex-col items-center justify-center text-center min-h-[250px]">
+        <span class="text-3xl mb-3">🔬</span>
+        <p class="text-gray-400 text-lg font-medium">更多領域案例</p>
+        <p class="text-gray-300 text-base">持續新增中</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+{{ end }}

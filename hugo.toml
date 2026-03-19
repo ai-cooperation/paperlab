@@ -37,6 +37,11 @@ buildExpired = false
     url = "/tools/"
     weight = 20
   [[menu.main]]
+    identifier = "cases"
+    name = "案例演練"
+    url = "/cases/"
+    weight = 25
+  [[menu.main]]
     identifier = "about"
     name = "關於"
     url = "/about/"
