@@ -1,28 +1,130 @@
 {{ define "main" }}
 
-<!-- ============ HERO ============ -->
+<!-- ============ HERO + FLOW CHART ============ -->
 <section class="relative bg-gradient-to-br from-primary via-primary-light to-primary overflow-hidden">
   <div class="absolute inset-0 opacity-10">
     <div class="absolute top-10 left-10 w-72 h-72 bg-secondary rounded-full blur-3xl"></div>
     <div class="absolute bottom-10 right-10 w-96 h-96 bg-accent rounded-full blur-3xl"></div>
   </div>
-  <div class="relative max-w-4xl mx-auto px-4 sm:px-6 py-20 sm:py-28 text-center">
-    <div class="inline-block bg-white/10 backdrop-blur-sm rounded-full px-4 py-1.5 text-white/80 text-sm font-medium mb-6">
-      AI 論文方法學
+  <div class="relative max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-24">
+    <div class="text-center mb-12">
+      <div class="inline-block bg-white/10 backdrop-blur-sm rounded-full px-4 py-1.5 text-white/80 text-sm font-medium mb-6">
+        AI 論文方法學
+      </div>
+      <h1 class="text-4xl sm:text-6xl font-black text-white leading-tight mb-4 tracking-tight">
+        寫論文，找方法
+      </h1>
+      <p class="text-xl sm:text-2xl text-accent font-semibold mb-4">
+        12 個階段，帶你從零到發表
+      </p>
+      <p class="text-base sm:text-lg text-white/70 max-w-2xl mx-auto leading-relaxed">
+        每一步都告訴你：下一步做什麼、用什麼工具、怎麼用 AI 做到位
+      </p>
     </div>
-    <h1 class="text-4xl sm:text-6xl font-black text-white leading-tight mb-4 tracking-tight">
-      寫論文，找方法
-    </h1>
-    <p class="text-xl sm:text-2xl text-accent font-semibold mb-6">
-      11 個階段，帶你從零到發表
-    </p>
-    <p class="text-base sm:text-lg text-white/75 max-w-2xl mx-auto leading-relaxed mb-10">
-      每個階段都告訴你：下一步做什麼、用什麼工具、怎麼用 AI 做到位。<br class="hidden sm:block">
-      整個流程很容易理解，但很少人能講清楚每一步如何用 AI 處理到位 — 這就是我們做的事。
-    </p>
-    <div class="flex flex-col sm:flex-row gap-4 justify-center">
+
+    <!-- ===== 論文流程圖 ===== -->
+    <div class="bg-white/10 backdrop-blur-sm rounded-3xl p-6 sm:p-8 max-w-5xl mx-auto">
+      <div class="grid grid-cols-4 sm:grid-cols-6 gap-2 sm:gap-3 items-center">
+        <!-- Row 1: Phase 1-6 -->
+        <div class="text-center">
+          <div class="w-10 h-10 sm:w-12 sm:h-12 bg-accent/90 rounded-full flex items-center justify-center font-black text-primary text-sm sm:text-base mx-auto shadow-lg">1</div>
+          <p class="text-white/90 text-[10px] sm:text-xs mt-1.5 font-medium">概念探索</p>
+        </div>
+        <div class="text-center">
+          <div class="w-10 h-10 sm:w-12 sm:h-12 bg-accent/90 rounded-full flex items-center justify-center font-black text-primary text-sm sm:text-base mx-auto shadow-lg">2</div>
+          <p class="text-white/90 text-[10px] sm:text-xs mt-1.5 font-medium">文獻調研</p>
+        </div>
+        <div class="text-center">
+          <div class="w-10 h-10 sm:w-12 sm:h-12 bg-accent/90 rounded-full flex items-center justify-center font-black text-primary text-sm sm:text-base mx-auto shadow-lg">3</div>
+          <p class="text-white/90 text-[10px] sm:text-xs mt-1.5 font-medium">研究定位</p>
+        </div>
+        <div class="text-center">
+          <div class="w-10 h-10 sm:w-12 sm:h-12 bg-accent/90 rounded-full flex items-center justify-center font-black text-primary text-sm sm:text-base mx-auto shadow-lg">4</div>
+          <p class="text-white/90 text-[10px] sm:text-xs mt-1.5 font-medium">論文架構</p>
+        </div>
+        <div class="text-center hidden sm:block">
+          <div class="w-12 h-12 bg-accent/90 rounded-full flex items-center justify-center font-black text-primary mx-auto shadow-lg">5</div>
+          <p class="text-white/90 text-xs mt-1.5 font-medium">實驗設計</p>
+        </div>
+        <div class="text-center hidden sm:block">
+          <div class="w-12 h-12 bg-accent/90 rounded-full flex items-center justify-center font-black text-primary mx-auto shadow-lg">6</div>
+          <p class="text-white/90 text-xs mt-1.5 font-medium">實驗執行</p>
+        </div>
+
+        <!-- Connection arrow (desktop) -->
+        <div class="col-span-4 sm:col-span-6 flex justify-center py-1">
+          <svg class="w-full max-w-lg h-6 text-accent/50" viewBox="0 0 400 24"><path d="M0 12 H170 M230 12 H400" stroke="currentColor" stroke-width="2" stroke-dasharray="6 4"/><polygon points="200,2 210,12 200,22" fill="currentColor"/></svg>
+        </div>
+
+        <!-- Row 2: Phase 5-6 (mobile) + 7-12 -->
+        <div class="text-center sm:hidden">
+          <div class="w-10 h-10 bg-secondary/90 rounded-full flex items-center justify-center font-black text-white text-sm mx-auto shadow-lg">5</div>
+          <p class="text-white/90 text-[10px] mt-1.5 font-medium">實驗設計</p>
+        </div>
+        <div class="text-center sm:hidden">
+          <div class="w-10 h-10 bg-secondary/90 rounded-full flex items-center justify-center font-black text-white text-sm mx-auto shadow-lg">6</div>
+          <p class="text-white/90 text-[10px] mt-1.5 font-medium">實驗執行</p>
+        </div>
+        <div class="text-center">
+          <div class="w-10 h-10 sm:w-12 sm:h-12 bg-secondary/90 rounded-full flex items-center justify-center font-black text-white text-sm sm:text-base mx-auto shadow-lg">7</div>
+          <p class="text-white/90 text-[10px] sm:text-xs mt-1.5 font-medium">數據分析</p>
+        </div>
+        <div class="text-center">
+          <div class="w-10 h-10 sm:w-12 sm:h-12 bg-secondary/90 rounded-full flex items-center justify-center font-black text-white text-sm sm:text-base mx-auto shadow-lg">8</div>
+          <p class="text-white/90 text-[10px] sm:text-xs mt-1.5 font-medium">論文撰寫</p>
+        </div>
+        <div class="text-center">
+          <div class="w-10 h-10 sm:w-12 sm:h-12 bg-secondary/90 rounded-full flex items-center justify-center font-black text-white text-sm sm:text-base mx-auto shadow-lg">9</div>
+          <p class="text-white/90 text-[10px] sm:text-xs mt-1.5 font-medium">圖表呈現</p>
+        </div>
+        <div class="text-center hidden sm:block">
+          <div class="w-12 h-12 bg-secondary/90 rounded-full flex items-center justify-center font-black text-white mx-auto shadow-lg">10</div>
+          <p class="text-white/90 text-xs mt-1.5 font-medium">品質審查</p>
+        </div>
+        <div class="text-center hidden sm:block">
+          <div class="w-12 h-12 bg-secondary/90 rounded-full flex items-center justify-center font-black text-white mx-auto shadow-lg">11</div>
+          <p class="text-white/90 text-xs mt-1.5 font-medium">投稿準備</p>
+        </div>
+        <div class="text-center hidden sm:block">
+          <div class="w-12 h-12 bg-secondary/90 rounded-full flex items-center justify-center font-black text-white mx-auto shadow-lg">12</div>
+          <p class="text-white/90 text-xs mt-1.5 font-medium">審稿回覆</p>
+        </div>
+
+        <!-- Mobile last row -->
+        <div class="text-center sm:hidden">
+          <div class="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center font-black text-white text-sm mx-auto">10</div>
+          <p class="text-white/70 text-[10px] mt-1.5">品質審查</p>
+        </div>
+        <div class="text-center sm:hidden">
+          <div class="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center font-black text-white text-sm mx-auto">11</div>
+          <p class="text-white/70 text-[10px] mt-1.5">投稿準備</p>
+        </div>
+        <div class="text-center sm:hidden">
+          <div class="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center font-black text-white text-sm mx-auto">12</div>
+          <p class="text-white/70 text-[10px] mt-1.5">審稿回覆</p>
+        </div>
+      </div>
+
+      <!-- 示意圖：打通不卡關 -->
+      <div class="mt-6 pt-6 border-t border-white/20 text-center">
+        <div class="flex items-center justify-center gap-4 flex-wrap">
+          <div class="flex items-center gap-2">
+            <span class="text-red-400 text-lg">✗</span>
+            <span class="text-white/50 text-sm line-through">卡在文獻 → 放棄 3 個月</span>
+          </div>
+          <span class="text-white/30 hidden sm:inline">→</span>
+          <div class="flex items-center gap-2">
+            <span class="text-accent text-lg">✓</span>
+            <span class="text-white/90 text-sm font-semibold">每一步都知道怎麼走，直接打通到發表</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CTA -->
+    <div class="flex flex-col sm:flex-row gap-4 justify-center mt-10">
       <a href="/phases/" class="inline-flex items-center justify-center bg-secondary hover:bg-secondary-light text-white font-bold px-8 py-3.5 rounded-xl text-lg transition shadow-lg shadow-secondary/25 hover:shadow-secondary/40 hover:-translate-y-0.5">
-        查看 11 Phase →
+        查看 12 Phase 方法學 →
       </a>
       <a href="#pain-points" class="inline-flex items-center justify-center bg-white/10 hover:bg-white/20 text-white font-semibold px-8 py-3.5 rounded-xl text-lg transition backdrop-blur-sm border border-white/20">
         常見痛點
@@ -31,97 +133,98 @@
   </div>
 </section>
 
-<!-- ============ PAIN POINTS ============ -->
+<!-- ============ PAIN POINTS (6 cards) ============ -->
 <section id="pain-points" class="py-20 bg-surface">
   <div class="max-w-6xl mx-auto px-4 sm:px-6">
     <div class="text-center mb-14">
       <h2 class="text-3xl sm:text-4xl font-bold text-primary mb-3">你是不是也遇到這些問題？</h2>
       <p class="text-gray-500 text-lg">這些痛點來自 500+ 位研究者的真實心聲</p>
     </div>
-    <div class="grid sm:grid-cols-2 gap-6">
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
 
       <a href="/phase/p2-ai-fake-references/" class="group bg-white rounded-2xl p-7 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border border-gray-100">
-        <div class="flex items-start gap-4">
-          <div class="w-12 h-12 bg-red-50 rounded-xl flex items-center justify-center text-2xl shrink-0">🔍</div>
-          <div>
-            <div class="flex items-center gap-2 mb-1">
-              <h3 class="font-bold text-primary text-lg group-hover:text-secondary transition">AI 給的文獻是假的</h3>
-              <span class="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-semibold">最高痛點</span>
-            </div>
-            <p class="text-gray-500 text-sm leading-relaxed">ChatGPT 生成的引用有 30-40% DOI 是捏造的，花一天寫的文獻探討全部要重來。</p>
-            <span class="text-accent-dark text-sm font-semibold mt-2 inline-block">★★★★★</span>
-          </div>
+        <div class="flex items-center gap-2 mb-3">
+          <span class="text-2xl">🔍</span>
+          <span class="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-semibold">最高痛點</span>
         </div>
+        <h3 class="font-bold text-primary text-lg group-hover:text-secondary transition mb-2">AI 給的文獻是假的</h3>
+        <p class="text-gray-500 text-sm leading-relaxed">ChatGPT 生成的引用有 30-40% DOI 是捏造的，花一天寫的文獻探討全部要重來。</p>
       </a>
 
       <a href="/phase/p7-statistics-fear/" class="group bg-white rounded-2xl p-7 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border border-gray-100">
-        <div class="flex items-start gap-4">
-          <div class="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center text-2xl shrink-0">📊</div>
-          <div>
-            <div class="flex items-center gap-2 mb-1">
-              <h3 class="font-bold text-primary text-lg group-hover:text-secondary transition">統計恐懼</h3>
-              <span class="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-semibold">最高痛點</span>
-            </div>
-            <p class="text-gray-500 text-sm leading-relaxed">打開 SPSS 發呆兩小時，t-test? ANOVA? regression? 不知道該用哪個。</p>
-            <span class="text-accent-dark text-sm font-semibold mt-2 inline-block">★★★★★</span>
-          </div>
+        <div class="flex items-center gap-2 mb-3">
+          <span class="text-2xl">📊</span>
+          <span class="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-semibold">最高痛點</span>
         </div>
+        <h3 class="font-bold text-primary text-lg group-hover:text-secondary transition mb-2">統計恐懼</h3>
+        <p class="text-gray-500 text-sm leading-relaxed">打開 SPSS 發呆兩小時，t-test? ANOVA? regression? 完全不知道該用哪個。</p>
       </a>
 
       <a href="/phase/p9-paper-rejection/" class="group bg-white rounded-2xl p-7 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border border-gray-100">
-        <div class="flex items-start gap-4">
-          <div class="w-12 h-12 bg-orange-50 rounded-xl flex items-center justify-center text-2xl shrink-0">📬</div>
-          <div>
-            <h3 class="font-bold text-primary text-lg group-hover:text-secondary transition mb-1">論文一直被退稿</h3>
-            <p class="text-gray-500 text-sm leading-relaxed">投了三家期刊都被退，主編連 reviewer 意見都沒給，不知道問題出在哪。</p>
-            <span class="text-accent-dark text-sm font-semibold mt-2 inline-block">★★★★☆</span>
-          </div>
+        <div class="flex items-center gap-2 mb-3">
+          <span class="text-2xl">📬</span>
         </div>
+        <h3 class="font-bold text-primary text-lg group-hover:text-secondary transition mb-2">論文一直被退稿</h3>
+        <p class="text-gray-500 text-sm leading-relaxed">投了三家期刊都被退，主編連 reviewer 意見都沒給，不知道問題出在哪。</p>
       </a>
 
       <a href="/phase/p1-how-to-start/" class="group bg-white rounded-2xl p-7 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border border-gray-100">
-        <div class="flex items-start gap-4">
-          <div class="w-12 h-12 bg-purple-50 rounded-xl flex items-center justify-center text-2xl shrink-0">😰</div>
-          <div>
-            <h3 class="font-bold text-primary text-lg group-hover:text-secondary transition mb-1">不知道怎麼開始</h3>
-            <p class="text-gray-500 text-sm leading-relaxed">有了題目坐在電腦前三天，Google Scholar 開了 50 個分頁，一個字都寫不出來。</p>
-            <span class="text-accent-dark text-sm font-semibold mt-2 inline-block">★★★★☆</span>
-          </div>
+        <div class="flex items-center gap-2 mb-3">
+          <span class="text-2xl">😰</span>
         </div>
+        <h3 class="font-bold text-primary text-lg group-hover:text-secondary transition mb-2">不知道怎麼開始</h3>
+        <p class="text-gray-500 text-sm leading-relaxed">有了題目坐在電腦前三天，Google Scholar 開了 50 個分頁，一個字都寫不出來。</p>
+      </a>
+
+      <a href="/phase/p9-figures-tables/" class="group bg-white rounded-2xl p-7 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border border-gray-100">
+        <div class="flex items-center gap-2 mb-3">
+          <span class="text-2xl">📈</span>
+        </div>
+        <h3 class="font-bold text-primary text-lg group-hover:text-secondary transition mb-2">不會做專業的圖表</h3>
+        <p class="text-gray-500 text-sm leading-relaxed">Excel 做的圖放進論文，reviewer 一看就知道不專業。但 Matplotlib、R 又學不來。</p>
+      </a>
+
+      <a href="/phase/p11-submission-prep/" class="group bg-white rounded-2xl p-7 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border border-gray-100">
+        <div class="flex items-center gap-2 mb-3">
+          <span class="text-2xl">😤</span>
+        </div>
+        <h3 class="font-bold text-primary text-lg group-hover:text-secondary transition mb-2">期刊格式調到崩潰</h3>
+        <p class="text-gray-500 text-sm leading-relaxed">每家期刊的引用格式、排版要求都不同。換一本期刊投，又要從頭改一次。</p>
       </a>
 
     </div>
   </div>
 </section>
 
-<!-- ============ 11 PHASE ============ -->
+<!-- ============ 12 PHASE (4×3) ============ -->
 <section class="py-20 bg-white">
   <div class="max-w-6xl mx-auto px-4 sm:px-6">
     <div class="text-center mb-14">
-      <h2 class="text-3xl sm:text-4xl font-bold text-primary mb-3">11 Phase 論文方法學</h2>
+      <h2 class="text-3xl sm:text-4xl font-bold text-primary mb-3">12 Phase 論文方法學</h2>
       <p class="text-gray-500 text-lg">從概念到發表的完整路徑，每一步都有 AI 幫你加速</p>
     </div>
 
-    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+    <div class="grid grid-cols-3 sm:grid-cols-4 gap-3 sm:gap-5">
       {{ $phases := slice
-        (dict "num" "1" "name" "概念探索" "desc" "找到研究方向" "color" "bg-blue-50 text-blue-600")
-        (dict "num" "2" "name" "文獻調研" "desc" "建立文獻庫" "color" "bg-teal-50 text-teal-600")
-        (dict "num" "3" "name" "研究定位" "desc" "找到 Research Gap" "color" "bg-emerald-50 text-emerald-600")
-        (dict "num" "4" "name" "論文架構" "desc" "建立論文骨架" "color" "bg-cyan-50 text-cyan-600")
-        (dict "num" "5" "name" "實驗設計" "desc" "規劃實驗方案" "color" "bg-indigo-50 text-indigo-600")
-        (dict "num" "6" "name" "實驗執行" "desc" "遠端執行與監控" "color" "bg-violet-50 text-violet-600")
-        (dict "num" "7" "name" "數據分析" "desc" "統計驗證" "color" "bg-purple-50 text-purple-600")
-        (dict "num" "8" "name" "論文撰寫" "desc" "各章節撰寫" "color" "bg-pink-50 text-pink-600")
-        (dict "num" "9" "name" "品質審查" "desc" "多模型交叉審查" "color" "bg-rose-50 text-rose-600")
-        (dict "num" "10" "name" "投稿準備" "desc" "打包投稿材料" "color" "bg-orange-50 text-orange-600")
-        (dict "num" "11" "name" "審稿回覆" "desc" "回覆 Reviewer" "color" "bg-amber-50 text-amber-600")
+        (dict "num" "1" "name" "概念探索" "desc" "找到研究方向" "color" "bg-blue-50 text-blue-600 border-blue-200")
+        (dict "num" "2" "name" "文獻調研" "desc" "建立文獻庫" "color" "bg-teal-50 text-teal-600 border-teal-200")
+        (dict "num" "3" "name" "研究定位" "desc" "找到 Research Gap" "color" "bg-emerald-50 text-emerald-600 border-emerald-200")
+        (dict "num" "4" "name" "論文架構" "desc" "建立論文骨架" "color" "bg-cyan-50 text-cyan-600 border-cyan-200")
+        (dict "num" "5" "name" "實驗設計" "desc" "規劃實驗方案" "color" "bg-indigo-50 text-indigo-600 border-indigo-200")
+        (dict "num" "6" "name" "實驗執行" "desc" "執行與監控" "color" "bg-violet-50 text-violet-600 border-violet-200")
+        (dict "num" "7" "name" "數據分析" "desc" "統計驗證" "color" "bg-purple-50 text-purple-600 border-purple-200")
+        (dict "num" "8" "name" "論文撰寫" "desc" "各章節撰寫" "color" "bg-pink-50 text-pink-600 border-pink-200")
+        (dict "num" "9" "name" "圖表呈現" "desc" "專業圖表製作" "color" "bg-fuchsia-50 text-fuchsia-600 border-fuchsia-200")
+        (dict "num" "10" "name" "品質審查" "desc" "多模型交叉審查" "color" "bg-rose-50 text-rose-600 border-rose-200")
+        (dict "num" "11" "name" "投稿準備" "desc" "打包投稿材料" "color" "bg-orange-50 text-orange-600 border-orange-200")
+        (dict "num" "12" "name" "審稿回覆" "desc" "回覆 Reviewer" "color" "bg-amber-50 text-amber-600 border-amber-200")
       }}
       {{ range $phases }}
-      <div class="relative group">
-        <div class="bg-surface rounded-2xl p-5 border-2 border-transparent hover:border-secondary/30 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg text-center">
-          <div class="w-10 h-10 {{ .color }} rounded-full flex items-center justify-center font-black text-lg mx-auto mb-3">{{ .num }}</div>
-          <h3 class="font-bold text-primary text-sm mb-1">{{ .name }}</h3>
-          <p class="text-gray-400 text-xs">{{ .desc }}</p>
+      <div class="group cursor-pointer">
+        <div class="rounded-2xl p-4 sm:p-5 border-2 {{ .color }} hover:shadow-lg transition-all duration-300 hover:-translate-y-1 text-center h-full">
+          <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center font-black text-base sm:text-lg mx-auto mb-2 sm:mb-3 {{ .color }}">{{ .num }}</div>
+          <h3 class="font-bold text-primary text-xs sm:text-sm mb-0.5 sm:mb-1">{{ .name }}</h3>
+          <p class="text-gray-400 text-[10px] sm:text-xs hidden sm:block">{{ .desc }}</p>
         </div>
       </div>
       {{ end }}
@@ -162,14 +265,14 @@
         <div class="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center text-2xl mb-4">🛡️</div>
         <h3 class="font-bold text-primary text-xl mb-1 group-hover:text-secondary transition">Zotero</h3>
         <p class="text-secondary font-semibold text-sm mb-3">引用的守門員</p>
-        <p class="text-gray-500 text-sm leading-relaxed">管理文獻引用 + API 三重驗證（CrossRef + Semantic Scholar + OpenAlex），杜絕假文獻。</p>
+        <p class="text-gray-500 text-sm leading-relaxed">管理文獻引用 + CrossRef API 驗證，杜絕 AI 給你的假文獻。</p>
       </a>
 
     </div>
   </div>
 </section>
 
-<!-- ============ METHOD ============ -->
+<!-- ============ METHOD COMPARISON ============ -->
 <section class="py-20 bg-white">
   <div class="max-w-4xl mx-auto px-4 sm:px-6">
     <div class="text-center mb-14">
@@ -207,14 +310,19 @@
             <td class="py-3 pl-4 text-gray-700">Markdown → AI 草稿 → 多模型校正</td>
           </tr>
           <tr class="border-b border-gray-100">
+            <td class="py-3 pr-4 font-semibold text-primary">圖表製作</td>
+            <td class="py-3 px-4 text-gray-400">Excel 截圖，reviewer 一看就知道</td>
+            <td class="py-3 pl-4 text-gray-700">AI 生成出版級 SVG 向量圖表</td>
+          </tr>
+          <tr class="border-b border-gray-100">
             <td class="py-3 pr-4 font-semibold text-primary">品質審查</td>
             <td class="py-3 px-4 text-gray-400">投出去才知道問題</td>
             <td class="py-3 pl-4 text-gray-700">投之前用 AI 模擬 reviewer 審查</td>
           </tr>
           <tr>
-            <td class="py-3 pr-4 font-semibold text-primary">引用管理</td>
-            <td class="py-3 px-4 text-gray-400">手動複製貼上</td>
-            <td class="py-3 pl-4 text-gray-700">Zotero + API 三重驗證</td>
+            <td class="py-3 pr-4 font-semibold text-primary">期刊格式</td>
+            <td class="py-3 px-4 text-gray-400">每換一本期刊重新排版</td>
+            <td class="py-3 pl-4 text-gray-700">改 YAML 設定，一鍵切換格式</td>
           </tr>
         </tbody>
       </table>
@@ -229,9 +337,9 @@
   </div>
   <div class="relative max-w-3xl mx-auto px-4 sm:px-6 text-center">
     <h2 class="text-3xl sm:text-4xl font-bold text-white mb-4">開始你的論文方法學之旅</h2>
-    <p class="text-white/70 text-lg mb-8">11 個階段，每一步都有 AI 幫你加速</p>
+    <p class="text-white/70 text-lg mb-8">12 個階段，每一步都有 AI 幫你加速</p>
     <a href="/phases/" class="inline-flex items-center justify-center bg-accent hover:bg-accent-dark text-primary font-bold px-10 py-4 rounded-xl text-lg transition shadow-lg hover:shadow-xl hover:-translate-y-0.5">
-      立即查看 11 Phase 方法學 →
+      立即查看 12 Phase 方法學 →
     </a>
   </div>
 </section>
