@@ -1,7 +1,7 @@
 ---
 title: "為什麼論文寫作一定要學 Markdown？"
 description: "Markdown 是 AI 時代論文寫作的基礎語言 — 寫作門檻低、格式一鍵切換、版本控制友好"
-date: 2026-03-20
+date: 2026-03-19
 tags: ["工具", "Markdown", "Quarto", "QMD"]
 keywords: ["Markdown 論文寫作", "Quarto 學術", "QMD 格式", "Markdown vs Word", "Markdown vs LaTeX"]
 summary: "Markdown 是 AI 原生的寫作格式，搭配 Quarto 可以一鍵轉換任何期刊格式。學一次，用一輩子。"

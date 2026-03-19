@@ -1,7 +1,7 @@
 ---
 title: "為什麼論文寫作一定要學 Obsidian？"
 description: "用雙向連結和知識圖譜管理文獻 — 100 篇文獻變成視覺化知識網路，孤立節點就是 research gap"
-date: 2026-03-20
+date: 2026-03-19
 tags: ["工具", "Obsidian", "知識圖譜", "雙向連結"]
 keywords: ["Obsidian 論文", "知識圖譜 文獻", "雙向連結 筆記", "research gap 發現", "文獻管理"]
 summary: "Obsidian 的雙向連結和 Graph View 讓你把 100 篇文獻變成知識網路。孤立節點就是別人沒做過的 research gap。"
