@@ -28,7 +28,7 @@ buildExpired = false
 [menu]
   [[menu.main]]
     identifier = "phases"
-    name = "12 Phase 方法學"
+    name = "論文方法學"
     url = "/phases/"
     weight = 10
   [[menu.main]]
