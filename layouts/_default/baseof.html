@@ -89,6 +89,70 @@
 
   {{ block "head" . }}{{ end }}
 
+  <!-- Firebase SDK -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js";
+    import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js";
+    import { getFirestore, doc, setDoc, getDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
+
+    // TODO: 建好 Firebase 專案後填入你的 config
+    const firebaseConfig = {
+      apiKey: "",
+      authDomain: "",
+      projectId: "",
+      storageBucket: "",
+      messagingSenderId: "",
+      appId: ""
+    };
+
+    // 只有 config 填入後才初始化
+    if (firebaseConfig.apiKey) {
+      const app = initializeApp(firebaseConfig);
+      const auth = getAuth(app);
+      const db = getFirestore(app);
+      const provider = new GoogleAuthProvider();
+
+      window.paperLabAuth = {
+        login: async function() {
+          try {
+            const result = await signInWithPopup(auth, provider);
+            const user = result.user;
+            // 存用戶資料到 Firestore
+            await setDoc(doc(db, "users", user.uid), {
+              email: user.email,
+              name: user.displayName,
+              photo: user.photoURL,
+              last_login: serverTimestamp(),
+              source_page: window.location.pathname,
+              role: "free"
+            }, { merge: true });
+          } catch (e) {
+            console.error("Login error:", e);
+          }
+        },
+        logout: function() { signOut(auth); }
+      };
+
+      onAuthStateChanged(auth, function(user) {
+        const btn = document.getElementById('auth-btn');
+        const avatar = document.getElementById('auth-avatar');
+        if (!btn) return;
+        if (user) {
+          btn.textContent = user.displayName ? user.displayName.split(' ')[0] : '已登入';
+          btn.onclick = window.paperLabAuth.logout;
+          if (avatar && user.photoURL) {
+            avatar.src = user.photoURL;
+            avatar.classList.remove('hidden');
+          }
+        } else {
+          btn.textContent = 'Google 登入';
+          btn.onclick = window.paperLabAuth.login;
+          if (avatar) avatar.classList.add('hidden');
+        }
+      });
+    }
+  </script>
+
   {{- if .IsHome }}
   <script type="application/ld+json">
   {
@@ -116,6 +180,11 @@
           {{ range .Site.Menus.main }}
           <a href="{{ .URL }}" class="text-white/80 hover:text-accent font-medium text-lg tracking-wide transition">{{ .Name }}</a>
           {{ end }}
+          <!-- Google login -->
+          <div class="flex items-center gap-2">
+            <img id="auth-avatar" class="hidden w-8 h-8 rounded-full" alt="">
+            <button id="auth-btn" onclick="" class="text-accent hover:text-accent-dark font-semibold text-lg transition">Google 登入</button>
+          </div>
         </div>
         <!-- Mobile menu button -->
         <button id="mobile-menu-btn" class="md:hidden text-white p-2" onclick="document.getElementById('mobile-menu').classList.toggle('hidden')">
