@@ -33,7 +33,7 @@ buildExpired = false
     weight = 10
   [[menu.main]]
     identifier = "tools"
-    name = "必學工具"
+    name = "必學技能"
     url = "/tools/"
     weight = 20
   [[menu.main]]
