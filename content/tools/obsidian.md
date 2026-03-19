@@ -114,7 +114,7 @@ tags: [方法/XX, 領域/XX, 狀態/已讀]
 
 **Q：和 Notion 有什麼不同？**
 
-最大差異：Obsidian 是本地儲存的 Markdown 檔案，Notion 是雲端資料庫。Obsidian 的 Graph View 是 Notion 沒有的殺手級功能。Obsidian 離線也能用、速度更快、資料完全屬於你。Notion 的協作功能比較強，但學術寫作更適合 Obsidian。
+Obsidian 是本地儲存的 Markdown 檔案，開源專案，資料完全屬於你。Notion 是雲端資料庫，協作功能強但資料在別人的伺服器上。Obsidian 的 Graph View（知識圖譜）是 Notion 沒有的功能，離線也能用，速度更快。學術寫作更適合 Obsidian。
 
 **Q：需要會程式嗎？**
 
