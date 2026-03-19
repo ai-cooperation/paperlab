@@ -45,21 +45,27 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Noto+Sans+TC:wght@400;500;600;700;900&display=swap" rel="stylesheet">
 
   <style>
-    html { scroll-behavior: smooth; }
-    body { font-family: 'Inter', 'Noto Sans TC', system-ui, sans-serif; }
+    /* ===== Reading Glasses Skill: 老花眼友善尺寸規格 ===== */
+    html { scroll-behavior: smooth; font-size: 22px; }
+    body {
+      font-family: 'Inter', 'Noto Sans TC', system-ui, sans-serif;
+      line-height: 1.7;
+      font-weight: 400;
+    }
 
-    /* Prose styles for article content */
-    .prose h2 { font-size: 1.5rem; font-weight: 700; color: #0B3C5D; margin-top: 2.5rem; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid #E8F4F2; }
-    .prose h3 { font-size: 1.25rem; font-weight: 600; color: #134B6E; margin-top: 2rem; margin-bottom: 0.75rem; }
+    /* Prose styles for article content — Reading Glasses compliant */
+    .prose { max-width: 720px; }
+    .prose h2 { font-size: 1.45rem; font-weight: 700; color: #0B3C5D; margin-top: 2.5rem; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid #E8F4F2; }
+    .prose h3 { font-size: 1.2rem; font-weight: 600; color: #134B6E; margin-top: 2rem; margin-bottom: 0.75rem; }
     .prose p { line-height: 1.8; margin-bottom: 1.25rem; color: #374151; }
-    .prose a { color: #0F9D8A; text-decoration: underline; text-underline-offset: 2px; }
+    .prose a { color: #0F9D8A; text-decoration: underline; text-underline-offset: 3px; }
     .prose a:hover { color: #12B89F; }
     .prose ul, .prose ol { margin-bottom: 1.25rem; padding-left: 1.5rem; }
-    .prose li { line-height: 1.8; margin-bottom: 0.5rem; color: #374151; }
-    .prose blockquote { border-left: 4px solid #0F9D8A; background: #F5F7FA; padding: 1rem 1.5rem; margin: 1.5rem 0; border-radius: 0 8px 8px 0; }
-    .prose blockquote p { color: #5A6B7A; font-style: italic; margin-bottom: 0; }
-    .prose code { background: #F3F4F6; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.9em; color: #0B3C5D; }
-    .prose pre { background: #1A1A1A; color: #E5E7EB; padding: 1.25rem; border-radius: 8px; overflow-x: auto; margin: 1.5rem 0; }
+    .prose li { line-height: 1.8; margin-bottom: 0.6rem; color: #374151; }
+    .prose blockquote { border-left: 4px solid #0F9D8A; background: #F5F7FA; padding: 1.25rem 1.5rem; margin: 1.5rem 0; border-radius: 0 8px 8px 0; }
+    .prose blockquote p { color: #5A6B7A; margin-bottom: 0; }
+    .prose code { background: #F3F4F6; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.85em; color: #0B3C5D; }
+    .prose pre { background: #1A1A1A; color: #E5E7EB; padding: 1.5rem; border-radius: 8px; overflow-x: auto; margin: 1.5rem 0; font-size: 0.82rem; }
     .prose pre code { background: none; padding: 0; color: inherit; }
     .prose strong { color: #0B3C5D; }
     .prose hr { border-color: #E5E7EB; margin: 2rem 0; }
@@ -83,7 +89,7 @@
         <!-- Desktop menu -->
         <div class="hidden md:flex items-center gap-8">
           {{ range .Site.Menus.main }}
-          <a href="{{ .URL }}" class="text-white/80 hover:text-accent font-medium text-sm tracking-wide transition">{{ .Name }}</a>
+          <a href="{{ .URL }}" class="text-white/80 hover:text-accent font-medium text-lg tracking-wide transition">{{ .Name }}</a>
           {{ end }}
         </div>
         <!-- Mobile menu button -->
@@ -113,7 +119,7 @@
           <span class="text-white/40 mx-2">|</span>
           <span>寫論文，找方法</span>
         </div>
-        <div class="text-sm">
+        <div class="text-lg">
           &copy; {{ now.Year }} Paper Lab. AI 論文方法學
         </div>
       </div>
