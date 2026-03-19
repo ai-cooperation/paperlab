@@ -6,6 +6,13 @@ tags: ["Phase 2", "文獻調研", "AI 幻覺", "假文獻", "Zotero"]
 keywords: ["AI 假文獻", "ChatGPT 假引用", "AI 幻覺 文獻", "DOI 驗證", "文獻驗證"]
 summary: "ChatGPT 生成的引用有 30-40% 的 DOI 是假的。方法學教你用多工具交叉驗證法，5 步杜絕假文獻。"
 weight: 2
+faq:
+  - q: "AI 寫論文時文獻引用一直是假的怎麼辦？"
+    a: "用多工具交叉驗證法：用 Gemini Deep Research 生成（引用品質較好），再用 Semantic Scholar 或 CrossRef API 驗證每個 DOI，最後用 NotebookLM 上傳原文 PDF 逐條比對。"
+  - q: "ChatGPT 假文獻如何驗證？"
+    a: "最簡單的方式：複製 DOI，到 doi.org/{DOI} 看能不能打開。打不開就是假的。進階方式是用 CrossRef API 批次檢查。"
+  - q: "有沒有工具可以自動檢查假引用？"
+    a: "Zotero 搭配 CrossRef 多重驗證，可以半自動化這個流程。完整的自動化腳本可以付費諮詢。"
 ---
 
 ## 你是不是也遇到這個問題？

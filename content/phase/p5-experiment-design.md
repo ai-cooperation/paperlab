@@ -6,6 +6,13 @@ tags: ["Phase 5", "實驗設計", "baseline", "ablation study"]
 keywords: ["實驗設計", "baseline comparison", "ablation study", "對照組", "實驗 checklist"]
 summary: "花三個月跑完實驗，寫 Method 時才發現少了 baseline comparison 或 ablation study。用六要素 checklist 在實驗前就檢查完整性。"
 weight: 5
+faq:
+  - q: "我的研究沒有 baseline 可以比較怎麼辦？"
+    a: "幾乎不存在「沒有 baseline」的情況。如果真的是全新的問題，至少可以比較：隨機猜測（random baseline）、簡單統計方法（如線性回歸）、人類表現（human performance）。Reviewer 要看的是「相對比較」，不一定需要完全同類的方法。"
+  - q: "Ablation study 要做多細？"
+    a: "看你方法的複雜度。如果你的方法有 3 個創新點，至少做 3 組 ablation（各移除一個）。如果有 5 個以上的組件，可以只對「你聲稱最重要的 2-3 個」做 ablation。原則是：你在論文中 claim 了什麼貢獻，就要用 ablation 證明什麼。"
+  - q: "實驗需要跑幾次才算有統計意義？"
+    a: "取決於你的實驗穩定性。深度學習實驗通常跑 3-5 次取平均和標準差。如果標準差很大（超過平均值的 10%），需要跑更多次或檢查實驗設定。傳統機器學習用 5-fold 或 10-fold cross-validation。"
 ---
 
 ## 你是不是也遇到這個問題？

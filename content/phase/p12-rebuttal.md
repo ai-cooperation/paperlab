@@ -6,6 +6,13 @@ tags: ["Phase 12", "審稿回覆", "Rebuttal", "Major Revision"]
 keywords: ["Major Revision 怎麼辦", "Rebuttal 寫法", "審稿回覆", "reviewer 意見回覆", "論文修改"]
 summary: "收到 Major Revision 代表期刊有興趣。用 Rebuttal Matrix 系統化拆解意見，逐條回覆，提升接受機率。"
 weight: 12
+faq:
+  - q: "Major Revision 給多長時間修改？"
+    a: "通常 2-3 個月。如果需要補實驗可以寫信給編輯申請延期，大部分期刊會同意。重點是不要拖太久 — reviewer 會忘記你的論文內容。"
+  - q: "Reviewer 的意見我不同意，可以不改嗎？"
+    a: "可以，但必須提供充分的理由和證據。在 rebuttal letter 中禮貌地解釋為什麼你認為現有的做法是合適的，引用文獻支持你的立場。切忌直接忽略不回覆。"
+  - q: "三位 reviewer 的意見互相矛盾怎麼辦？"
+    a: "這很常見。Reviewer 1 說要簡化，Reviewer 2 說要詳細。在 rebuttal 中如實說明：「Reviewer 1 建議簡化 X 部分，Reviewer 2 建議詳述 X 部分。我們採取了折衷方案……」讓編輯做最終判斷。"
 ---
 
 ## 你是不是也遇到這個問題？

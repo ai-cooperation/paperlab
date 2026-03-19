@@ -6,6 +6,13 @@ tags: ["Phase 11", "投稿準備", "Cover Letter", "期刊格式"]
 keywords: ["投稿準備", "Cover Letter 寫法", "期刊格式要求", "Suggested Reviewers", "Graphical Abstract"]
 summary: "投稿是打包工程，不是上傳 PDF。10 項 checklist 幫你一次備齊 Cover Letter、Graphical Abstract、Highlights、格式要求。"
 weight: 11
+faq:
+  - q: "Cover Letter 到底重不重要？"
+    a: "非常重要。Cover Letter 是編輯決定要不要送審的第一印象。一封好的 Cover Letter 能讓你的論文不被 desk reject。很多期刊的編輯每天收到幾十篇投稿，Cover Letter 是他們快速判斷的依據。"
+  - q: "Suggested Reviewers 要怎麼找？"
+    a: "看你引用的文獻作者中，誰是這個子領域的活躍研究者。確認他們不是你的共同作者、不在同機構、近三年有發表相關論文。避免只推薦你認識的人。"
+  - q: "被拒稿改投其他期刊，格式要全部重改嗎？"
+    a: "如果用 Word，是的，很痛苦。如果用 Markdown + Quarto，改 YAML header 就好。這就是為什麼我們建議從一開始就用 Markdown 寫作。"
 ---
 
 ## 你是不是也遇到這個問題？

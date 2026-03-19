@@ -1,4 +1,25 @@
 {{ define "main" }}
+
+{{/* Article Schema */}}
+{{ $article := dict "@context" "https://schema.org" "@type" "Article" "headline" .Title "author" (dict "@type" "Person" "name" "陳重光") "datePublished" (.Date.Format "2006-01-02") "description" .Description }}
+<script type="application/ld+json">
+{{ $article | jsonify (dict "indent" "  ") | safeJS }}
+</script>
+
+{{/* FAQPage Schema — only if frontmatter has faq */}}
+{{- with .Params.faq }}
+{{ $faqItems := slice }}
+{{- range . }}
+{{ $answer := dict "@type" "Answer" "text" .a }}
+{{ $question := dict "@type" "Question" "name" .q "acceptedAnswer" $answer }}
+{{ $faqItems = $faqItems | append $question }}
+{{- end }}
+{{ $faqSchema := dict "@context" "https://schema.org" "@type" "FAQPage" "mainEntity" $faqItems }}
+<script type="application/ld+json">
+{{ $faqSchema | jsonify (dict "indent" "  ") | safeJS }}
+</script>
+{{- end }}
+
 <article class="py-12 sm:py-16">
   <div class="max-w-3xl mx-auto px-4 sm:px-6">
     <!-- Breadcrumb -->

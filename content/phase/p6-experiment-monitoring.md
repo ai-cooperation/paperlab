@@ -6,6 +6,13 @@ tags: ["Phase 6", "實驗執行", "遠端監控", "Google Colab"]
 keywords: ["實驗監控", "Google Colab 斷線", "Telegram Bot 通知", "OOM crash", "GPU 監控"]
 summary: "睡前按下 Run，隔天發現 OOM crash，10 小時白等。用三層監控機制，讓你即時知道實驗狀態。"
 weight: 6
+faq:
+  - q: "Google Colab 一直斷線怎麼辦？"
+    a: "三個策略：(1) 用 Colab Pro 延長 session 時限；(2) 每 30 分鐘自動存 checkpoint 到 Google Drive；(3) 如果實驗超過 4 小時，認真考慮改用實驗室伺服器或 Kaggle Notebook（免費 GPU 時間較長）。"
+  - q: "我不會寫 Telegram Bot 怎麼辦？"
+    a: "最簡單的版本只需要 3 行 Python：用 requests 庫呼叫 Telegram Bot API 的 sendMessage 端點。建立 Bot 只需要跟 BotFather 說話 5 分鐘。完整的教學在論文方法學的工具包中提供。"
+  - q: "wandb 免費版夠用嗎？"
+    a: "學術用途完全夠用。免費版支援無限個人專案、100GB 儲存。唯一限制是團隊協作功能需要付費，但個人研究不需要。"
 ---
 
 ## 你是不是也遇到這個問題？

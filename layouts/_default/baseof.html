@@ -8,6 +8,7 @@
   <meta name="keywords" content="{{ delimit .Site.Params.keywords ", " }}">
   <meta name="author" content="{{ .Site.Params.author }}">
   <link rel="canonical" href="{{ .Permalink }}">
+  <meta name="robots" content="index, follow">
 
   <!-- OG -->
   <meta property="og:title" content="{{ if .IsHome }}{{ .Site.Title }}{{ else }}{{ .Title }}{{ end }}">
@@ -87,6 +88,18 @@
   </style>
 
   {{ block "head" . }}{{ end }}
+
+  {{- if .IsHome }}
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "name": "Paper Lab",
+    "description": "論文方法學 — 寫論文 找方法",
+    "url": "https://paperlab.cooperation.tw/"
+  }
+  </script>
+  {{- end }}
 </head>
 <body class="bg-surface text-gray-800 antialiased">
 
