@@ -1,0 +1,38 @@
+{{ define "main" }}
+<section class="py-12 sm:py-16">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6">
+    <div class="text-center mb-12">
+      <h1 class="text-3xl sm:text-4xl font-bold text-primary mb-3">必學工具</h1>
+      <p class="text-gray-500 text-lg">寫論文的三大基礎設施 — 寫作、整理、驗證</p>
+    </div>
+
+    <div class="grid sm:grid-cols-3 gap-6">
+
+      <a href="/tools/markdown/" class="group block bg-white rounded-2xl p-8 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border-t-4 border-secondary">
+        <div class="w-14 h-14 bg-secondary/10 rounded-xl flex items-center justify-center text-3xl mb-5">📝</div>
+        <h3 class="font-bold text-primary text-xl mb-1 group-hover:text-secondary transition">Markdown</h3>
+        <p class="text-secondary font-semibold text-lg mb-3">寫作的通用語言</p>
+        <p class="text-gray-500 text-lg leading-relaxed mb-4">寫作門檻低，加 YAML 檔頭直接變期刊格式。AI 的輸出就是 Markdown，無縫銜接。</p>
+        <span class="text-secondary font-semibold text-base group-hover:translate-x-1 transition-transform inline-block">為什麼要學 →</span>
+      </a>
+
+      <a href="/tools/obsidian/" class="group block bg-white rounded-2xl p-8 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border-t-4 border-accent">
+        <div class="w-14 h-14 bg-accent/10 rounded-xl flex items-center justify-center text-3xl mb-5">🧠</div>
+        <h3 class="font-bold text-primary text-xl mb-1 group-hover:text-secondary transition">Obsidian</h3>
+        <p class="text-secondary font-semibold text-lg mb-3">你的第二大腦</p>
+        <p class="text-gray-500 text-lg leading-relaxed mb-4">知識圖譜讓你看見文獻之間的隱藏關聯。孤立節點 = 可能遺漏的重要文獻。</p>
+        <span class="text-secondary font-semibold text-base group-hover:translate-x-1 transition-transform inline-block">為什麼要學 →</span>
+      </a>
+
+      <a href="/tools/zotero/" class="group block bg-white rounded-2xl p-8 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border-t-4 border-primary">
+        <div class="w-14 h-14 bg-primary/10 rounded-xl flex items-center justify-center text-3xl mb-5">🛡️</div>
+        <h3 class="font-bold text-primary text-xl mb-1 group-hover:text-secondary transition">Zotero</h3>
+        <p class="text-secondary font-semibold text-lg mb-3">引用的守門員</p>
+        <p class="text-gray-500 text-lg leading-relaxed mb-4">管理文獻引用 + CrossRef API 驗證，杜絕 AI 給你的假文獻。</p>
+        <span class="text-secondary font-semibold text-base group-hover:translate-x-1 transition-transform inline-block">為什麼要學 →</span>
+      </a>
+
+    </div>
+  </div>
+</section>
+{{ end }}
