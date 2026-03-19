@@ -70,7 +70,7 @@ Storm 完之後，用 CARE Framework 把散亂的想法收斂成研究問題：
 
 <div class="tip-box">
 
-**核心原則：** 研究不是想出來的，是「聊」出來的。把腦中的模糊想法說出來，讓 AI 幫你追問和收斂。
+**核心原則：** 研究不是想出來的，是「聊」出來的。把腦中的模糊想法說出來，透過追問和收斂來聚焦。
 
 </div>
 
@@ -90,4 +90,4 @@ Storm 完之後，用 CARE Framework 把散亂的想法收斂成研究問題：
 
 ---
 
-*這是 [Paper Lab 11 Phase 方法學](/phases/) 的 Phase 1：概念探索。*
+*這是 [Paper Lab 12 Phase 方法學](/phases/) 的 Phase 1：概念探索。*

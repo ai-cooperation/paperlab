@@ -97,4 +97,4 @@ weight: 6
 
 ---
 
-*這是 [Paper Lab 11 Phase 方法學](/phases/) 的 Phase 6：實驗執行。*
+*這是 [Paper Lab 12 Phase 方法學](/phases/) 的 Phase 6：實驗執行。*

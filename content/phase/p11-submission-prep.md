@@ -1,7 +1,7 @@
 ---
 title: "投稿前你必須知道的 10 件事"
 description: "論文寫完不代表可以投稿 — 10 項投稿 Checklist、Cover Letter 五段結構、期刊選擇決策框架"
-date: 2026-03-20
+date: 2026-03-19
 tags: ["Phase 11", "投稿準備", "Cover Letter", "期刊格式"]
 keywords: ["投稿準備", "Cover Letter 寫法", "期刊格式要求", "Suggested Reviewers", "Graphical Abstract"]
 summary: "投稿是打包工程，不是上傳 PDF。10 項 checklist 幫你一次備齊 Cover Letter、Graphical Abstract、Highlights、格式要求。"
