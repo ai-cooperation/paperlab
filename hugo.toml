@@ -7,6 +7,7 @@ theme = "PaperMod"
   env = "production"
   description = "AI 論文方法學 — 11 步帶你從零到發表"
   author = "Cooperation.TW"
+  keywords = ["寫論文找方法", "論文方法學", "AI 寫論文", "AI 論文工具", "research gap"]
   ShowReadingTime = true
   ShowShareButtons = false
   ShowPostNavLinks = true
