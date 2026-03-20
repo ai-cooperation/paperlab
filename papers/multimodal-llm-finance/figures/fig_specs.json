@@ -1,0 +1,69 @@
+{
+  "figures": [
+    {
+      "id": "fig-framework",
+      "title": "FinMM-LLM Framework Architecture",
+      "type": "schematic",
+      "narrative_role": "Framework",
+      "panels": 1,
+      "color_scheme": "blue-orange dual modality",
+      "data_source": "architecture design",
+      "format": "SVG → PNG",
+      "target_width": 1200,
+      "target_height": 600,
+      "description": "Three-layer architecture diagram: Text Encoder (FinBERT) on left in blue, Time-Series Encoder (PatchTST) on right in orange, Cross-Modal Attention in center connecting both, Decision Head at bottom outputting portfolio signals."
+    },
+    {
+      "id": "fig-cumulative-returns",
+      "title": "Cumulative Returns: Multi-Modal vs Single-Modal Strategies",
+      "type": "line_chart",
+      "narrative_role": "Main Results",
+      "panels": 1,
+      "color_scheme": "red (multi-modal), blue (TS-only), green (text-only), gray (FF5 benchmark)",
+      "data_source": "simulated portfolio returns 2023-2024",
+      "format": "Python matplotlib → PNG",
+      "target_width": 1000,
+      "target_height": 500,
+      "description": "Cumulative log-return curves for three strategies plus FF5 benchmark over the out-of-sample period (2023-2024). Shaded regions for earnings announcement windows."
+    },
+    {
+      "id": "fig-ablation",
+      "title": "Component Ablation: Impact of Text Encoder, TS Encoder, and Fusion Method",
+      "type": "grouped_bar",
+      "narrative_role": "Ablation",
+      "panels": 3,
+      "color_scheme": "sequential blue palette",
+      "data_source": "ablation experiments",
+      "format": "Python matplotlib → PNG",
+      "target_width": 1200,
+      "target_height": 400,
+      "description": "Three grouped bar panels: (a) Text encoder variants (FinBERT vs GPT vs L-M), (b) TS encoder variants (PatchTST vs LSTM vs iTransformer), (c) Fusion methods (Cross-Attn vs Concat vs Ensemble). Y-axis: Sharpe ratio."
+    },
+    {
+      "id": "fig-attention-heatmap",
+      "title": "Cross-Attention Heatmap Around Earnings Announcement",
+      "type": "heatmap",
+      "narrative_role": "Mechanism",
+      "panels": 2,
+      "color_scheme": "viridis (attention intensity)",
+      "data_source": "attention weights during earnings events",
+      "format": "Python matplotlib/seaborn → PNG",
+      "target_width": 1000,
+      "target_height": 500,
+      "description": "Left panel: attention weights (text tokens × price patches) during earnings window [-5, +5] days. Right panel: same stock during normal period. Shows concentrated attention on sentiment-bearing tokens during earnings."
+    },
+    {
+      "id": "fig-attention-vix",
+      "title": "Multi-Modal Attention Intensity vs Market Volatility (VIX)",
+      "type": "dual_axis_line",
+      "narrative_role": "Mechanism",
+      "panels": 1,
+      "color_scheme": "red (attention), gray (VIX)",
+      "data_source": "rolling attention intensity + VIX index",
+      "format": "Python matplotlib → PNG",
+      "target_width": 1000,
+      "target_height": 400,
+      "description": "Dual-axis time-series: left axis shows rolling 20-day average cross-attention intensity, right axis shows VIX. Demonstrates positive correlation — multi-modal fusion becomes more important during volatile periods."
+    }
+  ]
+}
