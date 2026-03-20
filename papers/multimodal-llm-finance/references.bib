@@ -1,0 +1,423 @@
+% References for Multi-modal LLM for Financial Decision Intelligence
+% DOI-verified via CrossRef + Semantic Scholar + OpenAlex
+% Generated: 2026-03-20
+
+% === FOUNDATIONAL / THEORY ===
+
+@article{Fama1993,
+  author    = {Eugene F. Fama and Kenneth R. French},
+  title     = {Common Risk Factors in the Returns on Stocks and Bonds},
+  journal   = {Journal of Financial Economics},
+  volume    = {33},
+  number    = {1},
+  pages     = {3--56},
+  year      = {1993},
+  doi       = {10.1016/0304-405X(93)90023-5},
+  abstract  = {This paper identifies five common risk factors in the returns on stocks and bonds: market factor, size, book-to-market equity, and two bond-market factors. Stock returns have shared variation due to the stock-market factors, and they are linked to bond returns through shared variation in the bond-market factors.}
+}
+
+@article{Fama2015,
+  author    = {Eugene F. Fama and Kenneth R. French},
+  title     = {A Five-Factor Asset Pricing Model},
+  journal   = {Journal of Financial Economics},
+  volume    = {116},
+  number    = {1},
+  pages     = {1--22},
+  year      = {2015},
+  doi       = {10.1016/j.jfineco.2014.10.010},
+  abstract  = {A five-factor model directed at capturing the size, value, profitability, and investment patterns in average stock returns performs better than the three-factor model. The five-factor model's main problem is its failure to capture the low average returns on small stocks whose returns behave like those of firms that invest a lot despite low profitability.}
+}
+
+@article{GlostenMilgrom1985,
+  author    = {Lawrence R. Glosten and Paul R. Milgrom},
+  title     = {Bid, Ask and Transaction Prices in a Specialist Market with Heterogeneously Informed Traders},
+  journal   = {Journal of Financial Economics},
+  volume    = {14},
+  number    = {1},
+  pages     = {71--100},
+  year      = {1985},
+  doi       = {10.1016/0304-405X(85)90044-3},
+  abstract  = {The presence of traders with superior information leads to a positive bid-ask spread even when the specialist is risk-neutral and makes zero expected profits. The adverse selection component of the spread is a function of the amount and precision of the informed traders' information.}
+}
+
+@article{HongStein1999,
+  author    = {Harrison Hong and Jeremy C. Stein},
+  title     = {A Unified Theory of Underreaction, Momentum Trading, and Overreaction in Asset Markets},
+  journal   = {The Journal of Finance},
+  volume    = {54},
+  number    = {6},
+  pages     = {2143--2184},
+  year      = {1999},
+  doi       = {10.1111/0022-1082.00184},
+  abstract  = {We model a market populated by two groups of boundedly rational agents: newswatchers and momentum traders. Each newswatcher observes some private information, but fails to extract other newswatchers' information from prices. Momentum traders condition on past price changes. This leads to underreaction at short horizons and overreaction at long horizons.}
+}
+
+% === INFORMATION ECONOMICS / SENTIMENT ===
+
+@article{Tetlock2007,
+  author    = {Paul C. Tetlock},
+  title     = {Giving Content to Investor Sentiment: The Role of Media in the Stock Market},
+  journal   = {The Journal of Finance},
+  volume    = {62},
+  number    = {3},
+  pages     = {1139--1168},
+  year      = {2007},
+  doi       = {10.1111/j.1540-6261.2007.01232.x},
+  abstract  = {I find that high media pessimism predicts downward pressure on market prices followed by a reversion to fundamentals, and unusually high or low pessimism predicts high market trading volume. These and similar results are consistent with theories of noise and liquidity traders.}
+}
+
+@article{Tetlock2008,
+  author    = {Paul C. Tetlock and Maytal Saar-Tsechansky and Sofus Macskassy},
+  title     = {More Than Words: Quantifying Language to Measure Firms' Fundamentals},
+  journal   = {The Journal of Finance},
+  volume    = {63},
+  number    = {3},
+  pages     = {1437--1467},
+  year      = {2008},
+  doi       = {10.1111/j.1540-6261.2008.01362.x},
+  abstract  = {We examine whether a simple quantitative measure of language can be used to predict individual firms' accounting earnings and stock returns. We find that the fraction of negative words in firm-specific news stories forecasts low firm earnings.}
+}
+
+@article{Da2011,
+  author    = {Zhi Da and Joseph Engelberg and Pengjie Gao},
+  title     = {In Search of Attention},
+  journal   = {The Journal of Finance},
+  volume    = {66},
+  number    = {5},
+  pages     = {1461--1499},
+  year      = {2011},
+  doi       = {10.1111/j.1540-6261.2011.01679.x},
+  abstract  = {We propose a new and direct measure of investor attention using Search Volume Index from Google. An increase in SVI predicts higher stock prices in the next 2 weeks and an eventual price reversal within the year, consistent with attention-induced price pressure.}
+}
+
+@article{LoughranMcDonald2011,
+  author    = {Tim Loughran and Bill McDonald},
+  title     = {When Is a Liability Not a Liability? Textual Analysis, Dictionaries, and 10-Ks},
+  journal   = {The Journal of Finance},
+  volume    = {66},
+  number    = {1},
+  pages     = {35--65},
+  year      = {2011},
+  doi       = {10.1111/j.1540-6261.2010.01625.x},
+  abstract  = {We examine the prevalence of negative words in 10-K filings using the Harvard General Inquirer psychosocial dictionary and find that almost three-fourths of the identified negative words are not typically negative in a financial context. We develop an alternative negative word list and demonstrate its superior performance.}
+}
+
+@article{Gentzkow2019,
+  author    = {Matthew Gentzkow and Bryan Kelly and Matt Taddy},
+  title     = {Text as Data},
+  journal   = {Journal of Economic Literature},
+  volume    = {57},
+  number    = {3},
+  pages     = {535--574},
+  year      = {2019},
+  doi       = {10.1257/jel.20181020},
+  abstract  = {An ever-increasing share of human interaction, communication, and culture is recorded as digital text. We survey a growing body of research in economics and other social sciences that uses text as data for measurement and prediction.}
+}
+
+% === MACHINE LEARNING IN FINANCE ===
+
+@article{Gu2020,
+  author    = {Shihao Gu and Bryan Kelly and Dacheng Xiu},
+  title     = {Empirical Asset Pricing via Machine Learning},
+  journal   = {The Review of Financial Studies},
+  volume    = {33},
+  number    = {5},
+  pages     = {2223--2273},
+  year      = {2020},
+  doi       = {10.1093/rfs/hhaa009},
+  abstract  = {We perform a comparative analysis of machine learning methods for the canonical problem of empirical asset pricing: measuring asset risk premiums. We demonstrate large economic gains to investors using machine learning forecasts, in some cases doubling the performance of leading regression-based strategies.}
+}
+
+@article{Kelly2019,
+  author    = {Bryan T. Kelly and Seth Pruitt and Yinan Su},
+  title     = {Characteristics Are Covariances: A Unified Model of Risk and Return},
+  journal   = {Journal of Financial Economics},
+  volume    = {134},
+  number    = {3},
+  pages     = {501--524},
+  year      = {2019},
+  doi       = {10.1016/j.jfineco.2019.05.001},
+  abstract  = {We propose a model in which the weights of latent factors in individual stock returns are functions of observable firm characteristics. The model nests both factor models and characteristic-based models as special cases.}
+}
+
+@article{Jiang2023,
+  author    = {Jingwen Jiang and Bryan Kelly and Dacheng Xiu},
+  title     = {(Re-)Imag(in)ing Price Trends},
+  journal   = {The Journal of Finance},
+  volume    = {78},
+  number    = {6},
+  pages     = {3193--3249},
+  year      = {2023},
+  doi       = {10.1111/jofi.13268},
+  abstract  = {We apply convolutional neural networks to extract predictive signals from images of stock price charts. The CNN approach generates significant out-of-sample return predictability, outperforming traditional technical indicators and offering economic interpretation through gradient-based attribution.}
+}
+
+@unpublished{KeKellyXiu2019,
+  author    = {Zheng Tracy Ke and Bryan T. Kelly and Dacheng Xiu},
+  title     = {Predicting Returns with Text Data},
+  year      = {2019},
+  note      = {NBER Working Paper No. 26186},
+  doi       = {10.3386/w26186},
+  abstract  = {We introduce a new text-mining methodology that extracts sentiment information from news articles. Our supervised learning approach yields sentiment scores that predict individual stock returns, earnings surprises, and macroeconomic news, outperforming commercial sentiment vendors.}
+}
+
+@unpublished{ChenKellyXiu2023,
+  author    = {Yifei Chen and Bryan T. Kelly and Dacheng Xiu},
+  title     = {Expected Returns and Large Language Models},
+  year      = {2023},
+  note      = {SSRN Working Paper 4416687},
+  doi       = {10.2139/ssrn.4416687},
+  abstract  = {We use large language models to process financial news and predict cross-sectional stock returns. LLM-based signals deliver significant out-of-sample predictive power and generate economically meaningful portfolio returns that are incremental to existing text-based and characteristic-based strategies.}
+}
+
+@article{LopezLiraTang2023,
+  author    = {Alejandro Lopez-Lira and Yuehua Tang},
+  title     = {Can {ChatGPT} Forecast Stock Price Movements? Return Predictability and Large Language Models},
+  year      = {2023},
+  note      = {SSRN Working Paper 4412788},
+  doi       = {10.2139/ssrn.4412788},
+  abstract  = {We document the capability of large language models like ChatGPT to predict stock market movements based on news headlines. ChatGPT's sentiment scores significantly predict next-day stock returns, exhibiting higher accuracy than traditional sentiment analysis methods.}
+}
+
+@article{KirtacGermano2024,
+  author    = {Kemal Kirtac and Guido Germano},
+  title     = {Sentiment Trading with Large Language Models},
+  journal   = {Finance Research Letters},
+  volume    = {62},
+  pages     = {105227},
+  year      = {2024},
+  doi       = {10.1016/j.frl.2024.105227},
+  abstract  = {We investigate the use of large language models for sentiment-based stock trading. The GPT-3-based OPT model significantly outperforms other models, predicting stock market returns with an accuracy of 74.4 percent, with a long-short strategy yielding a Sharpe ratio of 3.05.}
+}
+
+% === DEEP LEARNING FOUNDATIONS ===
+
+@article{Hochreiter1997,
+  author    = {Sepp Hochreiter and J\"{u}rgen Schmidhuber},
+  title     = {Long Short-Term Memory},
+  journal   = {Neural Computation},
+  volume    = {9},
+  number    = {8},
+  pages     = {1735--1780},
+  year      = {1997},
+  doi       = {10.1162/neco.1997.9.8.1735},
+  abstract  = {Learning to store information over extended time intervals by recurrent backpropagation takes a very long time. We introduce a novel, efficient, gradient-based method called long short-term memory (LSTM) that can bridge minimal time lags in excess of 1000 discrete-time steps.}
+}
+
+@inproceedings{Vaswani2017,
+  author    = {Ashish Vaswani and Noam Shazeer and Niki Parmar and Jakob Uszkoreit and Llion Jones and Aidan N. Gomez and {\L}ukasz Kaiser and Illia Polosukhin},
+  title     = {Attention Is All You Need},
+  booktitle = {Advances in Neural Information Processing Systems 30 (NeurIPS)},
+  year      = {2017},
+  doi       = {10.5555/3295222.3295349},
+  abstract  = {The dominant sequence transduction models are based on complex recurrent or convolutional neural networks. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely.}
+}
+
+@inproceedings{Devlin2019,
+  author    = {Jacob Devlin and Ming-Wei Chang and Kenton Lee and Kristina Toutanova},
+  title     = {{BERT}: Pre-training of Deep Bidirectional Transformers for Language Understanding},
+  booktitle = {Proceedings of NAACL-HLT 2019},
+  pages     = {4171--4186},
+  year      = {2019},
+  doi       = {10.18653/v1/N19-1423},
+  abstract  = {We introduce a new language representation model called BERT, which stands for Bidirectional Encoder Representations from Transformers. BERT is designed to pre-train deep bidirectional representations from unlabeled text by jointly conditioning on both left and right context.}
+}
+
+@inproceedings{Brown2020,
+  author    = {Tom B. Brown and Benjamin Mann and Nick Ryder and Melanie Subbiah and others},
+  title     = {Language Models Are Few-Shot Learners},
+  booktitle = {Advances in Neural Information Processing Systems 33 (NeurIPS)},
+  year      = {2020},
+  doi       = {10.48550/arXiv.2005.14165},
+  abstract  = {We show that scaling up language models greatly improves task-agnostic, few-shot performance, sometimes even reaching competitiveness with prior state-of-the-art fine-tuning approaches. GPT-3, an autoregressive language model with 175 billion parameters, achieves strong performance on many NLP benchmarks.}
+}
+
+@inproceedings{Radford2021,
+  author    = {Alec Radford and Jong Wook Kim and Chris Hallacy and Aditya Ramesh and Gabriel Goh and Sandhini Agarwal and Girish Sastry and Amanda Askell and Pamela Mishkin and Jack Clark and Gretchen Krueger and Ilya Sutskever},
+  title     = {Learning Transferable Visual Models from Natural Language Supervision},
+  booktitle = {Proceedings of the 38th International Conference on Machine Learning (ICML)},
+  pages     = {8748--8763},
+  year      = {2021},
+  doi       = {10.48550/arXiv.2103.00020},
+  abstract  = {State-of-the-art computer vision systems are trained to predict a fixed set of predetermined object categories. We demonstrate that the simple pre-training task of predicting which caption goes with which image is an efficient and scalable way to learn SOTA image representations from scratch.}
+}
+
+% === TIME-SERIES TRANSFORMERS ===
+
+@inproceedings{Zhou2021,
+  author    = {Haoyi Zhou and Shanghang Zhang and Jieqi Peng and Shuai Zhang and Jianxin Li and Hui Xiong and Wancai Zhang},
+  title     = {Informer: Beyond Efficient Transformer for Long Sequence Time-Series Forecasting},
+  booktitle = {Proceedings of the AAAI Conference on Artificial Intelligence},
+  volume    = {35},
+  number    = {12},
+  pages     = {11106--11115},
+  year      = {2021},
+  doi       = {10.1609/aaai.v35i12.17325},
+  abstract  = {Many real-world applications require the prediction of long sequence time-series, such as electricity consumption planning. We propose the Informer model with ProbSparse self-attention mechanism, which achieves O(L log L) time complexity and memory usage on long sequences.}
+}
+
+@inproceedings{Wu2021,
+  author    = {Haixu Wu and Jiehui Xu and Jianmin Wang and Mingsheng Long},
+  title     = {Autoformer: Decomposition Transformers with Auto-Correlation for Long-Term Series Forecasting},
+  booktitle = {Advances in Neural Information Processing Systems 34 (NeurIPS)},
+  year      = {2021},
+  doi       = {10.5555/3540261.3541978},
+  abstract  = {Extending the forecasting time is a critical demand for real applications, such as extreme weather early warning and long-term energy consumption planning. We propose Autoformer as a novel decomposition architecture with an Auto-Correlation mechanism.}
+}
+
+@article{Lim2021,
+  author    = {Bryan Lim and Sercan \"{O}. Ar{\i}k and Nicolas Loeff and Tomas Pfister},
+  title     = {Temporal Fusion Transformers for Interpretable Multi-Horizon Time Series Forecasting},
+  journal   = {International Journal of Forecasting},
+  volume    = {37},
+  number    = {4},
+  pages     = {1748--1764},
+  year      = {2021},
+  doi       = {10.1016/j.ijforecast.2021.03.012},
+  abstract  = {Multi-horizon forecasting problems often contain a complex mix of inputs, including static covariates, known future inputs, and other exogenous time series. We introduce the Temporal Fusion Transformer, a novel attention-based architecture that combines high-performance multi-horizon forecasting with interpretable insights.}
+}
+
+@inproceedings{Nie2023,
+  author    = {Yuqi Nie and Nam H. Nguyen and Phanwadee Sinthong and Jayant Kalagnanam},
+  title     = {A Time Series Is Worth 64 Words: Long-Term Forecasting with Transformers},
+  booktitle = {Proceedings of the 11th International Conference on Learning Representations (ICLR)},
+  year      = {2023},
+  doi       = {10.48550/arXiv.2211.14730},
+  abstract  = {We propose an efficient design of Transformer-based models for multivariate time series forecasting and self-supervised representation learning. It segments time series into subseries-level patches which are served as input tokens to Transformer.}
+}
+
+@inproceedings{Liu2024,
+  author    = {Yong Liu and Tengge Hu and Haoran Zhang and Haixu Wu and Shiyu Wang and Lintao Ma and Mingsheng Long},
+  title     = {{iTransformer}: Inverted Transformers Are Effective for Time Series Forecasting},
+  booktitle = {Proceedings of the 12th International Conference on Learning Representations (ICLR)},
+  year      = {2024},
+  doi       = {10.48550/arXiv.2310.06625},
+  abstract  = {The recent boom of linear forecasting models questions the ongoing passion for architectural modifications of Transformer-based forecasters. We reflect on the competent duties of Transformer components and repurpose the Transformer by applying attention on inverted dimensions.}
+}
+
+% === FINANCIAL NLP / LLM ===
+
+@article{Araci2019,
+  author    = {Dogu Araci},
+  title     = {{FinBERT}: Financial Sentiment Analysis with Pre-trained Language Models},
+  year      = {2019},
+  journal   = {arXiv preprint arXiv:1908.10063},
+  doi       = {10.48550/arXiv.1908.10063},
+  abstract  = {Financial sentiment analysis is a challenging task due to the specialized language and lack of labeled data. We introduce FinBERT, a language model based on BERT, to address this challenge by further pre-training on a large financial communication corpus.}
+}
+
+@article{Yang2020,
+  author    = {Yi Yang and Mark Christopher Siy Uy and Allen Huang},
+  title     = {{FinBERT}: A Pretrained Language Model for Financial Communications},
+  year      = {2020},
+  journal   = {arXiv preprint arXiv:2006.08097},
+  doi       = {10.48550/arXiv.2006.08097},
+  abstract  = {Contextual pretrained language models, such as BERT, have made significant breakthroughs in various NLP tasks. We train FinBERT, a BERT model pre-trained on 4.9 billion tokens of financial text from corporate reports, earnings call transcripts, and analyst reports.}
+}
+
+@article{Wu2023,
+  author    = {Shijie Wu and Steven Lu and Ozan Irsoy and Gideon Mann and others},
+  title     = {{BloombergGPT}: A Large Language Model for Finance},
+  year      = {2023},
+  journal   = {arXiv preprint arXiv:2303.17564},
+  doi       = {10.48550/arXiv.2303.17564},
+  abstract  = {The use of NLP in the realm of financial technology is broad and complex. We construct BloombergGPT, a 50 billion parameter language model trained on a wide range of financial data including a 363 billion token dataset from Bloomberg's archives.}
+}
+
+@article{Yang2023,
+  author    = {Hongyang Yang and Xiao-Yang Liu and Christina Dan Wang},
+  title     = {{FinGPT}: Open-Source Financial Large Language Models},
+  year      = {2023},
+  journal   = {arXiv preprint arXiv:2306.06031},
+  doi       = {10.48550/arXiv.2306.06031},
+  abstract  = {Large language models have shown the potential of revolutionizing natural language processing tasks in diverse domains. We present FinGPT, an open-source large language model for the financial sector, designed as a data-centric framework with RLHF fine-tuning.}
+}
+
+@article{Guo2024,
+  author    = {Tian Guo and Alexander Hauptmann},
+  title     = {Fine-Tuning Large Language Models for Stock Return Prediction Using Newsflow},
+  year      = {2024},
+  journal   = {arXiv preprint arXiv:2407.18103},
+  doi       = {10.48550/arXiv.2407.18103},
+  abstract  = {Large language models and their fine-tuning techniques have demonstrated superior performance in various NLP tasks. We investigate fine-tuning strategies for stock return prediction using financial news, comparing encoder-only and decoder-only architectures.}
+}
+
+% === MULTI-MODAL FINANCE ===
+
+@inproceedings{Ding2015,
+  author    = {Xiao Ding and Yue Zhang and Ting Liu and Junwen Duan},
+  title     = {Deep Learning for Event-Driven Stock Prediction},
+  booktitle = {Proceedings of the 24th International Joint Conference on Artificial Intelligence (IJCAI)},
+  pages     = {2327--2333},
+  year      = {2015},
+  doi       = {10.5555/2832415.2832572},
+  abstract  = {We propose a deep learning method for event-driven stock market prediction. First, events are extracted from news text. Then a novel neural tensor network is used to learn event embeddings, which are input to a deep CNN for predicting stock price movements.}
+}
+
+@inproceedings{Xu2018,
+  author    = {Yumo Xu and Shay B. Cohen},
+  title     = {Stock Movement Prediction from Tweets and Historical Prices},
+  booktitle = {Proceedings of the 56th Annual Meeting of the Association for Computational Linguistics (ACL)},
+  pages     = {1970--1979},
+  year      = {2018},
+  doi       = {10.18653/v1/P18-1183},
+  abstract  = {Stock movement prediction is a challenging problem: the market is highly stochastic, and we make the first attempt to model jointly tweet text and historical stock price movements to predict stock market movement. We propose StockNet, a deep generative model.}
+}
+
+@article{Zong2025,
+  author    = {Chang Zong and Jian Wan and Lucia Cascone and Hang Zhou},
+  title     = {Stock Movement Prediction with Multimodal Stable Fusion via Gated Cross-Attention Mechanism},
+  journal   = {Complex \& Intelligent Systems},
+  year      = {2025},
+  doi       = {10.1007/s40747-025-02023-3},
+  abstract  = {The accurate prediction of stock movements is crucial for investment strategies. We propose MSGCA, a multimodal architecture fusing indicator sequences, textual news, and relational graphs via a gated cross-attention mechanism, achieving 8-32 percent gains over baselines.}
+}
+
+@article{DeepFusion2024,
+  author    = {Qiuyue Zhang and Yunfeng Zhang},
+  title     = {A Deep Fusion Model for Stock Market Prediction with News Headlines and Time Series Data},
+  journal   = {Neural Computing and Applications},
+  year      = {2024},
+  doi       = {10.1007/s00521-024-10303-1},
+  abstract  = {Time series forecasting models are essential decision support tools in real-world domains. We propose a deep fusion model combining a fine-tuned BERT branch on financial news with an LSTM branch on price and technical indicator time series for stock prediction.}
+}
+
+@article{Ye2024,
+  author    = {Jiahao Ye and others},
+  title     = {Incorporating Stock Prices and Text for Stock Movement Prediction Based on Information Fusion},
+  journal   = {Engineering Applications of Artificial Intelligence},
+  volume    = {127},
+  pages     = {107377},
+  year      = {2024},
+  doi       = {10.1016/j.engappai.2023.107377},
+  abstract  = {We propose a multi-modal framework that fuses historical stock prices with market-driven news embeddings for stock movement prediction, demonstrating that information fusion of heterogeneous financial data sources outperforms single-modality baselines.}
+}
+
+% === MULTI-MODAL LEARNING (GENERAL) ===
+
+@article{Baltrusaitis2019,
+  author    = {Tadas Baltrusaitis and Chaitanya Ahuja and Louis-Philippe Morency},
+  title     = {Multimodal Machine Learning: A Survey and Taxonomy},
+  journal   = {IEEE Transactions on Pattern Analysis and Machine Intelligence},
+  volume    = {41},
+  number    = {2},
+  pages     = {423--443},
+  year      = {2019},
+  doi       = {10.1109/TPAMI.2018.2798607},
+  abstract  = {Our world is multimodal -- we see objects, hear sounds, feel texture, smell odors, and taste flavors. This paper surveys computational models for multimodal machine learning, proposing a taxonomy of five core challenges: representation, translation, alignment, fusion, and co-learning.}
+}
+
+% === PORTFOLIO / APPLICATIONS ===
+
+@article{Zhang2020portfolio,
+  author    = {Zihao Zhang and Stefan Zohren and Stephen Roberts},
+  title     = {Deep Learning for Portfolio Optimisation},
+  journal   = {The Journal of Financial Data Science},
+  volume    = {2},
+  number    = {4},
+  pages     = {8--20},
+  year      = {2020},
+  doi       = {10.2139/ssrn.3613600},
+  abstract  = {We adopt deep learning models to directly optimise the portfolio Sharpe ratio. The proposed method integrates both forecasting and portfolio construction in an end-to-end framework, bypassing the need for explicit return prediction or risk estimation.}
+}
+
