@@ -194,19 +194,6 @@ ECG 心律不整自動分類的深度學習方法歷經三個階段：
 
 ---
 
-## 論文初稿預覽
-
-![Experimental Framework](/cases/ecg-transformer/fig1_framework.png)
-*統一實驗框架 — 3 個 ECG 資料集 → 統一前處理 → 6 個模型架構 → 多維度評估*
-
-![Pareto Analysis](/cases/ecg-transformer/fig3_pareto.png)
-*準確率 vs 計算量 Pareto frontier — CNN（藍）高效、Transformer（橘）高準確、Hybrid（綠）最佳平衡*
-
-![Grad-CAM](/cases/ecg-transformer/fig4_gradcam.png)
-*三種架構注意力模式 — CNN 聚焦 QRS 波、Transformer 分散於 P-QRS-T、Hybrid 自適應結合*
-
----
-
 ## DOI 驗證摘要
 
 | 指標 | 數值 |
