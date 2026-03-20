@@ -48,6 +48,12 @@ buildExpired = false
     weight = 30
 
 # Markup
+# Minify — keep attribute quotes to avoid favicon parsing issues
+[minify]
+  [minify.tdewolff]
+    [minify.tdewolff.html]
+      keepQuotes = true
+
 [markup]
   [markup.highlight]
     codeFences = true
