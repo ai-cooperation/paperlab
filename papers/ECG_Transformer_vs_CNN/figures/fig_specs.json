@@ -1,0 +1,52 @@
+{
+  "figures": [
+    {
+      "id": "fig-framework",
+      "filename": "fig1_framework",
+      "narrative_role": "Framework",
+      "type": "flow_diagram",
+      "panels": 3,
+      "color_scheme": {"primary": "#2563EB", "secondary": "#6B7280", "accent": "#10B981"},
+      "data_source": "conceptual",
+      "dimensions": {"width_mm": 180, "height_mm": 80},
+      "description": "Overall experimental pipeline showing data flow from 3 ECG datasets through unified preprocessing to 6 model architectures and evaluation metrics.",
+      "cited_in": ["methods"]
+    },
+    {
+      "id": "fig-architectures",
+      "filename": "fig2_architectures",
+      "narrative_role": "Comparison",
+      "type": "architecture_diagram",
+      "panels": 6,
+      "color_scheme": {"cnn": "#2563EB", "transformer": "#F59E0B", "hybrid": "#10B981"},
+      "data_source": "conceptual",
+      "dimensions": {"width_mm": 180, "height_mm": 120},
+      "description": "Side-by-side architecture diagrams of 6 models in 2x3 grid: ResNet-1D, InceptionTime, ViT-ECG, ECG-TransFormer, CAT-Net variant, CNN-TransFormer.",
+      "cited_in": ["methods"]
+    },
+    {
+      "id": "fig-pareto",
+      "filename": "fig3_pareto",
+      "narrative_role": "Main Results",
+      "type": "scatter_pareto",
+      "panels": 1,
+      "color_scheme": {"cnn": "#2563EB", "transformer": "#F59E0B", "hybrid": "#10B981"},
+      "data_source": "tbl-main-results + tbl-compute",
+      "dimensions": {"width_mm": 90, "height_mm": 80},
+      "description": "Accuracy vs FLOPs scatter plot with Pareto frontier. Point size proportional to model parameters. Three architecture families color-coded.",
+      "cited_in": ["results"]
+    },
+    {
+      "id": "fig-gradcam",
+      "filename": "fig4_gradcam",
+      "narrative_role": "Mechanism",
+      "type": "heatmap_grid",
+      "panels": 9,
+      "color_scheme": {"colormap": "jet", "background": "white"},
+      "data_source": "model_attention_weights",
+      "dimensions": {"width_mm": 180, "height_mm": 100},
+      "description": "Grad-CAM attention visualization: 3 rows (CNN, Transformer, Hybrid) x 3 columns (Normal, SVT, VT) showing where each model focuses on ECG morphology.",
+      "cited_in": ["results", "discussion"]
+    }
+  ]
+}

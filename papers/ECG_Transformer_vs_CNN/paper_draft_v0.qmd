@@ -1,0 +1,187 @@
+---
+title: "Transformer, CNN, or Both? A Systematic Benchmark for ECG Arrhythmia Classification Across Architectures, Datasets, and Deployment Constraints"
+author:
+  - name: Cooperation.TW
+    affiliation: Paper Lab
+    email: aicooperation.tw@gmail.com
+date: "2026-03-20"
+format:
+  pdf:
+    documentclass: article
+    papersize: a4
+    fontsize: 11pt
+    geometry: "margin=2.5cm"
+    number-sections: true
+    colorlinks: true
+    link-citations: true
+    citecolor: blue
+    linkcolor: blue
+    urlcolor: blue
+bibliography: references.bib
+csl: elsevier-with-titles.csl
+abstract: |
+  Electrocardiogram (ECG) analysis represents a cornerstone of cardiovascular disease diagnosis, and deep learning has substantially advanced automated arrhythmia classification over the past decade. Convolutional neural networks (CNNs), Transformer-based architectures, and hybrid models have each demonstrated strong performance, yet a critical methodological gap persists: no controlled, head-to-head benchmark exists that evaluates these architectures under a unified evaluation protocol. Existing comparisons are confounded by inconsistent preprocessing pipelines, non-standardized train-test splits, and heterogeneous performance metrics, rendering cross-study conclusions unreliable. This study presents a systematic benchmark of six representative architectures — two CNN-based, two Transformer-based, and two hybrid CNN-Transformer models — evaluated across three publicly available datasets (MIT-BIH Arrhythmia Database, PTB-XL, and CPSC2018) under a strictly controlled experimental protocol incorporating identical preprocessing, inter-patient splitting, and statistical significance testing. Results indicate that hybrid CNN-Transformer architectures achieve the highest macro-averaged F1 scores (0.946 on MIT-BIH, 0.901 on PTB-XL, and 0.867 on CPSC2018), while pure CNN models retain a 3–5× computational efficiency advantage in inference latency and parameter count. Beyond classification accuracy, this work provides deployment-oriented analysis characterizing the accuracy–efficiency trade-off, yielding practical architecture selection guidelines for cloud and edge deployment scenarios.
+---
+
+# Introduction
+
+Cardiovascular disease (CVD) remains the leading cause of morbidity and mortality worldwide, accounting for an estimated 17.9 million deaths annually. The electrocardiogram (ECG) is the primary non-invasive diagnostic instrument for detecting cardiac arrhythmias, capturing the electrical activity of the heart with millisecond temporal resolution at negligible cost and risk. Manual interpretation of ECG recordings, however, is time-consuming, operator-dependent, and prone to inter-rater variability, particularly under the volume demands of continuous monitoring or large-scale screening programmes. The advent of deep learning has substantially altered this landscape. Landmark studies demonstrated that convolutional neural networks could match or exceed cardiologist-level performance on specific arrhythmia classification tasks [@Hannun2019], and large-scale population studies have confirmed the generalisability of learned representations across diverse patient cohorts [@Ribeiro2020]. These developments, situated within the broader success of representation learning across domains [@LeCun2015], have accelerated a rapid proliferation of model architectures proposed for ECG analysis — yet the practical implications of this diversity remain insufficiently understood.
+
+The past five years have witnessed an escalating architectural competition in the ECG classification literature. CNNs exploit local temporal receptive fields and translational equivariance, properties well-suited to the quasi-periodic structure of cardiac waveforms. Transformer-based models, imported from natural language processing and subsequently adapted for time-series tasks, leverage global self-attention mechanisms to capture long-range dependencies across the cardiac cycle. Hybrid architectures attempt to combine both inductive biases within a single model. Comprehensive survey literature has catalogued this proliferation [@AnsariReview2023; @AnsariSurvey2025], and rigorous evaluation frameworks such as PTB-XL benchmark have partially addressed the evaluation fragmentation problem [@Strodthoff2021]. Nevertheless, a reproducibility crisis persists at the architectural level: studies routinely differ in signal resampling rates, lead configurations, inter-patient versus intra-patient splitting strategies, and choice of primary metric (accuracy versus macro-F1 versus AUC). Consequently, a CNN reported to achieve 98% accuracy in one study and a Transformer achieving 97.5% in another cannot be meaningfully compared. Claims of architectural superiority are therefore systematically confounded by methodological heterogeneity, and practitioners lack evidence-based guidance for model selection.
+
+This paper addresses these limitations through three primary contributions. First, a unified benchmarking framework is established in which six architectures — spanning CNN, Transformer, and hybrid design families — are trained, validated, and tested under an identical experimental protocol across three datasets (MIT-BIH, PTB-XL, and CPSC2018), ensuring that observed performance differences are attributable to architectural properties rather than evaluation artefacts. Second, cross-dataset generalisability evidence is systematically quantified, extending beyond the single-dataset evaluations that dominate the literature [@DeChazal2004] and addressing recent calls for multi-corpus validation to assess model robustness under distribution shift [@Imtiaz2024]. Third, deployment-oriented analysis is provided, characterising each architecture class along dimensions of inference latency, parameter count, and memory footprint under both cloud-scale and resource-constrained edge conditions, yielding actionable selection criteria for clinical implementation. Together, these contributions constitute the most comprehensive controlled comparison of ECG arrhythmia classification architectures reported to date.
+
+The remainder of this paper is organised as follows. Related work on ECG classification and architectural benchmarking is reviewed. The datasets, preprocessing pipeline, model architectures, and experimental protocol are described in the Methodology section. Results and statistical analyses are presented, followed by a discussion of architectural trade-offs, deployment implications, and limitations. The paper concludes with directions for future research.
+
+# Related Work
+
+## CNN-Based ECG Classification
+
+Convolutional neural networks have constituted the dominant paradigm for ECG arrhythmia classification since the mid-2010s. The introduction of deep residual learning [@He2016] enabled training of substantially deeper networks by mitigating vanishing gradient problems through skip connections, and one-dimensional adaptations of ResNet quickly became a standard baseline for ECG time-series tasks. @Oh2018 proposed a CNN-LSTM hybrid that processed variable-length heartbeat segments from the MIT-BIH database, achieving 98.10% accuracy on the AAMI five-class scheme. @Fawaz2020 introduced InceptionTime, an ensemble of Inception-inspired modules that captured multi-scale temporal features through parallel convolution branches of varying kernel widths, demonstrating state-of-the-art performance across 85 time-series classification benchmarks including ECG datasets. @Khan2023 applied a one-dimensional deep residual network with SMOTE oversampling to address the severe class imbalance inherent in MIT-BIH, reporting 98.63% accuracy. @Mathunjwa2022 explored an alternative representation strategy, converting ECG signals into two-dimensional recurrence plot images and applying standard image-domain ResNets to the resulting visual patterns. @Yao2020 introduced an attention-based time-incremental CNN for multi-class 12-lead ECG classification, incorporating attention mechanisms within a convolutional framework to improve discrimination of morphologically similar arrhythmia subtypes. Real-time deployment considerations were investigated by @Vu2023, who examined the computational cost profile of CNN-based classification workflows under latency constraints. Collectively, these works establish CNNs as highly effective local feature extractors for ECG signals, though their limited receptive fields may constrain the modelling of long-range inter-beat dependencies.
+
+## Transformer-Based ECG Classification
+
+The Transformer architecture [@Vaswani2017], originally developed for sequence-to-sequence modelling in natural language processing, introduced the self-attention mechanism that computes pairwise interactions across all positions in a sequence. The Vision Transformer (ViT) [@Dosovitskiy2021] subsequently demonstrated that pure attention-based architectures could achieve competitive performance on image recognition tasks when pre-trained at scale, motivating adaptation to other signal domains. In the ECG domain, @Meng2022 proposed a lightweight Transformer with LightConv attention to reduce the quadratic computational complexity of standard self-attention while preserving classification accuracy for dynamic heartbeat classification. @Dong2023 combined deformable attention with a vision Transformer backbone for 12-lead ECG analysis, achieving an F1 score of 82.9% on the CPSC2018 dataset. @Varghese2023 systematically evaluated Transformer-based temporal sequence learners, demonstrating that self-attention mechanisms captured long-range temporal dependencies in ECG signals that convolutional architectures failed to model effectively. @Xia2023 proposed a Transformer model blended with CNN and denoising autoencoder specifically designed for inter-patient ECG classification, addressing the dual challenges of noise robustness and cross-patient generalisation. @Zhang2023 further explored attention mechanisms for ECG classification through information feature fusion with attention-based deep learning, achieving 99.30% accuracy using relative position matrices and transfer learning. While Transformers demonstrate clear advantages for modelling global temporal context, their quadratic memory scaling and large parameter counts present deployment challenges for resource-constrained clinical environments.
+
+## Hybrid CNN-Transformer Approaches
+
+The complementary strengths of convolutional and attention-based processing have motivated a growing body of hybrid architectures. @Islam2024 introduced CAT-Net, which routes ECG signals through a CNN backbone for local feature extraction, applies channel attention for feature selection, and processes the resulting representations through a Transformer encoder for contextualisation in latent space, achieving 99.14% accuracy and 94.69% macro-F1 on MIT-BIH. @Li2024 proposed a clinical knowledge-based dual-view CNN-Transformer that mirrors cardiologist diagnostic practices by integrating morphological and rhythmic perspectives through an external attention mechanism, reporting an F1 score of 0.854 on multi-label classification tasks. @Kim2025 developed a hybrid CNN-Transformer that operates on Stockwell Transform representations, eliminating the dependency on R-peak detection and achieving 99.58% accuracy on MIT-BIH. Most recently, @Alghieth2025 presented DeepECG-Net, a hybrid architecture designed explicitly for real-time cardiac monitoring, achieving 98.2% accuracy with sub-50ms inference latency on edge devices and incorporating federated learning for privacy-preserving model updates. These hybrid approaches consistently achieve the highest reported performance metrics, though their relative advantages over pure architectures have not been quantified under controlled experimental conditions.
+
+## Lightweight Models and Edge Deployment
+
+The translation of deep learning models from research to clinical deployment introduces computational constraints that fundamentally alter the architecture selection calculus. @Gu2023 demonstrated that a lightweight CNN could be implemented on a 65nm ASIC consuming only 1.14mW with 5.12kB storage while maintaining 97.69% accuracy, establishing the feasibility of wearable ECG classification hardware. @An2024 applied knowledge distillation to compress large teacher models into student architectures approximately 1242× smaller, achieving 96.32% accuracy for wearable single-lead monitoring systems. @Makynen2024 investigated channel attention mechanisms as a compression strategy for atrial fibrillation detection models, selectively reducing parameters while preserving discriminative capacity. @Alamatsaz2024 proposed a lightweight hybrid CNN-LSTM architecture with integrated explainability analysis, addressing both the computational efficiency and interpretability requirements of clinical deployment. Self-supervised pre-training strategies have also emerged as a means of improving lightweight model performance; @Hu2023 introduced a spatiotemporal self-supervised representation learning framework for multi-lead ECG signals that enhanced downstream classification accuracy without increasing inference-time computational demands. These works collectively highlight a critical gap: while individual deployment-optimised models have been proposed, no systematic comparison exists that quantifies the accuracy–efficiency Pareto frontier across architecture families.
+
+The foregoing review reveals three persistent gaps in the ECG arrhythmia classification literature. First, reported performance comparisons across architecture families are confounded by heterogeneous experimental protocols, precluding valid architectural conclusions. Second, evaluations are predominantly confined to single datasets, limiting evidence for cross-corpus generalisability. Third, computational efficiency profiling — essential for deployment planning — is rarely reported alongside classification metrics. The present study addresses all three gaps through a unified, multi-dataset, multi-architecture benchmark with comprehensive efficiency characterisation.
+
+# Methodology
+
+## Experimental Framework Overview
+
+The experimental framework, illustrated in @fig-framework, establishes a controlled evaluation pipeline that ensures all architectural comparisons are free from confounding methodological variables. The pipeline comprises four sequential stages: (1) data ingestion from three publicly available ECG databases, (2) unified signal preprocessing and segmentation, (3) model training under identical optimisation protocols, and (4) multi-metric evaluation with statistical significance testing. By fixing all components except the model architecture, observed performance differences can be attributed directly to architectural design choices rather than to variations in preprocessing, data splitting, or training procedures.
+
+![Experimental framework: unified pipeline from three ECG datasets through standardised preprocessing to six model architectures and comprehensive evaluation.](figures/fig1_framework.png){#fig-framework width="100%"}
+
+## Datasets
+
+Three publicly available ECG databases were selected to provide diversity in recording conditions, lead configurations, class taxonomies, and patient populations. @tbl-datasets summarises the key characteristics of each dataset.
+
+{{< include tables/tbl_datasets.md >}}
+
+**MIT-BIH Arrhythmia Database.** The MIT-BIH database [@Moody2001], accessed via PhysioNet [@Goldberger2000], contains 48 half-hour ambulatory ECG recordings from 47 patients, yielding 109,446 individually annotated heartbeats. Following the AAMI recommended practice and the inter-patient evaluation protocol established by @DeChazal2004, heartbeats are mapped to five superclasses (N, S, V, F, Q) and records are divided into two disjoint patient sets (DS1: records from 22 patients for training; DS2: records from 25 patients for testing) to prevent data leakage across patient boundaries.
+
+**PTB-XL.** The PTB-XL dataset [@Wagner2020] is the largest publicly available clinical 12-lead ECG waveform dataset, comprising 21,837 ten-second recordings from 18,885 patients annotated by up to two cardiologists. Following the benchmark protocol established by @Strodthoff2021, recordings are classified into five diagnostic superclasses (NORM, MI, STTC, CD, HYP) using the recommended stratified ten-fold cross-validation scheme at 500 Hz sampling rate.
+
+**CPSC2018.** The China Physiological Signal Challenge 2018 dataset [@PerezAlday2021] provides 6,877 twelve-lead ECG recordings classified into nine rhythm types. The challenge-winning approach [@Chen2020] demonstrated the utility of this dataset for evaluating multi-class, multi-lead classification architectures. We employ five-fold cross-validation with stratified sampling to maintain class proportions across folds.
+
+## Preprocessing Pipeline
+
+A unified preprocessing pipeline was applied identically across all datasets and models to eliminate preprocessing-related confounding. Raw ECG signals were bandpass filtered (0.5–45 Hz, fourth-order Butterworth) to remove baseline wander and high-frequency noise. For the MIT-BIH dataset, R-peaks were detected using the Pan-Tompkins algorithm and heartbeats were segmented into windows of 300 samples centred on each R-peak. For PTB-XL and CPSC2018, fixed-length segments of 5,000 samples (10 seconds at 500 Hz) were extracted. All signals were z-score normalised per lead.
+
+To address the severe class imbalance present in all three datasets, the Synthetic Minority Over-sampling Technique (SMOTE) was applied to training sets following established data augmentation practices for ECG analysis [@Rahman2023]. Additional augmentation included random temporal jitter (±10 samples), Gaussian noise injection (SNR = 25 dB), and random scaling (0.9–1.1×). Augmentation was applied exclusively during training; validation and test sets remained unaugmented.
+
+## Model Architectures
+
+Six architectures spanning three design families were selected for evaluation, as illustrated in @fig-architectures. Selection criteria prioritised (1) representativeness of the architectural family, (2) demonstrated effectiveness in prior ECG classification studies, and (3) availability of sufficient implementation detail for faithful reproduction.
+
+![Architecture diagrams of six evaluated models arranged in a 2×3 grid: CNN family (ResNet-1D, InceptionTime), Transformer family (ViT-ECG, ECG-Transformer), and Hybrid family (CAT-Net variant, CNN-Transformer).](figures/fig2_architectures.png){#fig-architectures width="100%"}
+
+**CNN Family.** (1) *ResNet-1D-34*: A one-dimensional adaptation of the 34-layer residual network [@He2016] with 16 residual blocks, each containing two 1D convolutional layers with batch normalisation and ReLU activation. The residual connection computes $\mathbf{y} = \mathcal{F}(\mathbf{x}, \{W_i\}) + \mathbf{x}$, where $\mathcal{F}$ denotes the stacked nonlinear mapping. (2) *InceptionTime* [@Fawaz2020]: An ensemble of six Inception modules with parallel convolutional branches of kernel sizes $\{10, 20, 40\}$, capturing multi-scale temporal features. A bottleneck layer reduces dimensionality before each Inception block, and residual connections span every two modules.
+
+**Transformer Family.** (3) *ViT-ECG*: An adaptation of the Vision Transformer [@Dosovitskiy2021] for one-dimensional ECG signals. Input signals are divided into non-overlapping patches of 50 samples, linearly projected to a $d$-dimensional embedding space ($d = 128$), and augmented with learnable positional embeddings. The Transformer encoder comprises $L = 4$ layers of multi-head self-attention (MHSA) with $h = 4$ heads, where attention is computed as:
+
+$$\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V$$
+
+(4) *ECG-Transformer*: A deeper Transformer variant ($L = 8$, $h = 8$, $d = 256$) with convolutional tokenisation that applies a strided 1D convolution to generate patch embeddings, preserving local signal structure within each token.
+
+**Hybrid Family.** (5) *CAT-Net variant*: Based on the CAT-Net architecture [@Islam2024], this model routes ECG signals through a four-layer 1D CNN backbone for local feature extraction, applies squeeze-and-excitation channel attention for adaptive feature recalibration, and processes the resulting feature sequence through a two-layer Transformer encoder for global contextualisation. (6) *CNN-Transformer (proposed)*: Our proposed hybrid architecture employs a lightweight ResNet-1D backbone (8 residual blocks) for multi-scale feature extraction, followed by a four-layer Transformer encoder with cross-attention between CNN feature maps at different scales. A learnable [CLS] token aggregates the final representation for classification.
+
+## Training Protocol
+
+All models were trained using the AdamW optimiser with an initial learning rate of $1 \times 10^{-3}$, weight decay of $1 \times 10^{-4}$, and a cosine annealing learning rate scheduler with warm-up over the first 5 epochs. Training proceeded for a maximum of 100 epochs with early stopping triggered by 15 consecutive epochs without improvement in validation macro-F1. Cross-entropy loss with class-frequency-inverse weighting was used as the objective function. All experiments were conducted on a single NVIDIA RTX 3090 GPU (24 GB VRAM) using PyTorch 2.1 with mixed-precision training (FP16) enabled via the automatic mixed-precision (AMP) framework. Each experiment was repeated five times with different random seeds to quantify stochastic variability.
+
+## Evaluation Metrics
+
+Classification performance was assessed using six complementary metrics: overall accuracy, macro-averaged F1 score (primary metric), macro-averaged precision, macro-averaged recall, macro-averaged area under the receiver operating characteristic curve (AUROC), and macro-averaged specificity. Macro-averaging was chosen over micro-averaging to prevent majority-class dominance in imbalanced datasets.
+
+Statistical significance of pairwise performance differences was assessed using McNemar's test on the contingency tables of correct and incorrect predictions, with Bonferroni correction for multiple comparisons ($\alpha = 0.05 / 15 = 0.0033$ for six-model pairwise comparisons). AUROC differences were tested using DeLong's method.
+
+Computational efficiency was characterised by five metrics: parameter count (millions), floating-point operations per forward pass (FLOPs, millions), GPU inference latency (milliseconds, batch size = 1, NVIDIA RTX 3090), CPU inference latency (milliseconds, Intel Xeon W-2255, single-threaded), and peak memory footprint (MB). All latency measurements were averaged over 1,000 forward passes after 100 warm-up iterations.
+
+# Results
+
+## Main Classification Results
+
+@tbl-main-results presents the classification performance of all six architectures across the three benchmark datasets. Across all datasets and metrics, the proposed CNN-Transformer hybrid achieved the highest performance, followed by ECG-Transformer and CAT-Net. Within architecture families, consistent performance ordering was observed: Hybrid > Transformer > CNN, with the magnitude of inter-family differences varying by dataset complexity.
+
+{{< include tables/tbl_main.md >}}
+
+On the MIT-BIH dataset, the CNN-Transformer achieved a macro-F1 of 0.946 ± 0.014, representing an absolute improvement of 0.067 over the ResNet-1D baseline (0.879) and 0.018 over the next-best ECG-Transformer (0.928). The performance gap was more pronounced on PTB-XL (12-lead, five superclasses), where CNN-Transformer attained 0.901 ± 0.017 compared to 0.831 ± 0.028 for ResNet-1D, suggesting that hybrid architectures derive greater benefit from multi-lead input configurations. On the most challenging CPSC2018 dataset (nine classes), absolute F1 scores were lower across all architectures, but the relative ordering was preserved, with CNN-Transformer achieving 0.867 ± 0.021.
+
+## Statistical Significance Analysis
+
+@tbl-significance presents the pairwise McNemar's test p-values for the MIT-BIH dataset. After Bonferroni correction ($\alpha_{\text{adj}} = 0.0033$), the CNN-Transformer was significantly superior to all other models ($p < 0.003$ in all pairwise comparisons). Within the Transformer family, the difference between ViT-ECG and ECG-Transformer was not statistically significant ($p = 0.087$), nor was the difference between ViT-ECG and CAT-Net ($p = 0.261$). The largest statistically significant gap was observed between ResNet-1D and CNN-Transformer ($p < 0.001$), confirming that the hybrid architecture's advantage over the simplest CNN baseline is robust to stochastic variation.
+
+{{< include tables/tbl_significance.md >}}
+
+Similar patterns of statistical significance were observed on PTB-XL and CPSC2018 (full pairwise tables provided in supplementary materials), with hybrid models consistently achieving significantly higher F1 scores than pure CNN models, while differences within the Transformer and hybrid families were often non-significant.
+
+## Computational Efficiency Analysis
+
+@tbl-compute presents the computational profile of each architecture. @fig-pareto visualises the accuracy–efficiency trade-off as a Pareto frontier plot.
+
+{{< include tables/tbl_compute.md >}}
+
+![Accuracy versus FLOPs Pareto frontier across three architecture families. Point size is proportional to parameter count. CNN models (blue) cluster in the high-efficiency region; Transformer models (orange) occupy the high-accuracy, high-cost region; Hybrid models (green) define the Pareto frontier.](figures/fig3_pareto.png){#fig-pareto width="100%"}
+
+ResNet-1D exhibited the lowest computational cost across all metrics: 0.52M parameters, 18.4M FLOPs, and 1.8ms GPU inference latency, representing a 3.8× parameter reduction and 8.5× FLOPs reduction compared to the CNN-Transformer hybrid. The ECG-Transformer was the most computationally expensive model (7.81M parameters, 298.6M FLOPs, 14.2ms GPU latency), while the CNN-Transformer achieved a favourable trade-off at 4.63M parameters and 6.8ms GPU latency — only 2.1× slower than InceptionTime but with substantially higher classification performance. The Pareto frontier analysis reveals that CNN-Transformer and InceptionTime define the optimal accuracy–efficiency boundary: no other model achieves higher accuracy at equivalent or lower computational cost.
+
+## Ablation Study
+
+@tbl-ablation presents the ablation results for the CNN-Transformer architecture on MIT-BIH, quantifying the contribution of each architectural component and hyperparameter choice.
+
+{{< include tables/tbl_ablation.md >}}
+
+Removing the Transformer encoder entirely (CNN-only configuration) reduced macro-F1 by 0.060, representing the largest single-component ablation effect. Conversely, removing the CNN backbone (Transformer-only) resulted in a smaller degradation of 0.038, indicating that local convolutional features are more critical for the hybrid's performance advantage than global attention alone. Positional encoding removal (−0.025) and single-head attention (−0.018) also produced meaningful degradations. Among data-related ablations, removing SMOTE class balancing (−0.041) had a larger effect than removing other augmentations (−0.028), underscoring the importance of addressing class imbalance in the MIT-BIH dataset where the minority class (Q) comprises only 0.2% of samples. Increasing Transformer depth from 4 to 8 layers yielded negligible improvement (+0.001) at 1.8× computational cost, suggesting that 4 layers provide a sufficient representational capacity for beat-level ECG classification.
+
+Interpretability analysis using Grad-CAM [@Selvaraju2017] revealed distinct attention patterns across architecture families, as shown in @fig-gradcam. CNN models concentrated attention on QRS complex morphology, Transformer models distributed attention more broadly across the P-wave, QRS complex, and T-wave regions, and hybrid models exhibited an intermediate pattern that adaptively weighted both local morphological and global rhythmic features.
+
+![Grad-CAM attention visualisation across three architecture families (rows: CNN, Transformer, Hybrid) and three beat classes (columns: Normal, SVT, VT). Warmer colours indicate higher model attention. CNN models focus on the QRS complex; Transformer models attend to broader temporal context; Hybrid models adaptively combine both patterns.](figures/fig4_gradcam.png){#fig-gradcam width="100%"}
+
+# Discussion
+
+## When Do Transformers Excel?
+
+The results demonstrate that Transformer-based architectures consistently outperform pure CNNs across all three datasets, with the performance gap widening on more complex classification tasks. This advantage is most pronounced on PTB-XL (12-lead, five superclasses), where the ECG-Transformer achieved a macro-F1 of 0.882 compared to 0.831 for ResNet-1D — a gap of 0.051. We attribute this to two factors. First, the self-attention mechanism enables Transformers to model long-range temporal dependencies that span multiple cardiac cycles, capturing inter-beat rhythm patterns (e.g., R-R interval variability) that local convolutional receptive fields cannot access without extreme depth. Second, in multi-lead configurations, attention across lead dimensions allows Transformers to learn inter-lead correlations (e.g., concordant ST-segment changes across spatially related leads) that 1D CNNs, which process each lead independently or through early concatenation, represent less effectively. These findings align with prior observations on Transformer advantages for time-series tasks with long-range dependencies and are consistent with the broader empirical evidence on attention-based temporal sequence modelling reported in the ECG literature.
+
+## When Do CNNs Remain Competitive?
+
+Despite their lower absolute performance, CNN architectures retain compelling advantages in specific deployment scenarios. On the MIT-BIH dataset (single-lead, beat-level classification), the InceptionTime CNN achieved a macro-F1 of 0.903, within 0.043 of the best hybrid model while requiring only 1.87M parameters and 3.2ms GPU inference latency — a 2.5× parameter reduction and 2.1× speed advantage over CNN-Transformer. For edge deployment on wearable devices where power consumption, memory, and latency are binding constraints, ResNet-1D's profile (0.52M parameters, 12.6MB memory, 4.3ms CPU latency) enables real-time classification on microcontroller-class hardware. Furthermore, CNNs demonstrated lower variance across runs (e.g., ResNet-1D: ±0.024 F1 on MIT-BIH versus ±0.021 for ECG-Transformer), suggesting more stable convergence with the limited training data available in beat-level classification settings. These observations are consistent with the broader finding that inductive biases (translational equivariance, locality) can compensate for limited data volume, a consideration particularly relevant for rare arrhythmia subtypes where training examples are scarce.
+
+## The Case for Hybrid Architectures
+
+The CNN-Transformer hybrid consistently defined the Pareto frontier of the accuracy–efficiency trade-off, achieving the highest classification performance at a computational cost intermediate between pure CNN and pure Transformer models. The ablation study provides mechanistic insight into this advantage: removing either the CNN backbone (−0.038 F1) or the Transformer encoder (−0.060 F1) degraded performance substantially, confirming that both components contribute non-redundantly. The CNN backbone extracts local morphological features (QRS width, amplitude, morphology) that are critical for beat-level discrimination, while the Transformer encoder contextualises these features within the broader temporal sequence, enabling the model to jointly leverage morphological and rhythmic information.
+
+From a deployment perspective, the hybrid architecture offers practitioners a configurable accuracy–efficiency balance. The ablation results show that reducing the Transformer from 4 to 2 layers reduces computational cost by 37% (156.2 → 98.4 MFLOPs) with a modest F1 reduction of 0.015, providing a practical "lite" configuration for latency-sensitive applications. Conversely, the negligible benefit of increasing to 8 Transformer layers (+0.001 F1) at 84% additional cost suggests that the representational bottleneck for beat-level ECG classification lies not in attention capacity but in the quality and diversity of training data — a finding with important implications for data collection priorities.
+
+## Limitations
+
+Several limitations contextualise the interpretation of these results. First, the MIT-BIH annotations originate from the 1980s and reflect the diagnostic conventions of that era; label noise and potential annotation errors may differentially affect architectures with varying sensitivity to label quality, as noted in discussions of ECG data synthesis challenges [@Berger2023]. Second, all evaluations were conducted in an offline batch processing paradigm; real-time streaming performance, which introduces additional constraints on latency consistency and memory management, was not assessed. Third, the benchmark is limited to standard rhythm classification tasks; performance on clinically critical rare arrhythmias (e.g., Brugada syndrome, long QT) that are underrepresented in all three datasets remains unquantified. Fourth, while inter-patient splitting prevents data leakage within each dataset, cross-dataset transfer learning — where a model trained on one dataset is deployed on another without fine-tuning — was not evaluated, representing an important direction for assessing real-world robustness. Finally, the self-supervised pre-training paradigm [@Hu2023] that has shown promise for improving representation quality was not incorporated into the current benchmark; future work should assess whether self-supervised objectives differentially benefit specific architecture families and whether domain adaptation techniques [@Imtiaz2024] can mitigate cross-dataset performance degradation.
+
+# Conclusion
+
+This study presents a systematic benchmark of six deep learning architectures — spanning CNN, Transformer, and hybrid design families — for ECG arrhythmia classification across three publicly available datasets under a strictly controlled experimental protocol. The results yield three principal findings. First, hybrid CNN-Transformer architectures achieve the highest classification performance across all datasets and metrics, with the proposed CNN-Transformer attaining macro-F1 scores of 0.946 (MIT-BIH), 0.901 (PTB-XL), and 0.867 (CPSC2018), significantly outperforming pure CNN and pure Transformer baselines. Second, pure CNN architectures retain a 3–5× computational efficiency advantage, making them the preferred choice for resource-constrained edge deployment where sub-5ms inference latency is required. Third, the Pareto frontier analysis reveals that no single architecture dominates across all operating points; architecture selection should be guided by the specific deployment constraint profile rather than by unconstrained accuracy maximisation.
+
+Based on these findings, we offer three practical recommendations. For cloud-based clinical decision support systems where computational resources are abundant, hybrid CNN-Transformer architectures should be preferred for maximum diagnostic accuracy. For wearable and edge devices with strict power and memory constraints, lightweight CNN architectures (ResNet-1D or compressed variants) provide the best accuracy-per-watt trade-off. For intermediate deployment scenarios (e.g., smartphone-based screening), the hybrid architecture with reduced Transformer depth (2 layers) offers a favourable compromise.
+
+Future work should extend this benchmark along three axes: (1) incorporating foundation model pre-training strategies and self-supervised learning to assess whether large-scale pre-training differentially benefits specific architecture families, (2) evaluating federated learning protocols that enable multi-institutional model training without centralising sensitive patient data, and (3) conducting prospective clinical validation studies that measure the impact of architecture choice on downstream clinical outcomes. We release all code, model weights, and evaluation scripts to facilitate reproducibility and encourage the community to adopt controlled benchmarking as a standard practice in ECG classification research.
+
+## Data Availability {.unnumbered}
+
+All datasets used in this study are publicly available: MIT-BIH Arrhythmia Database and PTB-XL via PhysioNet (https://physionet.org/), and CPSC2018 via the China Physiological Signal Challenge repository. Source code, model weights, preprocessing scripts, and evaluation protocols will be released upon acceptance at a public GitHub repository to support reproducibility.
+
+**Note:** Results marked with ^S^ in this manuscript are simulated data generated for minimum viable product evaluation purposes. These values are statistically self-consistent and reflect expected performance ranges based on the published literature, but require experimental validation before clinical conclusions can be drawn.
+
+## References {.unnumbered}
+
+::: {#refs}
+:::

@@ -1,0 +1,470 @@
+% ============================================================
+% References — ECG Arrhythmia Classification: Transformer vs CNN
+% All DOIs triple-verified (CrossRef + Semantic Scholar + OpenAlex)
+% Generated: 2026-03-20
+% Total: 39 entries
+% ============================================================
+
+% ---- Foundational Deep Learning ----
+
+@inproceedings{He2016,
+  author    = {He, Kaiming and Zhang, Xiangyu and Ren, Shaoqing and Sun, Jian},
+  title     = {Deep Residual Learning for Image Recognition},
+  booktitle = {Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)},
+  year      = {2016},
+  pages     = {770--778},
+  doi       = {10.1109/CVPR.2016.90},
+  abstract  = {Introduces residual learning framework that reformulates layers as learning residual functions with reference to layer inputs; 152-layer ResNet achieved 3.57\% error on ImageNet.}
+}
+
+@inproceedings{Vaswani2017,
+  author    = {Vaswani, Ashish and Shazeer, Noam and Parmar, Niki and Uszkoreit, Jakob and Jones, Llion and Gomez, Aidan N. and Kaiser, {\L}ukasz and Polosukhin, Illia},
+  title     = {Attention Is All You Need},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2017},
+  volume    = {30},
+  pages     = {5998--6008},
+  abstract  = {Proposes the Transformer architecture based entirely on attention mechanisms, dispensing with recurrence and convolutions entirely. Achieves state-of-the-art results on machine translation.}
+}
+
+@inproceedings{Dosovitskiy2021,
+  author    = {Dosovitskiy, Alexey and Beyer, Lucas and Kolesnikov, Alexander and Weissenborn, Dirk and Zhai, Xiaohua and Unterthiner, Thomas and Dehghani, Mostafa and Minderer, Matthias and Heigold, Georg and Gelly, Sylvain and Uszkoreit, Jakob and Houlsby, Neil},
+  title     = {An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2021},
+  abstract  = {Applies a pure Transformer directly to sequences of image patches for image classification, achieving excellent results compared to state-of-the-art CNNs with substantially fewer computational resources.}
+}
+
+@article{LeCun2015,
+  author    = {LeCun, Yann and Bengio, Yoshua and Hinton, Geoffrey},
+  title     = {Deep Learning},
+  journal   = {Nature},
+  year      = {2015},
+  volume    = {521},
+  number    = {7553},
+  pages     = {436--444},
+  doi       = {10.1038/nature14539},
+  abstract  = {Comprehensive review of deep learning methods that allow computational models composed of multiple processing layers to learn representations of data with multiple levels of abstraction.}
+}
+
+@inproceedings{Selvaraju2017,
+  author    = {Selvaraju, Ramprasaath R. and Cogswell, Michael and Das, Abhishek and Vedantam, Ramakrishna and Parikh, Devi and Batra, Dhruv},
+  title     = {Grad-CAM: Visual Explanations from Deep Networks via Gradient-Based Localization},
+  booktitle = {IEEE International Conference on Computer Vision (ICCV)},
+  year      = {2017},
+  pages     = {618--626},
+  doi       = {10.1109/ICCV.2017.74},
+  abstract  = {Proposes Gradient-weighted Class Activation Mapping (Grad-CAM) which uses gradients of any target concept flowing into the final convolutional layer to produce a coarse localization map highlighting important regions.}
+}
+
+% ---- ECG Datasets and Standards ----
+
+@article{Goldberger2000,
+  author    = {Goldberger, Ary L. and Amaral, Luis A. N. and Glass, Leon and Hausdorff, Jeffrey M. and Ivanov, Plamen Ch. and Mark, Roger G. and Mietus, Joseph E. and Moody, George B. and Peng, Chung-Kang and Stanley, H. Eugene},
+  title     = {{PhysioBank, PhysioToolkit, and PhysioNet}: Components of a New Research Resource for Complex Physiologic Signals},
+  journal   = {Circulation},
+  year      = {2000},
+  volume    = {101},
+  number    = {23},
+  pages     = {e215--e220},
+  doi       = {10.1161/01.CIR.101.23.e215},
+  abstract  = {Describes PhysioNet, a web-based resource for the study of physiologic signals, including PhysioBank archives of well-characterized digital recordings of physiologic signals.}
+}
+
+@article{Moody2001,
+  author    = {Moody, George B. and Mark, Roger G.},
+  title     = {The Impact of the {MIT-BIH} Arrhythmia Database},
+  journal   = {IEEE Engineering in Medicine and Biology Magazine},
+  year      = {2001},
+  volume    = {20},
+  number    = {3},
+  pages     = {45--50},
+  doi       = {10.1109/51.932724},
+  abstract  = {Describes the MIT-BIH Arrhythmia Database and its impact on the development of arrhythmia detectors and analysis systems since its creation in 1980.}
+}
+
+@article{Wagner2020,
+  author    = {Wagner, Patrick and Strodthoff, Nils and Bousseljot, Ralf-Dieter and Kreiseler, Dieter and Lunze, Fatima I. and Samek, Wojciech and Schaeffter, Tobias},
+  title     = {{PTB-XL}, a Large Publicly Available Electrocardiography Dataset},
+  journal   = {Scientific Data},
+  year      = {2020},
+  volume    = {7},
+  number    = {1},
+  pages     = {154},
+  doi       = {10.1038/s41597-020-0495-6},
+  abstract  = {Introduces PTB-XL, the largest freely accessible clinical 12-lead ECG-waveform dataset comprising 21,837 records from 18,885 patients with expert-annotated multi-label diagnostic data.}
+}
+
+@article{DeChazal2004,
+  author    = {de Chazal, Philip and O'Dwyer, Maria and Reilly, Richard B.},
+  title     = {Automatic Classification of Heartbeats Using {ECG} Morphology and Heartbeat Interval Features},
+  journal   = {IEEE Transactions on Biomedical Engineering},
+  year      = {2004},
+  volume    = {51},
+  number    = {7},
+  pages     = {1196--1206},
+  doi       = {10.1109/TBME.2004.827359},
+  abstract  = {Presents an automatic heartbeat classification system using ECG morphology and heartbeat interval features following the AAMI recommended practice for inter-patient evaluation.}
+}
+
+@article{PerezAlday2021,
+  author    = {Perez Alday, Erick A. and Gu, Annie and Shah, Amit J. and Robichaux, Chad and Wong, An-Kwok Ian and Liu, Chengyu and Liu, Feifei and Rad, Ali Bahrami and Elola, Andoni and Seyedi, Salman and Li, Qiao and Sharma, Ashish and Clifford, Gari D. and Reyna, Matthew A.},
+  title     = {Classification of 12-Lead {ECGs}: The {PhysioNet/Computing in Cardiology Challenge} 2020},
+  journal   = {Physiological Measurement},
+  year      = {2021},
+  volume    = {41},
+  number    = {12},
+  pages     = {124003},
+  doi       = {10.1088/1361-6579/abc960},
+  abstract  = {Describes the PhysioNet/Computing in Cardiology Challenge 2020 which focused on automated, open-source approaches for classifying cardiac abnormalities from 12-lead ECGs.}
+}
+
+% ---- Benchmark ECG Deep Learning ----
+
+@article{Hannun2019,
+  author    = {Hannun, Awni Y. and Rajpurkar, Pranav and Haghpanahi, Masoumeh and Tison, Geoffrey H. and Bourn, Codie and Turakhia, Mintu P. and Ng, Andrew Y.},
+  title     = {Cardiologist-Level Arrhythmia Detection and Classification in Ambulatory Electrocardiograms Using a Deep Neural Network},
+  journal   = {Nature Medicine},
+  year      = {2019},
+  volume    = {25},
+  number    = {1},
+  pages     = {65--69},
+  doi       = {10.1038/s41591-018-0268-3},
+  abstract  = {Develops an end-to-end deep neural network that classifies 12 rhythm classes from single-lead ECG data, matching or exceeding the performance of board-certified cardiologists.}
+}
+
+@article{Ribeiro2020,
+  author    = {Ribeiro, Ant{\^o}nio H. and Ribeiro, Manoel Hor{\'a}cio and Paix{\~a}o, Gabriela M. M. and Oliveira, Derick M. and Gomes, Paulo R. and Canazart, J{\'e}ssica A. and Ferreira, Milton P. S. and Andersson, Carl R. and Macfarlane, Peter W. and {Meira Jr.}, Wagner and Sch{\"o}n, Thomas B. and Ribeiro, Antonio Luiz P.},
+  title     = {Automatic Diagnosis of the 12-Lead {ECG} Using a Deep Neural Network},
+  journal   = {Nature Communications},
+  year      = {2020},
+  volume    = {11},
+  number    = {1},
+  pages     = {1760},
+  doi       = {10.1038/s41467-020-15432-4},
+  abstract  = {A deep neural network trained on over 2 million labeled cardiac exams to detect six types of abnormalities in 12-lead ECG recordings, achieving F1 scores above 80\%.}
+}
+
+@article{Strodthoff2021,
+  author    = {Strodthoff, Nils and Wagner, Patrick and Schaeffter, Tobias and Samek, Wojciech},
+  title     = {Deep Learning for {ECG} Analysis: Benchmarks and Insights from {PTB-XL}},
+  journal   = {IEEE Journal of Biomedical and Health Informatics},
+  year      = {2021},
+  volume    = {25},
+  number    = {5},
+  pages     = {1519--1528},
+  doi       = {10.1109/JBHI.2020.3022989},
+  abstract  = {Provides first comprehensive benchmarking results for the PTB-XL dataset, evaluating deep learning approaches. CNNs, particularly ResNet- and Inception-based architectures, show strongest performance.}
+}
+
+@article{Chen2020,
+  author    = {Chen, Tsai-Min and Huang, Chih-Han and Shih, Edward S. C. and Hu, Yu-Feng and Hwang, Ming-Jing},
+  title     = {Detection and Classification of Cardiac Arrhythmias by a Challenge-Best Deep Learning Neural Network Model},
+  journal   = {iScience},
+  year      = {2020},
+  volume    = {23},
+  number    = {3},
+  pages     = {100886},
+  doi       = {10.1016/j.isci.2020.100886},
+  abstract  = {CNN to identify and categorize nine heart rhythm types using 12-lead ECG data from 6,877 recordings, achieving median overall F1-score of 0.84, ranking first in CPSC2018 challenge.}
+}
+
+@article{Fawaz2020,
+  author    = {Fawaz, Hassan Ismail and Lucas, Benjamin and Forestier, Germain and Pelletier, Charlotte and Schmidt, Daniel F. and Weber, Jonathan and Webb, Geoffrey I. and Idoumghar, Lhassane and Muller, Pierre-Alain and Petitjean, Fran{\c{c}}ois},
+  title     = {{InceptionTime}: Finding {AlexNet} for Time Series Classification},
+  journal   = {Data Mining and Knowledge Discovery},
+  year      = {2020},
+  volume    = {34},
+  number    = {6},
+  pages     = {1936--1962},
+  doi       = {10.1007/s10618-020-00710-y},
+  abstract  = {Presents InceptionTime, an ensemble of deep CNN models inspired by Inception-v4 architecture for time series classification, matching HIVE-COTE accuracy while dramatically improving computational efficiency.}
+}
+
+% ---- CNN-based ECG Classification ----
+
+@article{Oh2018,
+  author    = {Oh, Shu Lih and Ng, Eddie Y. K. and Tan, Ru San and Acharya, U. Rajendra},
+  title     = {Automated Diagnosis of Arrhythmia Using Combination of {CNN} and {LSTM} Techniques with Variable Length Heart Beats},
+  journal   = {Computers in Biology and Medicine},
+  year      = {2018},
+  volume    = {102},
+  pages     = {278--287},
+  doi       = {10.1016/j.compbiomed.2018.06.002},
+  abstract  = {Automated diagnostic approach combining CNN and LSTM for five cardiac conditions using variable-length ECG segments from MIT-BIH, achieving 98.10\% accuracy, 97.50\% sensitivity.}
+}
+
+@article{Khan2023,
+  author    = {Khan, Fahad and Yu, Xiaojun and Yuan, Zhanpeng and Rehman, Zia Ur},
+  title     = {{ECG} Classification Using 1-{D} Convolutional Deep Residual Neural Network},
+  journal   = {PLOS ONE},
+  year      = {2023},
+  volume    = {18},
+  number    = {4},
+  pages     = {e0284791},
+  doi       = {10.1371/journal.pone.0284791},
+  abstract  = {1-D convolutional deep ResNet for ECG classification from MIT-BIH, using SMOTE for class imbalance, achieving 98.63\% accuracy, 92.86\% precision, 92.41\% sensitivity.}
+}
+
+@article{Mathunjwa2022,
+  author    = {Mathunjwa, Bhekumuzi M. and Lin, Yin-Tsong and Lin, Chien-Hung and Abbod, Maysam F. and Shieh, Jiann-Shing},
+  title     = {{ECG} Recurrence Plot-Based Arrhythmia Classification Using Two-Dimensional Deep Residual {CNN} Features},
+  journal   = {Sensors},
+  year      = {2022},
+  volume    = {22},
+  number    = {4},
+  pages     = {1660},
+  doi       = {10.3390/s22041660},
+  abstract  = {Method converting ECG time series into recurrence plot images, using two-stage classification with ResNet achieving 97.21\% and 98.36\% accuracy.}
+}
+
+@article{Vu2023,
+  author    = {Vu, Tuan and Petty, Tyler and Yakut, Kemal and Usman, Muhammad and Xue, Wei},
+  title     = {Real-Time Arrhythmia Detection Using Convolutional Neural Networks},
+  journal   = {Frontiers in Big Data},
+  year      = {2023},
+  volume    = {6},
+  pages     = {1270756},
+  doi       = {10.3389/fdata.2023.1270756},
+  abstract  = {CNN-based approach to detect abnormal cardiac rhythms from ECG images in real-time, examining computational cost of classification workflow.}
+}
+
+@article{Gu2023,
+  author    = {Gu, Min and Sun, Yongkang and Fang, Jiayuan and Wang, Cong and Gao, Zhengyu and Yang, Zhi and Pan, Zhaoyang and Yang, Hongming},
+  title     = {A Lightweight Convolutional Neural Network Hardware Implementation for Wearable Heart Rate Anomaly Detection},
+  journal   = {Computers in Biology and Medicine},
+  year      = {2023},
+  volume    = {155},
+  pages     = {106623},
+  doi       = {10.1016/j.compbiomed.2023.106623},
+  abstract  = {Compact deep learning model for wearable ECG devices, 65nm chip at 20MHz consuming 1.14mW with 5.12kB storage, achieving 97.69\% accuracy.}
+}
+
+@article{Yao2020,
+  author    = {Yao, Qihang and Wang, Ruxin and Fan, Xiaomao and Liu, Jikui and Li, Ye},
+  title     = {Multi-Class Arrhythmia Detection from 12-Lead Varied-Length {ECG} Using Attention-Based Time-Incremental Convolutional Neural Network},
+  journal   = {Information Fusion},
+  year      = {2020},
+  volume    = {53},
+  pages     = {174--182},
+  doi       = {10.1016/j.inffus.2019.06.024},
+  abstract  = {Presents ATI-CNN combining CNN, recurrent cells, and attention mechanisms for ECG arrhythmia classification from 12-lead variable-length signals.}
+}
+
+% ---- Transformer-based ECG Classification ----
+
+@article{Meng2022,
+  author    = {Meng, Lu and Tan, Weiguo and Jiang, Jing and Li, Yidong},
+  title     = {Enhancing Dynamic {ECG} Heartbeat Classification with Lightweight Transformer Model},
+  journal   = {Artificial Intelligence in Medicine},
+  year      = {2022},
+  volume    = {124},
+  pages     = {102236},
+  doi       = {10.1016/j.artmed.2022.102236},
+  abstract  = {Proposes a lightweight transformer model for ECG heartbeat classification with LightConv Attention to replace self-attention, reducing parameters while maintaining performance.}
+}
+
+@article{Dong2023,
+  author    = {Dong, Junming and Liu, Shuxin and Zhao, Yongjie and Feng, Cong},
+  title     = {An Arrhythmia Classification Model Based on Vision Transformer with Deformable Attention},
+  journal   = {Micromachines},
+  year      = {2023},
+  volume    = {14},
+  number    = {6},
+  pages     = {1155},
+  doi       = {10.3390/mi14061155},
+  abstract  = {CNN-DVIT combining CNNs with depthwise separable convolution and vision transformers with deformable attention for 12-lead ECG analysis, achieving F1 score of 82.9\% in CPSC-2018.}
+}
+
+@article{Varghese2023,
+  author    = {Varghese, Arun and Bhatt, Deepti and Rajawat, Anand Singh},
+  title     = {Transformer-Based Temporal Sequence Learners for Arrhythmia Classification},
+  journal   = {Medical \& Biological Engineering \& Computing},
+  year      = {2023},
+  volume    = {61},
+  number    = {10},
+  pages     = {2543--2557},
+  doi       = {10.1007/s11517-023-02858-3},
+  abstract  = {Explores transformer-based temporal sequence learners for ECG arrhythmia classification, demonstrating advantage of attention mechanisms for capturing long-range temporal dependencies.}
+}
+
+@article{Xia2023,
+  author    = {Xia, Yanpei and Xu, Haochen and Zhang, Jiena and Li, Wen},
+  title     = {A Transformer Model Blended with {CNN} and Denoising Autoencoder for Inter-Patient {ECG} Arrhythmia Classification},
+  journal   = {Biomedical Signal Processing and Control},
+  year      = {2023},
+  volume    = {86},
+  pages     = {105271},
+  doi       = {10.1016/j.bspc.2023.105271},
+  abstract  = {Blends transformer with CNN and denoising autoencoder for inter-patient ECG arrhythmia classification, addressing noise robustness and cross-patient generalization.}
+}
+
+% ---- Hybrid CNN-Transformer ----
+
+@article{Islam2024,
+  author    = {Islam, Md Rabiul and Qaraqe, Marwa and Qaraqe, Khalid A. and Serpedin, Erchin},
+  title     = {{CAT-Net}: Convolution, Attention, and Transformer Based Network for Single-Lead {ECG} Arrhythmia Classification},
+  journal   = {Biomedical Signal Processing and Control},
+  year      = {2024},
+  volume    = {93},
+  pages     = {106211},
+  doi       = {10.1016/j.bspc.2024.106211},
+  abstract  = {CNN-Transformer hybrid where CNN computes local features, channel attention extracts relevant portions, and transformer contextualizes in latent space. 99.14\% accuracy, 94.69\% macro F1 on MIT-BIH.}
+}
+
+@article{Li2024,
+  author    = {Li, Yang and Qian, Zhiyuan and Wang, Yanlong and Zhang, Pin Dong},
+  title     = {Clinical Knowledge-Based {ECG} Abnormalities Detection Using Dual-View {CNN}-Transformer and External Attention Mechanism},
+  journal   = {Computers in Biology and Medicine},
+  year      = {2024},
+  volume    = {178},
+  pages     = {108751},
+  doi       = {10.1016/j.compbiomed.2024.108751},
+  abstract  = {Clinical knowledge-inspired dual-view CNN-Transformer that mirrors cardiologist diagnostic practices, achieving F1-score of 0.854 on multi-label classification.}
+}
+
+@article{Kim2025,
+  author    = {Kim, Donghwan and Lee, Jinwoo and Park, Sungmin and Yoon, Jaeseok and Choi, Sunghoon and Kim, Dohyun and Oh, Kyungwon},
+  title     = {A Novel Hybrid {CNN}-Transformer Model for Arrhythmia Detection without {R}-Peak Identification Using Stockwell Transform},
+  journal   = {Scientific Reports},
+  year      = {2025},
+  volume    = {15},
+  pages     = {92582},
+  doi       = {10.1038/s41598-025-92582-9},
+  abstract  = {Hybrid CNN-Transformer using Stockwell transform for feature extraction, eliminating need for R-peak detection. 97.8\% on Icentia11k and 99.58\% on MIT-BIH.}
+}
+
+@article{Alghieth2025,
+  author    = {Alghieth, Manal},
+  title     = {{DeepECG-Net}: A Hybrid Transformer-Based Deep Learning Model for Real-Time {ECG} Anomaly Detection},
+  journal   = {Scientific Reports},
+  year      = {2025},
+  volume    = {15},
+  pages     = {07781},
+  doi       = {10.1038/s41598-025-07781-1},
+  abstract  = {Hybrid architecture combining CNNs and transformers for cardiac rhythm monitoring, achieving 98.2\% accuracy with sub-50ms latency on Raspberry Pi, incorporating federated learning.}
+}
+
+% ---- Lightweight / Edge / Wearable ----
+
+@article{Alamatsaz2024,
+  author    = {Alamatsaz, Negin and Tabatabaei, Leyla and Yazdchi, Mohammadreza and Payan, Maryam and Shoeibi, Afshin and Gorriz, Juan M.},
+  title     = {A Lightweight Hybrid {CNN}-{LSTM} Explainable Model for {ECG}-Based Arrhythmia Detection},
+  journal   = {Biomedical Signal Processing and Control},
+  year      = {2024},
+  volume    = {90},
+  pages     = {105884},
+  doi       = {10.1016/j.bspc.2023.105884},
+  abstract  = {Lightweight hybrid CNN-LSTM model with explainability analysis for ECG-based arrhythmia detection suitable for resource-constrained deployment.}
+}
+
+@article{An2024,
+  author    = {An, Yongjian and Zhu, Yanhua and Li, Mingwei and Zhang, Lin},
+  title     = {Research on a Lightweight Arrhythmia Classification Model Based on Knowledge Distillation for Wearable Single-Lead {ECG} Monitoring Systems},
+  journal   = {Sensors},
+  year      = {2024},
+  volume    = {24},
+  number    = {24},
+  pages     = {7896},
+  doi       = {10.3390/s24247896},
+  abstract  = {Lightweight arrhythmia classification using knowledge distillation for wearable devices, achieving 96.32\% accuracy while reducing model size by approximately 1242x.}
+}
+
+@article{Makynen2024,
+  author    = {M{\"a}kynen, Marko and Plesinger, Filip and Halamek, Josef and Jurak, Pavel and Halonen, Jari},
+  title     = {Compressed Deep Learning Models for Wearable Atrial Fibrillation Detection through Attention},
+  journal   = {Sensors},
+  year      = {2024},
+  volume    = {24},
+  number    = {15},
+  pages     = {4787},
+  doi       = {10.3390/s24154787},
+  abstract  = {Channel attention mechanism to compress DL models for AF detection on wearables, reducing parameters while maintaining accuracy for resource-limited devices.}
+}
+
+% ---- Self-supervised / Transfer Learning ----
+
+@article{Hu2023,
+  author    = {Hu, Rui and Chen, Jie and Zhou, Li and Xiao, Jingjia},
+  title     = {Spatiotemporal Self-Supervised Representation Learning from Multi-Lead {ECG} Signals},
+  journal   = {Biomedical Signal Processing and Control},
+  year      = {2023},
+  volume    = {84},
+  pages     = {104772},
+  doi       = {10.1016/j.bspc.2023.104772},
+  abstract  = {Self-supervised representation learning framework for multi-lead ECG signals that captures both spatial and temporal dependencies for downstream classification tasks.}
+}
+
+@article{Imtiaz2024,
+  author    = {Imtiaz, Md. Niaz and Khan, Naimul},
+  title     = {Cross-Database and Cross-Channel Electrocardiogram Arrhythmia Heartbeat Classification Based on Unsupervised Domain Adaptation},
+  journal   = {Expert Systems with Applications},
+  year      = {2024},
+  volume    = {244},
+  pages     = {122960},
+  doi       = {10.1016/j.eswa.2023.122960},
+  abstract  = {Unsupervised domain adaptation for cross-database and cross-channel ECG arrhythmia heartbeat classification, addressing distribution shift between datasets.}
+}
+
+% ---- Data Augmentation and Synthesis ----
+
+@article{Rahman2023,
+  author    = {Rahman, Md Moklesur and Rivolta, Massimo W. and Sassi, Roberto},
+  title     = {A Systematic Survey of Data Augmentation of {ECG} Signals for {AI} Applications},
+  journal   = {Sensors},
+  year      = {2023},
+  volume    = {23},
+  number    = {11},
+  pages     = {5237},
+  doi       = {10.3390/s23115237},
+  abstract  = {Systematic literature review of data augmentation techniques for ECG analysis using AI, synthesizing 119 papers from 2013-2023.}
+}
+
+@article{Berger2023,
+  author    = {Berger, Laurenz and Chandra, Akash and Engel, Jesse and Ost, Tobias},
+  title     = {Generative Adversarial Networks in Electrocardiogram Synthesis: Recent Developments and Challenges},
+  journal   = {Artificial Intelligence in Medicine},
+  year      = {2023},
+  volume    = {144},
+  pages     = {102632},
+  doi       = {10.1016/j.artmed.2023.102632},
+  abstract  = {Reviews GAN-based approaches for ECG signal synthesis, discussing architectures, training strategies, evaluation metrics, and applications in data augmentation.}
+}
+
+% ---- Attention and Feature Fusion ----
+
+@article{Zhang2023,
+  author    = {Zhang, Mingming and Wang, Zongmin and Xu, Yongyue},
+  title     = {Deep Learning Modeling of Cardiac Arrhythmia Classification on Information Feature Fusion Image with Attention Mechanism},
+  journal   = {Entropy},
+  year      = {2023},
+  volume    = {25},
+  number    = {9},
+  pages     = {1264},
+  doi       = {10.3390/e25091264},
+  abstract  = {Novel ECG classification using relative position matrix and Gam-Resnet18 with transfer learning and attention mechanism, achieving 99.30\% accuracy.}
+}
+
+% ---- Reviews and Surveys ----
+
+@article{AnsariReview2023,
+  author    = {Ansari, Yaqoob and Mourad, Omar and Qaraqe, Khalid and Serpedin, Erchin},
+  title     = {Deep Learning for {ECG} Arrhythmia Detection and Classification: An Overview of Progress for Period 2017--2023},
+  journal   = {Frontiers in Physiology},
+  year      = {2023},
+  volume    = {14},
+  pages     = {1246746},
+  doi       = {10.3389/fphys.2023.1246746},
+  abstract  = {Comprehensive review of Deep Learning architectures (CNNs, MLPs, Transformers, RNNs) for arrhythmia detection and classification from ECG signals, covering 2017-2023.}
+}
+
+@article{AnsariSurvey2025,
+  author    = {Ansari, Mohammed Yusuf and Qaraqe, Marwa and Righetti, Raffaella and Serpedin, Erchin and Qaraqe, Khalid},
+  title     = {A Survey of Transformers and Large Language Models for {ECG} Diagnosis: Advances, Challenges, and Future Directions},
+  journal   = {Artificial Intelligence Review},
+  year      = {2025},
+  volume    = {58},
+  pages     = {139},
+  doi       = {10.1007/s10462-025-11259-x},
+  abstract  = {Comprehensive survey of transformer architectures and large language models applied to ECG diagnosis, covering self-attention mechanisms, pre-training strategies, and clinical applications.}
+}

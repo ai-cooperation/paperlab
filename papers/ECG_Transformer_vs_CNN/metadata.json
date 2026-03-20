@@ -1,0 +1,93 @@
+{
+  "paper_topic": "ECG Arrhythmia Classification: Transformer vs CNN Benchmark",
+  "target_journal": "Computers in Biology and Medicine",
+  "mode": "mvp",
+  "generated_date": "2026-03-20",
+  "total_references": 39,
+  "cite_in_classification": {
+    "introduction": [
+      "LeCun2015", "Hannun2019", "Ribeiro2020", "AnsariReview2023",
+      "Moody2001", "Wagner2020", "Strodthoff2021", "AnsariSurvey2025"
+    ],
+    "related_work_cnn": [
+      "He2016", "Fawaz2020", "Oh2018", "Khan2023", "Mathunjwa2022",
+      "Vu2023", "Yao2020", "DeChazal2004"
+    ],
+    "related_work_transformer": [
+      "Vaswani2017", "Dosovitskiy2021", "Meng2022", "Dong2023",
+      "Varghese2023", "Xia2023"
+    ],
+    "related_work_hybrid": [
+      "Islam2024", "Li2024", "Kim2025", "Alghieth2025"
+    ],
+    "related_work_lightweight": [
+      "Alamatsaz2024", "An2024", "Gu2023", "Makynen2024"
+    ],
+    "methodology": [
+      "He2016", "Vaswani2017", "Dosovitskiy2021", "Fawaz2020",
+      "Selvaraju2017", "Rahman2023", "DeChazal2004"
+    ],
+    "datasets": [
+      "Moody2001", "Goldberger2000", "Wagner2020", "Chen2020",
+      "PerezAlday2021"
+    ],
+    "results": [
+      "Strodthoff2021", "Islam2024", "Hannun2019", "Meng2022",
+      "Kim2025", "Dong2023", "Oh2018", "Khan2023"
+    ],
+    "discussion": [
+      "AnsariSurvey2025", "AnsariReview2023", "Alamatsaz2024",
+      "An2024", "Gu2023", "Hu2023", "Imtiaz2024", "Berger2023"
+    ],
+    "augmentation_synthesis": [
+      "Rahman2023", "Berger2023"
+    ],
+    "self_supervised": [
+      "Hu2023", "Imtiaz2024"
+    ],
+    "explainability": [
+      "Selvaraju2017", "Zhang2023"
+    ]
+  },
+  "references": [
+    {"citekey": "He2016", "doi": "10.1109/CVPR.2016.90", "year": 2016, "citations": 223265, "category": "foundational"},
+    {"citekey": "Vaswani2017", "doi": null, "year": 2017, "citations": null, "category": "foundational", "note": "NeurIPS proceedings, no traditional DOI"},
+    {"citekey": "Dosovitskiy2021", "doi": null, "year": 2021, "citations": null, "category": "foundational", "note": "ICLR proceedings, no traditional DOI"},
+    {"citekey": "LeCun2015", "doi": "10.1038/nature14539", "year": 2015, "citations": null, "category": "foundational"},
+    {"citekey": "Selvaraju2017", "doi": "10.1109/ICCV.2017.74", "year": 2017, "citations": null, "category": "explainability"},
+    {"citekey": "Goldberger2000", "doi": "10.1161/01.CIR.101.23.e215", "year": 2000, "citations": null, "category": "dataset"},
+    {"citekey": "Moody2001", "doi": "10.1109/51.932724", "year": 2001, "citations": 4366, "category": "dataset"},
+    {"citekey": "Wagner2020", "doi": "10.1038/s41597-020-0495-6", "year": 2020, "citations": 1288, "category": "dataset"},
+    {"citekey": "DeChazal2004", "doi": "10.1109/TBME.2004.827359", "year": 2004, "citations": null, "category": "benchmark"},
+    {"citekey": "PerezAlday2021", "doi": "10.1088/1361-6579/abc960", "year": 2021, "citations": null, "category": "challenge"},
+    {"citekey": "Hannun2019", "doi": "10.1038/s41591-018-0268-3", "year": 2019, "citations": 2542, "category": "benchmark"},
+    {"citekey": "Ribeiro2020", "doi": "10.1038/s41467-020-15432-4", "year": 2020, "citations": 907, "category": "benchmark"},
+    {"citekey": "Strodthoff2021", "doi": "10.1109/JBHI.2020.3022989", "year": 2021, "citations": 424, "category": "benchmark"},
+    {"citekey": "Chen2020", "doi": "10.1016/j.isci.2020.100886", "year": 2020, "citations": 163, "category": "benchmark"},
+    {"citekey": "Fawaz2020", "doi": "10.1007/s10618-020-00710-y", "year": 2020, "citations": 1479, "category": "cnn"},
+    {"citekey": "Oh2018", "doi": "10.1016/j.compbiomed.2018.06.002", "year": 2018, "citations": 628, "category": "cnn"},
+    {"citekey": "Khan2023", "doi": "10.1371/journal.pone.0284791", "year": 2023, "citations": 75, "category": "cnn"},
+    {"citekey": "Mathunjwa2022", "doi": "10.3390/s22041660", "year": 2022, "citations": 55, "category": "cnn"},
+    {"citekey": "Vu2023", "doi": "10.3389/fdata.2023.1270756", "year": 2023, "citations": 6, "category": "cnn"},
+    {"citekey": "Gu2023", "doi": "10.1016/j.compbiomed.2023.106623", "year": 2023, "citations": 42, "category": "lightweight"},
+    {"citekey": "Yao2020", "doi": "10.1016/j.inffus.2019.06.024", "year": 2020, "citations": 408, "category": "cnn_attention"},
+    {"citekey": "Meng2022", "doi": "10.1016/j.artmed.2022.102236", "year": 2022, "citations": 108, "category": "transformer"},
+    {"citekey": "Dong2023", "doi": "10.3390/mi14061155", "year": 2023, "citations": 39, "category": "transformer"},
+    {"citekey": "Varghese2023", "doi": "10.1007/s11517-023-02858-3", "year": 2023, "citations": 11, "category": "transformer"},
+    {"citekey": "Xia2023", "doi": "10.1016/j.bspc.2023.105271", "year": 2023, "citations": 66, "category": "transformer"},
+    {"citekey": "Islam2024", "doi": "10.1016/j.bspc.2024.106211", "year": 2024, "citations": null, "category": "hybrid"},
+    {"citekey": "Li2024", "doi": "10.1016/j.compbiomed.2024.108751", "year": 2024, "citations": 16, "category": "hybrid"},
+    {"citekey": "Kim2025", "doi": "10.1038/s41598-025-92582-9", "year": 2025, "citations": 37, "category": "hybrid"},
+    {"citekey": "Alghieth2025", "doi": "10.1038/s41598-025-07781-1", "year": 2025, "citations": 29, "category": "hybrid"},
+    {"citekey": "Alamatsaz2024", "doi": "10.1016/j.bspc.2023.105884", "year": 2024, "citations": 105, "category": "lightweight"},
+    {"citekey": "An2024", "doi": "10.3390/s24247896", "year": 2024, "citations": 17, "category": "lightweight"},
+    {"citekey": "Makynen2024", "doi": "10.3390/s24154787", "year": 2024, "citations": 4, "category": "lightweight"},
+    {"citekey": "Hu2023", "doi": "10.1016/j.bspc.2023.104772", "year": 2023, "citations": 36, "category": "self_supervised"},
+    {"citekey": "Imtiaz2024", "doi": "10.1016/j.eswa.2023.122960", "year": 2024, "citations": 22, "category": "transfer_learning"},
+    {"citekey": "Rahman2023", "doi": "10.3390/s23115237", "year": 2023, "citations": 49, "category": "augmentation"},
+    {"citekey": "Berger2023", "doi": "10.1016/j.artmed.2023.102632", "year": 2023, "citations": null, "category": "augmentation"},
+    {"citekey": "Zhang2023", "doi": "10.3390/e25091264", "year": 2023, "citations": 10, "category": "attention"},
+    {"citekey": "AnsariReview2023", "doi": "10.3389/fphys.2023.1246746", "year": 2023, "citations": 202, "category": "review"},
+    {"citekey": "AnsariSurvey2025", "doi": "10.1007/s10462-025-11259-x", "year": 2025, "citations": 22, "category": "review"}
+  ]
+}
