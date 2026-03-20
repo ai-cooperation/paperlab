@@ -134,5 +134,7 @@ ax.annotate(
 
 plt.tight_layout()
 plt.savefig('fig2_cumulative_returns.png', dpi=150, bbox_inches='tight')
+plt.savefig('fig2_cumulative_returns.svg', format='svg', bbox_inches='tight')
 print("Saved: fig2_cumulative_returns.png")
+print("Saved: fig2_cumulative_returns.svg")
 plt.close()

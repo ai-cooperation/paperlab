@@ -1,7 +1,4 @@
 const pptxgen = require("pptxgenjs");
-const React = require("react");
-const ReactDOMServer = require("react-dom/server");
-const sharp = require("sharp");
 
 // ─── DESIGN SYSTEM ──────────────────────────────────────────
 // ─── BRAND PALETTE: AI Paper Workshop ─────────────────────
@@ -238,7 +235,174 @@ async function main() {
   }
 
   // ══════════════════════════════════════════════════════════
-  // SLIDE 2: Why this workshop?
+  // SLIDE 2: 為什麼這堂課很重要？— 論文造假警鐘
+  // ══════════════════════════════════════════════════════════
+  {
+    const s = pres.addSlide();
+    s.background = { color: C.navy };
+    s.addShape(pres.shapes.RECTANGLE, { x: 0, y: 0, w: 0.12, h: 5.625, fill: { color: C.orange } });
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.5, y: 0.4, w: 2.4, h: 0.55, fill: { color: C.orange }, rectRadius: 0.08 });
+    s.addText("Course Motivation", { x: 0.5, y: 0.4, w: 2.4, h: 0.55, fontSize: 14, bold: true, color: C.white, align: "center", valign: "middle", margin: 0 });
+    s.addText("為什麼這堂課很重要？", { x: 0.5, y: 1.2, w: 9, h: 1.2, fontSize: 42, bold: true, color: C.white, fontFace: "Calibri" });
+    s.addText("AI 時代的論文造假 — 今天的新聞，明天的教訓", { x: 0.5, y: 2.5, w: 9, h: 0.7, fontSize: 18, color: C.gold, fontFace: "Calibri" });
+    const stats = [
+      { num: "11,000+", label: "Wiley 撤回\n造假論文", color: C.orange },
+      { num: "100+", label: "NeurIPS 2025\n虛構引用", color: C.orange },
+      { num: "20%", label: "ChatGPT 引用\n捏造比例", color: C.gold },
+      { num: "Today", label: "政大國發所\n博士論文下架", color: C.orange },
+    ];
+    stats.forEach((st, i) => {
+      const x = 0.5 + i * 2.35;
+      s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y: 3.5, w: 2.15, h: 1.4, fill: { color: st.color, transparency: 30 }, rectRadius: 0.08 });
+      s.addText(st.num, { x, y: 3.55, w: 2.15, h: 0.6, fontSize: 30, bold: true, color: C.white, align: "center", valign: "middle", margin: 0 });
+      s.addText(st.label, { x, y: 4.15, w: 2.15, h: 0.65, fontSize: 12, color: C.mint, align: "center", valign: "middle", lineSpacingMultiple: 1.2, margin: 0 });
+    });
+    s.addShape(pres.shapes.RECTANGLE, { x: 0, y: 5.2, w: 10, h: 0.425, fill: { color: C.orange, transparency: 60 } });
+    s.addText("不學會驗證，你就是下一個受害者", { x: 0.4, y: 5.2, w: 9.2, h: 0.425, fontSize: 12, bold: true, color: C.white, valign: "middle", align: "center", margin: 0 });
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // SLIDE 3: 全球論文造假案例
+  // ══════════════════════════════════════════════════════════
+  {
+    const s = addContentSlide(pres, "全球論文造假：這不是個案，是系統性危機", C.orange);
+    const cases = [
+      { title: "NeurIPS 2025", desc: "全球頂級 AI 會議，53 篇論文中發現 100+ 條 AI 幻覺引用，通過 3+ 位審稿人的審查仍未被發現", color: C.orange },
+      { title: "ICLR 2026", desc: "投稿量暴增 70%（近 20,000 篇），50+ 條虛構引用；21% 的同行審查本身也是 AI 生成", color: C.orange },
+      { title: "Wiley/Hindawi", desc: "撤回近 11,000 篇論文工廠產品，關閉 19 本期刊，史上最大規模撤稿", color: C.navy },
+      { title: "ChatGPT 研究", desc: "研究顯示 ChatGPT 捏造 20% 的學術引用，45% 的真實引用包含錯誤資訊", color: C.gold },
+      { title: "政大國發所", desc: "2026-03-13：博士論文遭質疑虛構參考文獻，AI 工具生成書目錯漏，論文已下架調查中", color: C.orange },
+    ];
+    cases.forEach((c, i) => {
+      const y = 0.9 + i * 0.88;
+      const bg = i % 2 === 0 ? C.offwhite : C.white;
+      s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.3, y, w: 9.4, h: 0.78, fill: { color: bg }, rectRadius: 0.06 });
+      s.addShape(pres.shapes.RECTANGLE, { x: 0.3, y, w: 0.07, h: 0.78, fill: { color: c.color } });
+      addBadge(s, pres, 0.5, y + 0.08, 1.4, 0.26, c.title, c.color);
+      s.addText(c.desc, { x: 2.1, y: y + 0.02, w: 7.4, h: 0.74, fontSize: 11.5, color: C.darkText, valign: "middle", margin: 0, lineSpacingMultiple: 1.2 });
+    });
+    addTipBox(s, pres, 0.3, 5.3, 9.4, 0.2, "");
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // SLIDE 4: 核心原則 — 信任但驗證
+  // ══════════════════════════════════════════════════════════
+  {
+    const s = addContentSlide(pres, "本課程的核心原則：信任但驗證（Trust but Verify）");
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.3, y: 0.9, w: 9.4, h: 1.1, fill: { color: C.lightBlue }, rectRadius: 0.08 });
+    s.addShape(pres.shapes.RECTANGLE, { x: 0.3, y: 0.9, w: 9.4, h: 0.06, fill: { color: C.teal } });
+    s.addText("AI 是強大的助手，但絕不是可以盲信的權威", { x: 0.6, y: 0.98, w: 8.8, h: 0.45, fontSize: 18, bold: true, color: C.navy, align: "center", valign: "middle", margin: 0 });
+    s.addText("每一個 AI 產出的資訊，都必須經過人工確認或 API 自動驗證後才能使用", { x: 0.6, y: 1.45, w: 8.8, h: 0.4, fontSize: 12, color: C.grayText, align: "center", valign: "middle", margin: 0 });
+    const items = [
+      { label: "文獻引用", desc: "CrossRef + Semantic Scholar + OpenAlex 三重 API 驗證", color: C.teal },
+      { label: "研究數據", desc: "回溯原始來源，確認數字、表格、圖表的一致性", color: C.navy },
+      { label: "AI 寫作", desc: "逐段審查，確保不抄襲、不捏造、不過度解讀", color: C.gold },
+      { label: "實驗結果", desc: "統計驗證 + 消融實驗 + 誤差分析", color: C.green },
+    ];
+    items.forEach((item, i) => {
+      const y = 2.2 + i * 0.58;
+      s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.4, y, w: 1.5, h: 0.42, fill: { color: item.color }, rectRadius: 0.06 });
+      s.addText(item.label, { x: 0.4, y, w: 1.5, h: 0.42, fontSize: 12, bold: true, color: C.white, align: "center", valign: "middle", margin: 0 });
+      s.addText(item.desc, { x: 2.1, y, w: 7.5, h: 0.42, fontSize: 12, color: C.darkText, valign: "middle", margin: 0 });
+    });
+    addTipBox(s, pres, 0.3, 4.7, 9.4, 0.42, "這不是「限制 AI」，而是「負責任地使用 AI」— 讓你的研究經得起檢驗");
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // SLIDE 5: 三種研究模式 — 成長歷程總覽
+  // ══════════════════════════════════════════════════════════
+  {
+    const s = addContentSlide(pres, "我的 AI 研究成長歷程：三種模式的演進", C.navy);
+    const modes = [
+      { n: "1", title: "入門模式", subtitle: "ChatGPT + Word", desc: "AI 聊天打草稿\n手動處理文獻\nWord + Zotero 引用", color: C.teal, bg: C.lightBlue },
+      { n: "2", title: "整合模式", subtitle: "Zotero + GAS + Obsidian", desc: "Deep Research 探索\nGAS 自動分析 PDF\nMD 匯入 Obsidian", color: C.navy, bg: C.offwhite },
+      { n: "3", title: "系統模式", subtitle: "IDE + API + 自動化", desc: "IDE 建專案\nAPI 三重驗證 DOI\n架構設計+實驗", color: C.gold, bg: C.offwhite },
+    ];
+    modes.forEach((m, i) => {
+      const x = 0.3 + i * 3.2;
+      const w = 2.95;
+      s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y: 1.0, w, h: 3.6, fill: { color: m.bg }, rectRadius: 0.08, shadow: makeShadow(0.1) });
+      s.addShape(pres.shapes.RECTANGLE, { x, y: 1.0, w, h: 0.06, fill: { color: m.color } });
+      s.addShape(pres.shapes.OVAL, { x: x + w / 2 - 0.28, y: 1.2, w: 0.56, h: 0.56, fill: { color: m.color } });
+      s.addText(m.n, { x: x + w / 2 - 0.28, y: 1.2, w: 0.56, h: 0.56, fontSize: 20, bold: true, color: C.white, align: "center", valign: "middle", margin: 0 });
+      s.addText(m.title, { x: x + 0.1, y: 1.85, w: w - 0.2, h: 0.32, fontSize: 15, bold: true, color: m.color, align: "center", margin: 0 });
+      s.addText(m.subtitle, { x: x + 0.1, y: 2.17, w: w - 0.2, h: 0.25, fontSize: 11, color: C.grayText, align: "center", margin: 0 });
+      s.addText(m.desc, { x: x + 0.15, y: 2.55, w: w - 0.3, h: 1.9, fontSize: 12, color: C.darkText, lineSpacingMultiple: 1.3, margin: 0 });
+      if (i < 2) s.addText("\u27A1", { x: x + w - 0.05, y: 2.5, w: 0.5, h: 0.4, fontSize: 18, color: C.grayText, align: "center", margin: 0 });
+    });
+    addTipBox(s, pres, 0.3, 4.75, 9.4, 0.42, "本課程涵蓋三種模式 — Day 1 主要教模式 1+2，Day 2 進入模式 3 的系統化流程");
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // SLIDE 6: 模式 1 — ChatGPT + Word（簡易版）
+  // ══════════════════════════════════════════════════════════
+  {
+    const s = addContentSlide(pres, "模式 1：AI 聊天 + 手動整理（入門）");
+    addBadge(s, pres, 0.3, 0.9, 0.5, 0.45, "1", C.teal);
+    s.addText("最快上手，適合初次使用 AI 做研究的人", { x: 0.95, y: 0.92, w: 8.5, h: 0.42, fontSize: 14, bold: true, color: C.darkText, valign: "middle", margin: 0 });
+    const steps = [
+      { n: "1", title: "Deep Research\n找議題", desc: "ChatGPT o3\nClaude / Gemini", color: C.teal },
+      { n: "2", title: "AI 打草稿", desc: "多輪對話\n持續優化", color: C.navy },
+      { n: "3", title: "手動處理\n文獻", desc: "Zotero 管理\n確認引用", color: C.gold },
+      { n: "4", title: "Word 編輯", desc: "插入引用\n排版完成", color: C.green },
+    ];
+    addProcessSteps(s, pres, steps, 1.55);
+    // Pros/cons
+    addInfoCard(s, pres, 0.25, 4.0, 4.55, 0.8, "優點", "門檻最低、5 分鐘上手、不需要技術背景", C.green);
+    addInfoCard(s, pres, 5.2, 4.0, 4.55, 0.8, "風險", "AI 幻覺引用、手動驗證耗時、無法批量處理", C.orange);
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // SLIDE 7: 模式 2 — Zotero + GAS + Obsidian（簡易版）
+  // ══════════════════════════════════════════════════════════
+  {
+    const s = addContentSlide(pres, "模式 2：知識管理整合 AI（進階）");
+    addBadge(s, pres, 0.3, 0.9, 0.5, 0.45, "2", C.navy);
+    s.addText("學術知識管理 + AI 增強 — 最成熟的研究組合", { x: 0.95, y: 0.92, w: 8.5, h: 0.42, fontSize: 14, bold: true, color: C.darkText, valign: "middle", margin: 0 });
+    const steps = [
+      { n: "1", text: "Deep Research 探索研究方向", sub: "ChatGPT / Claude / Gemini" },
+      { n: "2", text: "AI 收集相關文獻 DOI List", sub: "確認方向後批量收集" },
+      { n: "3", text: "DOI 導入 Zotero + 驗證真實性", sub: "逐一確認文獻存在且正確" },
+      { n: "4", text: "GAS 自動分析 PDF → 生成 MD 筆記", sub: "透過 AI API 批量摘要文獻" },
+      { n: "5", text: "MD 匯入 Obsidian + 寫入觀點", sub: "逐一確認，加入個人註解" },
+      { n: "6", text: "AI 整理研究框架初版", sub: "MD 筆記 + 研究架構 → AI 產出框架" },
+      { n: "7", text: "深度概念整理與跨文獻連結", sub: "Obsidian Graph View 知識圖譜" },
+    ];
+    steps.forEach((st, i) => {
+      const y = 1.45 + i * 0.44;
+      const bg = i % 2 === 0 ? C.offwhite : C.white;
+      const stepColor = i < 2 ? C.teal : (i < 4 ? C.navy : (i < 6 ? C.gold : C.green));
+      s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.3, y, w: 9.4, h: 0.38, fill: { color: bg }, rectRadius: 0.04 });
+      s.addShape(pres.shapes.OVAL, { x: 0.4, y: y + 0.03, w: 0.3, h: 0.3, fill: { color: stepColor } });
+      s.addText(st.n, { x: 0.4, y: y + 0.03, w: 0.3, h: 0.3, fontSize: 11, bold: true, color: C.white, align: "center", valign: "middle", margin: 0 });
+      s.addText(st.text, { x: 0.85, y, w: 4.3, h: 0.38, fontSize: 12, bold: true, color: C.darkText, valign: "middle", margin: 0 });
+      s.addText(st.sub, { x: 5.3, y, w: 4.2, h: 0.38, fontSize: 11, color: C.grayText, valign: "middle", margin: 0 });
+    });
+    addTipBox(s, pres, 0.3, 4.7, 9.4, 0.42, "工具：Zotero + GAS (Google Apps Script + AI API) + Obsidian + Zotero Integration Plugin");
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // SLIDE 8: 模式 3 — IDE + API 自動化（簡易版）
+  // ══════════════════════════════════════════════════════════
+  {
+    const s = addContentSlide(pres, "模式 3：IDE 驅動 + API 自動驗證（系統化）");
+    addBadge(s, pres, 0.3, 0.9, 0.5, 0.45, "3", C.gold, C.navy);
+    s.addText("本課程的核心模式 — 用程式化方法確保研究品質", { x: 0.95, y: 0.92, w: 8.5, h: 0.42, fontSize: 14, bold: true, color: C.darkText, valign: "middle", margin: 0 });
+    const phases = [
+      { n: "1", title: "IDE 建立\n研究專案", desc: "VS Code / Cursor\nMarkdown + YAML\nGit 版本控制", color: C.teal },
+      { n: "2", title: "AI 收集 +\nAPI 驗證", desc: "CrossRef API\nSemantic Scholar\nOpenAlex 交叉確認", color: C.navy },
+      { n: "3", title: "自動化\n文獻處理", desc: "批量下載 PDF\nAI 自動摘要\nGAS 批量分析", color: C.gold },
+      { n: "4", title: "架構設計 +\n實驗執行", desc: "IMRaD 架構\nQMD + BibTeX\nGPU + TG 監控", color: C.green },
+    ];
+    addProcessSteps(s, pres, phases, 1.55);
+    // Key difference
+    s.addShape(pres.shapes.RECTANGLE, { x: 0.25, y: 4.05, w: 9.5, h: 0.7, fill: { color: C.offwhite } });
+    s.addShape(pres.shapes.RECTANGLE, { x: 0.25, y: 4.05, w: 0.07, h: 0.7, fill: { color: C.orange } });
+    s.addText("關鍵差異：模式 3 用 API 自動驗證取代手動確認 — 杜絕虛構引用問題", { x: 0.5, y: 4.05, w: 9.0, h: 0.7, fontSize: 13, bold: true, color: C.orange, valign: "middle", margin: 0 });
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // SLIDE 9 (original 2): Why this workshop?
   // ══════════════════════════════════════════════════════════
   {
     const s = addContentSlide(pres, "\u70ba\u4ec0\u9ebc\u9700\u8981\u9019\u5802\u8ab2\uff1f");
@@ -962,7 +1126,8 @@ async function main() {
   }
 
   // ── OUTPUT ──
-  const outPath = "/Users/user/Desktop/NILM+LLM/NILM_LLM_SETA/05_outputs/2026-03-06_AI_Paper_Workshop/AI_Research_Workshop_Course_Intro.pptx";
+  const path = require("path");
+  const outPath = path.join(__dirname, "..", "dist", "AI_Research_Workshop_Course_Intro.pptx");
   await pres.writeFile({ fileName: outPath });
   console.log("Done! " + outPath);
 }

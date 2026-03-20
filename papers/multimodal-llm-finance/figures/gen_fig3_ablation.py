@@ -92,5 +92,7 @@ plt.suptitle('Ablation Study: Component Contribution to Sharpe Ratio',
 
 plt.tight_layout()
 plt.savefig('fig3_ablation.png', dpi=150, bbox_inches='tight')
+plt.savefig('fig3_ablation.svg', format='svg', bbox_inches='tight')
 print("Saved: fig3_ablation.png")
+print("Saved: fig3_ablation.svg")
 plt.close()

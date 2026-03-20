@@ -152,5 +152,7 @@ ax2.annotate(
 
 plt.tight_layout()
 plt.savefig('fig5_attention_vix.png', dpi=150, bbox_inches='tight')
+plt.savefig('fig5_attention_vix.svg', format='svg', bbox_inches='tight')
 print("Saved: fig5_attention_vix.png")
+print("Saved: fig5_attention_vix.svg")
 plt.close()

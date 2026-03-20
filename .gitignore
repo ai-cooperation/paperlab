@@ -9,3 +9,6 @@ node_modules/
 qa_screenshots/
 ~$*
 __pycache__/
+
+/.quarto/
+**/*.quarto_ipynb

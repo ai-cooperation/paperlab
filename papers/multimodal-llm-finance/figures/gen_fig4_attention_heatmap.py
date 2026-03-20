@@ -97,5 +97,7 @@ plt.suptitle('Cross-Attention Weights: Text Tokens × Price Patches',
 
 plt.tight_layout()
 plt.savefig('fig4_attention_heatmap.png', dpi=150, bbox_inches='tight')
+plt.savefig('fig4_attention_heatmap.svg', format='svg', bbox_inches='tight')
 print("Saved: fig4_attention_heatmap.png")
+print("Saved: fig4_attention_heatmap.svg")
 plt.close()

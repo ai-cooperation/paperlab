@@ -39,7 +39,296 @@ coverSlide(pres, {
   footerRight: "cooperation.tw",
 });
 
-// S2: TOC
+// ═══════════════════════════════════════════════════════════
+// WHY THIS COURSE MATTERS — 論文造假警鐘 (Slides 2-5)
+// ═══════════════════════════════════════════════════════════
+
+// S2: Fraud Warning — section opener
+(() => {
+  const s = pres.addSlide();
+  s.background = { color: C.navy };
+  s.addShape(pres.shapes.RECTANGLE, { x: 0, y: 0, w: 0.12, h: 5.625, fill: { color: C.red } });
+  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.5, y: 0.4, w: 2.4, h: 0.55, fill: { color: C.red }, rectRadius: 0.08 });
+  s.addText("Course Motivation", { x: 0.5, y: 0.4, w: 2.4, h: 0.55, fontSize: 14, bold: true, color: C.white, align: "center", valign: "middle" });
+  s.addText("為什麼這堂課很重要？", { x: 0.5, y: 1.2, w: 9, h: 1.2, fontSize: 42, bold: true, color: C.white });
+  s.addText("AI 時代的論文造假 — 今天的新聞，明天的教訓", { x: 0.5, y: 2.5, w: 9, h: 0.7, fontSize: 18, color: C.gold });
+  // Stats highlight
+  const stats = [
+    { num: "11,000+", label: "Wiley 撤回\n造假論文", color: C.red },
+    { num: "100+", label: "NeurIPS 2025\n虛構引用", color: C.orange },
+    { num: "20%", label: "ChatGPT 引用\n捏造比例", color: C.goldDark },
+    { num: "Today", label: "政大國發所\n博士論文下架", color: C.red },
+  ];
+  stats.forEach((st, i) => {
+    const x = 0.5 + i * 2.35;
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y: 3.5, w: 2.15, h: 1.4, fill: { color: st.color, transparency: 30 }, rectRadius: 0.08 });
+    s.addText(st.num, { x, y: 3.55, w: 2.15, h: 0.6, fontSize: 30, bold: true, color: C.white, align: "center", valign: "middle" });
+    s.addText(st.label, { x, y: 4.15, w: 2.15, h: 0.65, fontSize: 12, color: C.mint, align: "center", valign: "middle", lineSpacingMultiple: 1.2 });
+  });
+  s.addShape(pres.shapes.RECTANGLE, { x: 0, y: 5.2, w: 10, h: 0.425, fill: { color: C.red, transparency: 60 } });
+  s.addText("不學會驗證，你就是下一個受害者", { x: 0.4, y: 5.2, w: 9.2, h: 0.425, fontSize: 12, bold: true, color: C.white, valign: "middle", align: "center" });
+})();
+
+// S3: International fraud cases (global context first)
+(() => {
+  const s = contentSlide(pres, "全球論文造假：這不是個案，是系統性危機", C.red);
+  const cases = [
+    { title: "NeurIPS 2025", desc: "全球頂級 AI 會議，53 篇論文中發現 100+ 條 AI 幻覺引用\n通過了 3+ 位審稿人的審查仍未被發現", severity: "HIGH", color: C.red },
+    { title: "ICLR 2026", desc: "投稿量暴增 70%（近 20,000 篇），50+ 條虛構引用\n21% 的同行審查本身也是 AI 生成", severity: "HIGH", color: C.red },
+    { title: "Wiley/Hindawi", desc: "撤回近 11,000 篇論文工廠產品\n關閉 19 本期刊，史上最大規模撤稿", severity: "CRITICAL", color: C.navyDark },
+    { title: "ChatGPT 研究", desc: "研究顯示 ChatGPT 捏造 20% 的學術引用\n45% 的真實引用包含錯誤資訊", severity: "WARNING", color: C.orange },
+  ];
+  cases.forEach((c, i) => {
+    const y = 0.9 + i * 1.05;
+    const bg = i % 2 === 0 ? C.redBg : C.offwhite;
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.3, y, w: 9.4, h: 0.9, fill: { color: bg }, rectRadius: 0.06 });
+    s.addShape(pres.shapes.RECTANGLE, { x: 0.3, y, w: 0.07, h: 0.9, fill: { color: c.color } });
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.5, y: y + 0.1, w: 1.4, h: 0.28, fill: { color: c.color }, rectRadius: 0.04 });
+    s.addText(c.title, { x: 0.5, y: y + 0.1, w: 1.4, h: 0.28, fontSize: 10, bold: true, color: C.white, align: "center", valign: "middle" });
+    s.addText(c.desc, { x: 2.1, y: y + 0.05, w: 7.4, h: 0.8, fontSize: 11.5, color: C.darkText, lineSpacingMultiple: 1.25, valign: "middle" });
+  });
+  // Bottom warning
+  warnBox(s, 0.3, 5.0, 9.4, "Northwestern 研究（2026.03）：過去 20 年超過 40 萬篇疑似論文工廠產品 — 學術詐欺已成全球有組織產業");
+})();
+
+// S4: Taiwan fraud case — 政大國發所 (2026-03-13)
+(() => {
+  const s = contentSlide(pres, "今日新聞：博士論文遭疑虛構文獻", C.red);
+  // Main news card
+  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.3, y: 0.9, w: 9.4, h: 1.6, fill: { color: C.redBg }, rectRadius: 0.08 });
+  s.addShape(pres.shapes.RECTANGLE, { x: 0.3, y: 0.9, w: 0.07, h: 1.6, fill: { color: C.red } });
+  s.addText("2026-03-13 中央社", { x: 0.55, y: 0.95, w: 3, h: 0.3, fontSize: 11, bold: true, color: C.red });
+  s.addText("政大國發所博士論文遭質疑虛構參考文獻", { x: 0.55, y: 1.25, w: 8.9, h: 0.4, fontSize: 20, bold: true, color: C.darkText });
+  s.addText([
+    "政大國發所傳出學生博士學位論文遭質疑虛構參考文獻，所方表示該論文出現",
+    "AI 工具生成書目的錯漏，已先下架，並進入相關調查程序。",
+  ].join(""), { x: 0.55, y: 1.7, w: 8.9, h: 0.7, fontSize: 12, color: C.grayText, lineSpacingMultiple: 1.3 });
+  // Lesson learned
+  s.addText("這個案例告訴我們什麼？", { x: 0.3, y: 2.7, w: 9.4, h: 0.35, fontSize: 15, bold: true, color: C.navy });
+  const lessons = [
+    { icon: "1", text: "AI 生成的文獻清單可能包含「看起來真實但不存在」的虛構引用（幻覺 Hallucination）" },
+    { icon: "2", text: "直接複製 AI 產出的參考文獻到論文，不經驗證 = 學術自殺" },
+    { icon: "3", text: "一旦被發現，論文下架、學位撤銷、學術生涯毀於一旦" },
+    { icon: "4", text: "本課程核心：每一條引用都必須經過 CrossRef / Semantic Scholar / OpenAlex 三重驗證" },
+  ];
+  lessons.forEach((l, i) => {
+    const y = 3.15 + i * 0.48;
+    s.addShape(pres.shapes.OVAL, { x: 0.4, y: y + 0.04, w: 0.34, h: 0.34, fill: { color: C.red } });
+    s.addText(l.icon, { x: 0.4, y: y + 0.04, w: 0.34, h: 0.34, fontSize: 12, bold: true, color: C.white, align: "center", valign: "middle" });
+    s.addText(l.text, { x: 0.85, y, w: 8.8, h: 0.42, fontSize: 12, color: C.darkText, valign: "middle" });
+  });
+})();
+
+// S5: Key lesson — 信任但驗證
+conceptSlide(pres,
+  "本課程的核心原則：信任但驗證",
+  "Trust but Verify — AI 是強大的助手，但絕不是可以盲信的權威",
+  "每一個 AI 產出的資訊，都必須經過人工確認或 API 自動驗證後才能使用",
+  [
+    "文獻引用 → CrossRef + Semantic Scholar + OpenAlex 三重 API 驗證（本課程 Phase 2 教學）",
+    "研究數據 → 回溯原始來源，確認數字、表格、圖表的一致性",
+    "AI 寫作 → 逐段審查，確保不抄襲、不捏造、不過度解讀",
+    "實驗結果 → 統計驗證 + 消融實驗 + 誤差分析（本課程 Day 2 教學）",
+    "這不是「限制 AI」，而是「負責任地使用 AI」— 讓你的研究經得起檢驗",
+  ]
+);
+
+// ═══════════════════════════════════════════════════════════
+// MY RESEARCH JOURNEY — 三種研究模式（成長歷程）(Slides 6-10)
+// ═══════════════════════════════════════════════════════════
+
+// S6: Three modes overview
+(() => {
+  const s = contentSlide(pres, "我的 AI 研究成長歷程：三種模式的演進", C.navy);
+  s.addText("從手動到半自動到全自動 — 每一步都是真實經驗的累積", {
+    x: 0.4, y: 0.78, w: 9.2, h: 0.3, fontSize: 12, color: C.grayText,
+  });
+  const modes = [
+    {
+      n: "1", title: "入門模式", subtitle: "ChatGPT + Word",
+      desc: "用 AI 聊天打草稿\n手動處理文獻\nWord 編輯 + Zotero 引用\n\n適合：剛開始接觸 AI 的研究者",
+      color: C.teal, bg: C.lightBlue,
+    },
+    {
+      n: "2", title: "整合模式", subtitle: "Zotero + GAS + Obsidian",
+      desc: "Deep Research 探索方向\nAI 收集 DOI → Zotero 驗證\nGAS 自動分析 PDF → MD 筆記\nMD 匯入 Obsidian 知識圖譜\nAI 整理框架 + 深度概念連結\n\n適合：有基礎的進階研究者",
+      color: C.navy, bg: "E8EDF4",
+    },
+    {
+      n: "3", title: "系統模式", subtitle: "IDE + API + 自動化",
+      desc: "IDE 建立研究專案\nAI 收集 DOI + API 三重驗證\n自動化腳本處理文獻\n架構設計 + 實驗執行\n\n適合：追求效率的系統化研究者",
+      color: C.goldDark, bg: "FFF7E6",
+    },
+  ];
+  modes.forEach((m, i) => {
+    const x = 0.3 + i * 3.2;
+    const w = 2.95;
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y: 1.2, w, h: 3.9, fill: { color: m.bg }, rectRadius: 0.08, shadow: shadow(0.1) });
+    s.addShape(pres.shapes.RECTANGLE, { x, y: 1.2, w, h: 0.06, fill: { color: m.color } });
+    // Mode number circle
+    s.addShape(pres.shapes.OVAL, { x: x + w / 2 - 0.3, y: 1.4, w: 0.6, h: 0.6, fill: { color: m.color } });
+    s.addText(m.n, { x: x + w / 2 - 0.3, y: 1.4, w: 0.6, h: 0.6, fontSize: 22, bold: true, color: C.white, align: "center", valign: "middle" });
+    s.addText(m.title, { x: x + 0.1, y: 2.1, w: w - 0.2, h: 0.35, fontSize: 16, bold: true, color: m.color, align: "center" });
+    s.addText(m.subtitle, { x: x + 0.1, y: 2.45, w: w - 0.2, h: 0.28, fontSize: 12, color: C.grayText, align: "center" });
+    s.addText(m.desc, { x: x + 0.15, y: 2.85, w: w - 0.3, h: 2.1, fontSize: 11.5, color: C.darkText, lineSpacingMultiple: 1.25 });
+  });
+  // Arrow progression
+  s.addText("\u27A1", { x: 3.05, y: 2.8, w: 0.5, h: 0.4, fontSize: 20, color: C.grayText, align: "center" });
+  s.addText("\u27A1", { x: 6.25, y: 2.8, w: 0.5, h: 0.4, fontSize: 20, color: C.grayText, align: "center" });
+  tipBox(s, 0.3, 5.25, 9.4, "本課程涵蓋三種模式 — Day 1 主要教模式 1+2，Day 2 進入模式 3 的系統化流程");
+})();
+
+// S7: Mode 1 — ChatGPT + Deep Research + Word
+(() => {
+  const s = contentSlide(pres, "模式 1：AI 聊天 + 手動整理（入門）");
+  s.addShape(pres.shapes.OVAL, { x: 0.3, y: 0.9, w: 0.55, h: 0.55, fill: { color: C.teal } });
+  s.addText("1", { x: 0.3, y: 0.9, w: 0.55, h: 0.55, fontSize: 18, bold: true, color: C.white, align: "center", valign: "middle" });
+  s.addText("最快上手，適合初次使用 AI 做研究的人", { x: 1.0, y: 0.92, w: 8.5, h: 0.5, fontSize: 14, bold: true, color: C.darkText, valign: "middle" });
+  // Process steps
+  const steps = [
+    { n: "1", title: "Deep Research 找議題", desc: "用 ChatGPT o3 / Claude / Gemini\n的 Deep Research 功能探索研究方向", color: C.teal },
+    { n: "2", title: "AI 打草稿", desc: "讓 AI 開始撰寫初版內容\n持續對話優化結構與論述", color: C.navy },
+    { n: "3", title: "手動處理文獻", desc: "用 Zotero 整理參考文獻\n手動確認每條引用的正確性", color: C.goldDark },
+    { n: "4", title: "Word 編輯", desc: "在 Word 中編排論文\n插入 Zotero 引用格式", color: C.tealDark },
+  ];
+  const sw = 2.2, gap = 0.13;
+  steps.forEach((st, i) => {
+    const x = 0.3 + i * (sw + gap);
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y: 1.65, w: sw, h: 2.8, fill: { color: C.white }, rectRadius: 0.06, shadow: shadow(0.1) });
+    s.addShape(pres.shapes.RECTANGLE, { x, y: 1.65, w: sw, h: 0.05, fill: { color: st.color } });
+    s.addShape(pres.shapes.OVAL, { x: x + sw / 2 - 0.22, y: 1.8, w: 0.44, h: 0.44, fill: { color: st.color } });
+    s.addText(st.n, { x: x + sw / 2 - 0.22, y: 1.8, w: 0.44, h: 0.44, fontSize: 14, bold: true, color: C.white, align: "center", valign: "middle" });
+    s.addText(st.title, { x: x + 0.08, y: 2.35, w: sw - 0.16, h: 0.35, fontSize: 13, bold: true, color: st.color, align: "center" });
+    s.addText(st.desc, { x: x + 0.1, y: 2.8, w: sw - 0.2, h: 1.5, fontSize: 11, color: C.darkText, lineSpacingMultiple: 1.25, align: "center" });
+    if (i < steps.length - 1) s.addText("\u25B6", { x: x + sw, y: 2.7, w: gap, h: 0.4, fontSize: 10, color: C.grayText, align: "center" });
+  });
+  // Pros and cons
+  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.3, y: 4.6, w: 4.5, h: 0.6, fill: { color: C.greenBg }, rectRadius: 0.04 });
+  s.addText("優點：門檻最低、5 分鐘上手、不需要技術背景", { x: 0.5, y: 4.6, w: 4.1, h: 0.6, fontSize: 11, color: C.green, valign: "middle" });
+  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 5.0, y: 4.6, w: 4.7, h: 0.6, fill: { color: C.redBg }, rectRadius: 0.04 });
+  s.addText("風險：AI 幻覺引用、手動驗證耗時、無法批量處理", { x: 5.2, y: 4.6, w: 4.3, h: 0.6, fontSize: 11, color: C.red, valign: "middle" });
+})();
+
+// S8: Mode 2 — Zotero + Obsidian + AI Enhanced
+(() => {
+  const s = contentSlide(pres, "模式 2：知識管理整合 AI（進階）");
+  s.addShape(pres.shapes.OVAL, { x: 0.3, y: 0.9, w: 0.55, h: 0.55, fill: { color: C.navy } });
+  s.addText("2", { x: 0.3, y: 0.9, w: 0.55, h: 0.55, fontSize: 18, bold: true, color: C.white, align: "center", valign: "middle" });
+  s.addText("學術知識管理 + AI 增強 — 最成熟的研究組合", { x: 1.0, y: 0.92, w: 8.5, h: 0.5, fontSize: 14, bold: true, color: C.darkText, valign: "middle" });
+  // 7-step workflow
+  const steps = [
+    { n: "1", text: "Deep Research 探索研究方向", sub: "ChatGPT / Claude / Gemini", color: C.teal },
+    { n: "2", text: "AI 收集相關文獻 DOI List", sub: "確認方向後請 AI 批量收集", color: C.teal },
+    { n: "3", text: "DOI 導入 Zotero + 驗證真實性", sub: "逐一確認文獻存在且正確", color: C.navy },
+    { n: "4", text: "GAS 自動分析 PDF → 生成 MD 筆記", sub: "透過 AI API 批量摘要文獻，產出結構化 MD 檔", color: C.navy },
+    { n: "5", text: "MD 筆記匯入 Obsidian + 寫入觀點", sub: "逐一確認內容正確性，加入個人註解與觀點", color: C.goldDark },
+    { n: "6", text: "AI 整理研究框架初版", sub: "把 MD 筆記 + 研究架構丟給 AI 產出框架", color: C.goldDark },
+    { n: "7", text: "深度概念整理與跨文獻連結", sub: "Obsidian Graph View 建立知識圖譜", color: C.tealDark },
+  ];
+  steps.forEach((st, i) => {
+    const y = 1.55 + i * 0.46;
+    const bg = i % 2 === 0 ? C.offwhite : C.white;
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.3, y, w: 9.4, h: 0.4, fill: { color: bg }, rectRadius: 0.04 });
+    s.addShape(pres.shapes.OVAL, { x: 0.4, y: y + 0.04, w: 0.32, h: 0.32, fill: { color: st.color } });
+    s.addText(st.n, { x: 0.4, y: y + 0.04, w: 0.32, h: 0.32, fontSize: 11, bold: true, color: C.white, align: "center", valign: "middle" });
+    s.addText(st.text, { x: 0.85, y, w: 4.5, h: 0.4, fontSize: 12, bold: true, color: C.darkText, valign: "middle" });
+    s.addText(st.sub, { x: 5.5, y, w: 4.0, h: 0.4, fontSize: 11, color: C.grayText, valign: "middle" });
+    if (i < steps.length - 1) {
+      s.addShape(pres.shapes.RECTANGLE, { x: 0.54, y: y + 0.36, w: 0.04, h: 0.1, fill: { color: C.mgrey } });
+    }
+  });
+  // Tools highlight
+  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.3, y: 4.85, w: 9.4, h: 0.45, fill: { color: C.lightBlue }, rectRadius: 0.04 });
+  s.addText("工具組合：Zotero + GAS (Google Apps Script + AI API) + Obsidian + Zotero Integration Plugin + Notion (可選)", {
+    x: 0.5, y: 4.85, w: 9.0, h: 0.45, fontSize: 11, color: C.navy, valign: "middle",
+  });
+})();
+
+// S9: Mode 3 — IDE + API + Automation (this course's main approach)
+(() => {
+  const s = contentSlide(pres, "模式 3：IDE 驅動 + API 自動驗證（系統化）");
+  s.addShape(pres.shapes.OVAL, { x: 0.3, y: 0.9, w: 0.55, h: 0.55, fill: { color: C.goldDark } });
+  s.addText("3", { x: 0.3, y: 0.9, w: 0.55, h: 0.55, fontSize: 18, bold: true, color: C.white, align: "center", valign: "middle" });
+  s.addText("本課程的核心模式 — 用程式化方法確保研究品質", { x: 1.0, y: 0.92, w: 8.5, h: 0.5, fontSize: 14, bold: true, color: C.darkText, valign: "middle" });
+  // 4 phases with detail
+  const phases = [
+    {
+      title: "IDE 建立研究專案", icon: "1",
+      items: ["用 VS Code / Cursor 建立專案結構", "Markdown + YAML 管理論文元數據", "Git 版本控制追蹤每次修改"],
+      color: C.teal,
+    },
+    {
+      title: "AI 收集 + API 驗證 DOI", icon: "2",
+      items: ["AI 產出候選 DOI 清單", "CrossRef API 驗證存在性", "Semantic Scholar 補齊引用數據", "OpenAlex 交叉確認"],
+      color: C.navy,
+    },
+    {
+      title: "自動化文獻處理", icon: "3",
+      items: ["批量下載 PDF + 提取 BibTeX", "AI 自動摘要 + 結構化筆記", "GAS 腳本批量分析文獻"],
+      color: C.goldDark,
+    },
+    {
+      title: "架構設計 + 實驗執行", icon: "4",
+      items: ["IMRaD 標準架構設計", "QMD + BibTeX 寫作系統", "GPU 遠端實驗 + TG Bot 監控"],
+      color: C.tealDark,
+    },
+  ];
+  const pw = 2.2, pgap = 0.13;
+  phases.forEach((p, i) => {
+    const x = 0.3 + i * (pw + pgap);
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y: 1.6, w: pw, h: 3.2, fill: { color: C.white }, rectRadius: 0.06, shadow: shadow(0.1) });
+    s.addShape(pres.shapes.RECTANGLE, { x, y: 1.6, w: pw, h: 0.05, fill: { color: p.color } });
+    s.addShape(pres.shapes.OVAL, { x: x + 0.08, y: 1.72, w: 0.36, h: 0.36, fill: { color: p.color } });
+    s.addText(p.icon, { x: x + 0.08, y: 1.72, w: 0.36, h: 0.36, fontSize: 12, bold: true, color: C.white, align: "center", valign: "middle" });
+    s.addText(p.title, { x: x + 0.5, y: 1.72, w: pw - 0.6, h: 0.36, fontSize: 12, bold: true, color: p.color, valign: "middle" });
+    p.items.forEach((item, j) => {
+      s.addText("\u2022 " + item, { x: x + 0.12, y: 2.2 + j * 0.36, w: pw - 0.24, h: 0.32, fontSize: 10.5, color: C.darkText, valign: "middle" });
+    });
+    if (i < phases.length - 1) s.addText("\u25B6", { x: x + pw, y: 2.8, w: pgap, h: 0.4, fontSize: 10, color: C.grayText, align: "center" });
+  });
+  warnBox(s, 0.3, 4.95, 9.4, "關鍵差異：模式 3 用 API 自動驗證取代手動確認 — 杜絕虛構引用問題");
+})();
+
+// S10: AI Tools Landscape
+(() => {
+  const s = contentSlide(pres, "AI 研究工具全景圖：你的研究軍火庫", C.navy);
+  const cats = [
+    {
+      title: "Deep Research", color: C.teal,
+      tools: "ChatGPT Deep Research\nGemini Deep Research\nPerplexity Deep Research\nClaude Analysis\nAi2 ScholarQA",
+    },
+    {
+      title: "文獻探索", color: C.navy,
+      tools: "Semantic Scholar\nElicit (系統性綜述)\nConsensus (科學共識)\nConnected Papers\nResearch Rabbit\nScite (引用分析)",
+    },
+    {
+      title: "寫作輔助", color: C.goldDark,
+      tools: "Writefull (學術語料)\nPaperpal (期刊風格)\nOpenAI Prism (科學家工作區)\nJenni AI (全流程)\nGrammarly",
+    },
+    {
+      title: "閱讀分析", color: C.tealDark,
+      tools: "SciSpace (即時解釋)\nChatPDF\nExplainpaper\nNotebookLM\nZotero AI Plugins\n(Beaver/ZotAI)",
+    },
+  ];
+  const cw = 2.2, cgap = 0.13;
+  cats.forEach((cat, i) => {
+    const x = 0.3 + i * (cw + cgap);
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y: 0.9, w: cw, h: 4.2, fill: { color: C.white }, rectRadius: 0.06, shadow: shadow(0.08) });
+    s.addShape(pres.shapes.RECTANGLE, { x, y: 0.9, w: cw, h: 0.06, fill: { color: cat.color } });
+    s.addText(cat.title, { x: x + 0.08, y: 1.05, w: cw - 0.16, h: 0.35, fontSize: 14, bold: true, color: cat.color, align: "center" });
+    s.addText(cat.tools, { x: x + 0.12, y: 1.5, w: cw - 0.24, h: 3.4, fontSize: 11, color: C.darkText, lineSpacingMultiple: 1.35 });
+  });
+  tipBox(s, 0.3, 5.22, 9.4, "不需要全部學會 — 本課程幫你挑選最適合學術研究的組合，建立完整工作流程");
+})();
+
+// S11: Transition to course content
+transitionSlide(pres, "了解了風險和工具", "現在開始正式課程");
+
+// ═══════════════════════════════════════════════════════════
+// TODAY'S AGENDA (renumbered)
+// ═══════════════════════════════════════════════════════════
+
+// S12: TOC
 tocSlide(pres, "今日課程安排", [
   { num: "1", title: "開場：AI 正在重塑學術研究", time: "09:00-09:30（30 min）", desc: "完整工作流程總覽 + 真實案例" },
   { num: "S1", title: "Session 1：AI 概念探索與研究方向", time: "09:30-10:45（75 min）", desc: "CARE 框架 + 多輪對話 + 方向確認" },

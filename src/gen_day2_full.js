@@ -94,7 +94,7 @@ conceptSlide(pres,
     { n: "4", title: "品質審查", desc: "七維度評分\n平行審查\n引用驗證", color: C.tealDark },
     { n: "5", title: "投稿策略", desc: "期刊匹配\nCover Letter\n投稿打包", color: C.navy },
   ]);
-  tipBox(s, 0.3, 4.2, 9.4, "目標：走完 Phase 4-11，掌握從架構設計到投稿送出的完整 AI 輔助流程");
+  tipBox(s, 0.3, 4.2, 9.4, "目標：走完 Phase 4-12，掌握從架構設計到投稿送出的完整 AI 輔助流程");
 })();
 
 // ═══════════════════════════════════════════════════════════
@@ -528,7 +528,7 @@ beforeAfterSlide(pres, "轉投案例：Energy & Buildings → SETA",
 
 // --- 4.2 SVG + QMD→TeX (20 min) ---
 
-transitionSlide(pres, "Phase 8", "SVG 向量圖 +\nQMD → TeX 快速轉換");
+transitionSlide(pres, "Phase 9", "圖表呈現\nSVG 向量圖 + 出版級規範");
 
 // SVG 為什麼重要
 compareSlide(pres, "為什麼需要 SVG 向量圖？",
@@ -597,6 +597,212 @@ exerciseSlide(pres, "實作練習 2：QMD 論文撰寫", [
   "（進階）用 Python 產出一張 SVG 圖並嵌入 QMD",
   "（進階）嘗試切換期刊格式，觀察 PDF 差異",
 ], "15 min");
+
+// ═══════════════════════════════════════════════════════════
+// Phase 9: 圖表呈現 — 出版級學術圖表規範 (NEW MODULE, 25 min)
+// ═══════════════════════════════════════════════════════════
+
+transitionSlide(pres, "Phase 9", "圖表呈現\n出版級學術圖表規範");
+
+// 簡報圖 vs 學術圖
+compareSlide(pres, "簡報圖表 vs 學術圖表 — 完全不同的世界",
+  "簡報圖表", [
+    "PNG / JPG 點陣圖",
+    "72-150 DPI，放大模糊",
+    "配色好看就好",
+    "字體大小隨意",
+    "標注可省略",
+    "Excel 截圖常見",
+  ],
+  "學術圖表（期刊要求）", [
+    "SVG / EPS / PDF 向量格式",
+    "300-600 DPI 出版級解析度",
+    "色彩語義一致（同變項同色）",
+    "最小 8pt，軸標籤清晰可讀",
+    "軸標籤、單位、誤差線、顯著性標記",
+    "Reviewer 看圖就知道你的水準",
+  ]
+);
+
+// 頂級期刊圖表解析 — Nature Medicine 案例（含實際圖片）
+(() => {
+  // Overview slide
+  const s0 = contentSlide(pres, "頂級期刊圖表解析：Nature Medicine (2026)");
+  s0.addText("Antibiotic use and gut microbiome composition\nlinks from individual-level prescription data of 14,979 individuals", {
+    x: 0.3, y: 0.85, w: 9.4, h: 0.8, fontSize: 14, color: C.grayText, lineSpacingMultiple: 1.4,
+  });
+  s0.addText("這篇論文的圖表是頂級期刊的標準範例：", {
+    x: 0.3, y: 1.75, w: 9.4, h: 0.4, fontSize: 13, bold: true, color: C.navy,
+  });
+  const figTypes = [
+    "Fig 1 — 多面板折線圖 + 熱力圖 + Forest Plot（三種圖組合）",
+    "Fig 2 — 函數回歸 + 信賴帶（時序趨勢 6×3 多面板）",
+    "Fig 3 — 大型熱力圖（1,340 species × 11 抗生素）",
+    "Fig 4 — 複合熱力圖（抗生素 + 代謝標記雙色系）",
+    "Table 1-2 — 標準三線表（人口統計 + 抗生素用量）",
+  ];
+  figTypes.forEach((t, i) => {
+    s0.addText("\u2022 " + t, {
+      x: 0.5, y: 2.25 + i * 0.45, w: 9.0, h: 0.4, fontSize: 12.5, color: C.darkText,
+    });
+  });
+
+  // Fig 1: Diversity — 左圖右標注
+  const s1 = contentSlide(pres, "Fig 1：多面板圖表組合（折線 + 熱力 + Forest）");
+  s1.addImage({ path: "assets/nature_medicine/fig1_cropped.png", x: 0.2, y: 0.8, w: 5.5, h: 4.2 });
+  const fig1Notes = [
+    "a: 折線圖 — 三種 diversity metric",
+    "   色彩區分時間段，誤差棒清晰",
+    "b: 熱力圖 — 星號標注顯著性",
+    "   FDR < 5% 才標，避免過度宣稱",
+    "c: Forest Plot — 迴歸係數 + 95% CI",
+    "   填充 = 顯著，空心 = 不顯著",
+    "",
+    "設計要點：",
+    "• 色彩語義一致（全圖同色系）",
+    "• 子圖用 a, b, c 粗體小寫標記",
+    "• 圖說獨立，不看正文也能理解",
+  ];
+  fig1Notes.forEach((n, i) => {
+    s1.addText(n, { x: 5.9, y: 0.85 + i * 0.38, w: 3.9, h: 0.35, fontSize: 10.5, color: n.startsWith("設計") ? C.navy : C.darkText, bold: n.startsWith("設計"), lineSpacingMultiple: 1.1 });
+  });
+
+  // Fig 2: Recovery — 左圖右標注
+  const s2 = contentSlide(pres, "Fig 2：函數回歸 + 信賴帶（時序多面板）");
+  s2.addImage({ path: "assets/nature_medicine/fig2_cropped.png", x: 0.2, y: 0.8, w: 5.5, h: 3.8 });
+  const fig2Notes = [
+    "6 種抗生素 × 3 種 diversity",
+    "= 18 面板，統一軸範圍",
+    "",
+    "設計要點：",
+    "• 信賴帶（shaded area）= 95% CI",
+    "• 實線 = 回歸係數，色彩區分藥物",
+    "• X 軸統一（1-8 年），方便比較",
+    "• 每列同一個 metric",
+    "• 每欄同一個藥物",
+  ];
+  fig2Notes.forEach((n, i) => {
+    s2.addText(n, { x: 5.9, y: 0.85 + i * 0.42, w: 3.9, h: 0.38, fontSize: 10.5, color: n.startsWith("設計") ? C.navy : C.darkText, bold: n.startsWith("設計"), lineSpacingMultiple: 1.1 });
+  });
+
+  // Fig 3: Large heatmap
+  const s3 = contentSlide(pres, "Fig 3：大型熱力圖（1,340 species）");
+  s3.addImage({ path: "assets/nature_medicine/fig3_cropped.png", x: 0.2, y: 0.8, w: 5.5, h: 4.0 });
+  const fig3Notes = [
+    "1,340 個物種 × 11 種抗生素",
+    "× 3 個時間段 = 超大規模",
+    "",
+    "設計要點：",
+    "• 藍色 = 負相關，紅色 = 正相關",
+    "• 只顯示顯著（FDR < 5%）",
+    "• Y 軸按 Phylum 分群排列",
+    "• 底部附比例尺和圖例",
+    "• 用量長條圖附在下方",
+  ];
+  fig3Notes.forEach((n, i) => {
+    s3.addText(n, { x: 5.9, y: 0.85 + i * 0.42, w: 3.9, h: 0.38, fontSize: 10.5, color: n.startsWith("設計") ? C.navy : C.darkText, bold: n.startsWith("設計"), lineSpacingMultiple: 1.1 });
+  });
+
+  // Fig 4: Combined heatmap
+  const s4 = contentSlide(pres, "Fig 4：複合熱力圖（抗生素 × 代謝標記）");
+  s4.addImage({ path: "assets/nature_medicine/fig4_cropped.png", x: 0.2, y: 0.8, w: 5.5, h: 4.2 });
+  const fig4Notes = [
+    "101 species × 3 抗生素 + 代謝標記",
+    "",
+    "設計要點：",
+    "• 雙色系：抗生素用 teal/pink",
+    "  代謝標記用 purple/pink",
+    "• 階層聚類排列物種",
+    "• 星號分級（* FDR<5%, ** FDR<1%）",
+    "• 整合多資料源在同一張圖",
+    "• 這種圖讓 reviewer 印象深刻",
+  ];
+  fig4Notes.forEach((n, i) => {
+    s4.addText(n, { x: 5.9, y: 0.85 + i * 0.42, w: 3.9, h: 0.38, fontSize: 10.5, color: n.startsWith("設計") ? C.navy : C.darkText, bold: n.startsWith("設計"), lineSpacingMultiple: 1.1 });
+  });
+
+  // Table example
+  const s5 = contentSlide(pres, "Table 1：標準三線表（學術表格規範）");
+  s5.addImage({ path: "assets/nature_medicine/table1_cropped.png", x: 0.2, y: 0.8, w: 5.5, h: 3.5 });
+  const tblNotes = [
+    "學術三線表規範：",
+    "• 只有三條橫線（頂/表頭下/底）",
+    "• 無縱線、無網格",
+    "• 數值對齊（小數點/百分比）",
+    "• 連續變項：median [IQR]",
+    "• 類別變項：n (%)",
+    "• 表注用上標字母標記",
+    "• 縮寫在表注統一解釋",
+  ];
+  tblNotes.forEach((n, i) => {
+    s5.addText(n, { x: 5.9, y: 0.85 + i * 0.42, w: 3.9, h: 0.38, fontSize: 10.5, color: n.startsWith("學術") ? C.navy : C.darkText, bold: n.startsWith("學術"), lineSpacingMultiple: 1.1 });
+  });
+})();
+
+// 學術圖表的 6 大規範
+keyPointsSlide(pres, "學術圖表 6 大規範", [
+  { heading: "1. 向量格式", desc: "SVG 原始 → PDF/EPS 投稿。PNG 只用於預覽，絕不投稿" },
+  { heading: "2. 色彩語義一致", desc: "同一個變項在所有圖中用同一種顏色，建立「色彩字典」" },
+  { heading: "3. 軸標籤完整", desc: "X/Y 軸名稱 + 單位 + 刻度。缺一項 reviewer 就會質疑" },
+  { heading: "4. 誤差表示", desc: "Error bar（SD/SE/95%CI）+ 信賴帶。沒有誤差 = 不可信" },
+  { heading: "5. 顯著性標注", desc: "星號（* p<0.05, ** p<0.01）或直接標 p 值。位置對齊比較組" },
+  { heading: "6. 多面板編排", desc: "a, b, c 子圖標記 + 統一尺寸 + 共享圖例。Nature 標準是粗體小寫" },
+]);
+
+// 常見圖表類型 × 使用場景
+(() => {
+  const s = contentSlide(pres, "常見學術圖表類型 × 適用場景");
+  tableSlide(s, ["圖表類型", "適用場景", "範例"],
+    [
+      ["折線圖 (Line)", "時序趨勢、訓練曲線", "Loss/Accuracy vs Epoch"],
+      ["長條圖 (Bar)", "類別比較、消融實驗", "Baseline vs Proposed"],
+      ["Forest Plot", "迴歸係數 + CI", "多變項效果量比較"],
+      ["熱力圖 (Heatmap)", "相關性、大規模比較", "Species × Antibiotic 關聯"],
+      ["箱型圖 (Box)", "分布比較", "各組的分數分布"],
+      ["散點圖 (Scatter)", "兩變項關係", "預測值 vs 實際值"],
+      ["架構圖 (Diagram)", "方法論流程", "研究架構 / 模型結構"],
+    ],
+    { y: 0.85, colW: [2.2, 3.3, 4.0] }
+  );
+})();
+
+// SVG 圖表產出流程
+stepSlide(pres, "圖表產出三步驟", 1, "Python 產出三格式", [
+  "savefig(svg) 原始向量圖，可編輯",
+  "savefig(pdf) 投稿用，嵌入字體",
+  "savefig(png, dpi=300) 預覽用",
+  "三格式同時輸出，一次滿足所有需求",
+]);
+
+stepSlide(pres, "圖表產出三步驟", 2, "Inkscape 後處理", [
+  "SVG 轉 PDF/EPS（某些期刊要求特定格式）",
+  "微調標籤位置和字體大小",
+  "合併多面板圖（a, b, c 子圖）",
+]);
+
+stepSlide(pres, "圖表產出三步驟", 3, "QMD 嵌入 + 交叉引用", [
+  "嵌入圖片並設定 figure ID",
+  "文中用交叉引用，自動編號",
+  "quarto render 一鍵產出 PDF",
+  "切換期刊格式時圖表位置自動調整",
+]);
+
+// 圖表自我檢查清單
+conceptSlide(pres,
+  "投稿前圖表自我檢查清單",
+  "Reviewer 看圖的前 10 秒就決定你的論文水準",
+  "每張圖都要過這 8 項檢查",
+  [
+    "□ 格式正確？（SVG/PDF/EPS，不是 PNG 截圖）",
+    "□ 解析度足夠？（300 DPI 以上，放大不模糊）",
+    "□ 軸標籤完整？（名稱 + 單位 + 合理刻度範圍）",
+    "□ 色彩一致？（同變項同色，跨圖不變）",
+    "□ 有誤差表示？（Error bar 或 CI band）",
+    "□ 顯著性標注？（* / ** / *** 或 p 值）",
+    "□ 子圖標記？（a, b, c 粗體小寫，左上角）",
+    "□ 圖說完整？（看圖說就能理解，不需讀正文）",
+  ]
+);
 
 // --- 4.4 Claude Code 深度 (30 min) ---
 
@@ -888,7 +1094,7 @@ exampleSlide(pres, "案例：4 個預測問題與回答策略",
 
 // --- 5.5 投稿策略 (15 min) ---
 
-transitionSlide(pres, "Phase 10+11", "投稿策略與流程");
+transitionSlide(pres, "Phase 11+12", "投稿策略與流程");
 
 // 期刊選擇
 (() => {
@@ -949,7 +1155,7 @@ sectionDivider(pres, {
 
 // 5.6 完整工作流回顧
 (() => {
-  const s = contentSlide(pres, "5.6 完整工作流回顧：10 Phase 全貌");
+  const s = contentSlide(pres, "5.6 完整工作流回顧：12 Phase 全貌");
   const phases = [
     { n: "P1", label: "方向", color: C.navy },
     { n: "P2", label: "文獻", color: C.teal },
@@ -959,20 +1165,22 @@ sectionDivider(pres, {
     { n: "P6", label: "監控", color: C.goldDark },
     { n: "P7", label: "統計", color: C.navy },
     { n: "P8", label: "撰寫", color: C.teal },
-    { n: "P9", label: "審查", color: C.goldDark },
-    { n: "P10", label: "投稿", color: C.navy },
+    { n: "P9", label: "圖表", color: C.goldDark },
+    { n: "P10", label: "審查", color: C.navy },
+    { n: "P11", label: "投稿", color: C.teal },
+    { n: "P12", label: "回覆", color: C.goldDark },
   ];
   phases.forEach((p, i) => {
-    const x = 0.3 + (i % 5) * 1.9;
-    const y = i < 5 ? 1.0 : 3.0;
-    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y, w: 1.7, h: 1.6, fill: { color: p.color }, rectRadius: 0.08 });
-    s.addText(p.n, { x, y: y + 0.15, w: 1.7, h: 0.5, fontSize: 20, bold: true, color: C.gold, align: "center" });
-    s.addText(p.label, { x, y: y + 0.7, w: 1.7, h: 0.5, fontSize: 14, bold: true, color: C.white, align: "center" });
-    if (i < 4 || (i >= 5 && i < 9)) {
-      s.addText("\u25B6", { x: x + 1.7, y: y + 0.5, w: 0.2, h: 0.5, fontSize: 11, color: C.grayText, align: "center", valign: "middle" });
+    const x = 0.3 + (i % 6) * 1.6;
+    const y = i < 6 ? 1.0 : 3.0;
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y, w: 1.4, h: 1.6, fill: { color: p.color }, rectRadius: 0.08 });
+    s.addText(p.n, { x, y: y + 0.15, w: 1.4, h: 0.5, fontSize: 18, bold: true, color: C.gold, align: "center" });
+    s.addText(p.label, { x, y: y + 0.7, w: 1.4, h: 0.5, fontSize: 13, bold: true, color: C.white, align: "center" });
+    if (i < 5 || (i >= 6 && i < 11)) {
+      s.addText("\u25B6", { x: x + 1.4, y: y + 0.5, w: 0.2, h: 0.5, fontSize: 10, color: C.grayText, align: "center", valign: "middle" });
     }
   });
-  s.addText("\u25BC", { x: 9.2, y: 2.35, w: 0.5, h: 0.5, fontSize: 14, color: C.grayText, align: "center", valign: "middle" });
+  s.addText("\u25BC", { x: 9.5, y: 2.35, w: 0.5, h: 0.5, fontSize: 14, color: C.grayText, align: "center", valign: "middle" });
   tipBox(s, 0.3, 4.85, 9.4, "24 Skills + 8 Agents + 5 Commands — AI 參與度 65-70%，人類掌握核心決策");
 })();
 

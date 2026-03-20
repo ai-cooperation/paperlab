@@ -1,6 +1,6 @@
 ---
 title: "LLM 顧客分群 × 傳統 RFM 比較"
-description: "Sentence-BERT 文本嵌入 vs RFM 交易特徵 — 三臂對照實驗揭示顧客回饋的分群信號價值"
+description: "Sentence-BERT 文本嵌入 vs RFM 交易特徵 — 三組對照實驗揭示顧客回饋的分群信號價值"
 date: 2026-03-20
 tags: ["case演練", "行銷", "顧客分群", "LLM", "NLP"]
 keywords: ["customer segmentation", "LLM", "RFM model", "Sentence-BERT", "text embeddings", "marketing analytics", "churn prediction", "customer lifetime value"]
@@ -19,7 +19,7 @@ summary: "本案例展示如何用論文方法學的 11 Phase 流程，從零建
 | **領域子類** | 顧客分群 × NLP 文本分析 |
 | **資料集** | 電商平台 50,000 顧客（交易記錄 + 回饋文本） |
 | **可行性** | ★★★★★ 公開資料集可取得，工具成熟 |
-| **新穎性** | ★★★★☆ 首個 LLM vs RFM 三臂對照 + 商業指標評估 |
+| **新穎性** | ★★★★☆ 首個 LLM vs RFM 三組對照 + 商業指標評估 |
 | **發表價值** | ★★★★☆ 目標 Journal of Marketing Research (IF 5.0–6.1) |
 
 ## 研究現況：顧客分群方法的三世代演進
@@ -52,7 +52,7 @@ summary: "本案例展示如何用論文方法學的 11 Phase 流程，從零建
 
 | Phase | 執行內容 | 狀態 |
 |:------|:---------|:-----|
-| Phase 1 概念確認 | 定義三臂比較框架：RFM vs LLM-Text vs Hybrid | ✅ |
+| Phase 1 概念確認 | 定義三組比較框架：RFM vs LLM-Text vs Hybrid | ✅ |
 | Phase 2 文獻搜集 | 搜集 41 篇文獻，DOI 三重驗證通過率 95.2% | ✅ |
 | Phase 3 定位分析 | 識別 3 個研究缺口，建立 Positioning Map | ✅ |
 | Phase 4 論文結構 | 規劃 5 圖 3 表，分配每節引用密度 | ✅ |
@@ -87,7 +87,7 @@ summary: "本案例展示如何用論文方法學的 11 Phase 流程，從零建
 - Dolnicar et al. (2023) 系統性回顧分群演算法，指出缺乏方法間的 head-to-head 比較
 - Gomes & Meisen (2023) 電商分群方法回顧，呼籲統一評估框架
 
-**我們的回應：** 建構三臂對照實驗，在相同 50K 顧客群上同時執行 RFM、LLM-Text、Hybrid 三種分群，排除資料集差異的干擾。
+**我們的回應：** 建構三組對照實驗，在相同 50K 顧客群上同時執行 RFM、LLM-Text、Hybrid 三種分群，排除資料集差異的干擾。
 
 ### 缺口 2 深析：內部指標 vs 商業指標的鴻溝
 
@@ -113,12 +113,12 @@ summary: "本案例展示如何用論文方法學的 11 Phase 流程，從零建
 
 ## 可行研究題目
 
-### 題目一（推薦）：LLM 顧客分群 vs RFM — 三臂對照的商業指標評估
+### 題目一（推薦）：LLM 顧客分群 vs RFM — 三組對照的商業指標評估
 
 **核心問題：** LLM 文本嵌入是否能產生比 RFM 更具預測力的顧客分群？混合模型是否優於兩者？
 
 **方法框架：**
-- 三臂對照：RFM-Only / LLM-Text-Only / Hybrid（RFM ⊕ LLM）
+- 三組對照：RFM-Only / LLM-Text-Only / Hybrid（RFM ⊕ LLM）
 - 嵌入模型：Sentence-BERT (all-MiniLM-L6-v2) + UMAP 降維
 - 評估協議：6 個月 holdout — Churn AUC、Campaign Lift、CLV RMSE
 - 消融分析：逐一移除特徵群，量化邊際貢獻
@@ -204,7 +204,7 @@ summary: "本案例展示如何用論文方法學的 11 Phase 流程，從零建
 
 ### 模擬 Reviewer 意見
 
-> **Reviewer 1（方法論）：** 「三臂對照設計值得肯定，但 k=5 的選擇缺乏實證依據。建議加入 k-selection sweep 結果。」
+> **Reviewer 1（方法論）：** 「三組對照設計值得肯定，但 k=5 的選擇缺乏實證依據。建議加入 k-selection sweep 結果。」
 > 正面：「評估協議包含 6 個月 holdout 和商業指標，這在分群文獻中是罕見的亮點。」
 
 > **Reviewer 2（統計）：** 「Table 2 報告了 5 個指標的顯著性檢定，但未進行多重比較校正（如 Bonferroni）。」
@@ -267,21 +267,27 @@ async function downloadCasePDF(caseId) {
 <script>
 document.addEventListener('DOMContentLoaded', function() {
   function checkAuth() {
-    if (typeof firebase !== 'undefined' && firebase.auth) {
-      firebase.auth().onAuthStateChanged(function(user) {
-        var gated = document.getElementById('gated-content');
-        var prompt = document.getElementById('gate-prompt');
-        if (user) {
-          if (gated) gated.style.display = 'block';
-          if (prompt) prompt.style.display = 'none';
-        } else {
-          if (gated) gated.style.display = 'none';
-          if (prompt) prompt.style.display = 'block';
+    if (typeof firebase === 'undefined' && !window.paperLabAuth) {
+      setTimeout(checkAuth, 500);
+      return;
+    }
+    import("https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js").then(({ getAuth, onAuthStateChanged }) => {
+      import("https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js").then(({ getApps }) => {
+        const apps = getApps();
+        if (apps.length > 0) {
+          const auth = getAuth(apps[0]);
+          onAuthStateChanged(auth, function(user) {
+            if (user) {
+              document.getElementById('gated-content').style.display = 'block';
+              document.getElementById('gate-prompt').style.display = 'none';
+            } else {
+              document.getElementById('gated-content').style.display = 'none';
+              document.getElementById('gate-prompt').style.display = 'block';
+            }
+          });
         }
       });
-    } else {
-      setTimeout(checkAuth, 500);
-    }
+    });
   }
   checkAuth();
 });
