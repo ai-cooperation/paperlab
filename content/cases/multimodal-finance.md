@@ -366,7 +366,7 @@ document.addEventListener('DOMContentLoaded', function() {
 ## 想把這套方法應用到你的領域？
 
 <div style="background: #F5F7FA; border-radius: 12px; padding: 1.5rem; text-align: center;">
-  <p style="font-size: 1.1rem; margin-bottom: 1rem;">論文方法學可以應用到任何研究領域。預約諮詢，讓我們幫你找到你的研究缺口。</p>
+  <p style="font-size: 1.1rem; margin-bottom: 1rem;">論文方法學可以應用到任何研究領域。趕快預約諮詢，讓我們幫你找到屬於你的研究缺口。</p>
   <a href="mailto:aicooperation.tw@gmail.com?subject=論文方法學 預約諮詢（多模態金融案例參考）&body=您好，我看了多模態金融案例演練，想預約諮詢。%0A%0A我的研究領域：%0A目前卡在哪個階段：%0A想諮詢的問題：" style="display:inline-block; background:#0F9D8A; color:white; padding:0.85rem 2.5rem; border-radius:12px; text-decoration:none; font-weight:700; font-size:1.05rem; min-height:48px;">
     預約諮詢 →
   </a>

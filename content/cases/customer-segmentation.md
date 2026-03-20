@@ -296,7 +296,7 @@ document.addEventListener('DOMContentLoaded', function() {
 ## 想把這套方法應用到你的領域？
 
 <div style="background: #F5F7FA; border-radius: 12px; padding: 1.5rem; text-align: center;">
-  <p style="font-size: 1.1rem; margin-bottom: 1rem;">論文方法學可以應用到任何研究領域。預約諮詢，讓我們幫你找到你的研究缺口。</p>
+  <p style="font-size: 1.1rem; margin-bottom: 1rem;">論文方法學可以應用到任何研究領域。趕快預約諮詢，讓我們幫你找到屬於你的研究缺口。</p>
   <a href="mailto:aicooperation.tw@gmail.com?subject=論文方法學 預約諮詢（LLM 顧客分群 案例參考）&body=Hi，我看了 LLM 顧客分群 vs RFM 的案例，想了解如何將論文方法學應用到我的研究領域。%0A%0A我的研究方向：%0A預計投稿期刊：%0A目前進度：" style="display:inline-block; background:#0F9D8A; color:white; padding:0.85rem 2.5rem; border-radius:12px; text-decoration:none; font-weight:700; font-size:1.05rem; min-height:48px;">
     預約諮詢 →
   </a>
