@@ -83,6 +83,12 @@ ECG 心律不整自動分類的深度學習方法歷經三個階段：
 | 10 投稿準備 | Cover Letter + Submission Checklist | ✅ |
 | 11 審稿回覆 | 按需啟動 | ⏳ |
 
+**主要結果預告（模擬數據，^S^ 標注）：**
+- Hybrid CNN-Transformer 在三資料集均最佳（Macro-F1: 0.946 / 0.901 / 0.867）
+- 純 CNN 有 3–5× 計算效率優勢（ResNet-1D: 1.8ms, 0.52M params）
+- CNN-Transformer 顯著優於所有其他模型（McNemar's test, p < 0.05）
+- Pareto 最優：ResNet-1D（邊緣）→ InceptionTime（中間）→ CNN-Transformer（雲端）
+
 ---
 
 <!-- ===== 以下為登入可看的內容 ===== -->
@@ -207,26 +213,66 @@ ECG 心律不整自動分類的深度學習方法歷經三個階段：
 
 ## 品質評估與改進空間
 
-本初稿為論文方法學的流程展示（showcase）。
+<div class="tip-box">
 
-- MVP Gate（Stage 1）：✅ 通過，P0 = 0
-- Stage 2-3：延後至真實實驗完成後
+本初稿為論文方法學的**流程展示（showcase）**，呈現從概念到初稿的完整過程。不是投稿版本。以下為品質審查的發現與升級建議。
+
+</div>
+
+### 目前水準
+
+| 維度 | 分數 | 滿分 | 狀態 |
+|------|------|------|------|
+| 研究缺口清晰度 | 17 | 20 | ✅ |
+| 方法論嚴謹度 | 21 | 25 | ✅ |
+| 結果顯著性 | 12 | 20 | ⚠️（模擬數據，待真實實驗） |
+| 寫作品質 | 13 | 15 | ✅ |
+| 引用驗證 | 9 | 10 | ✅（39/39 全驗證） |
+| 貢獻差異化 | 4 | 5 | ✅ |
+| 圖表品質 | 3 | 5 | ⚠️（模擬 Grad-CAM） |
+| **總分** | **79** | **100** | **接近 Q1 門檻（80）** |
+
+- P0 問題（致命）：**0 個**
+- P1 問題（重要）：**2 個** — 模擬數據 + 模擬 Grad-CAM
+- 退稿風險：**35%**（中風險，因 benchmark 無 novel method）
+
+### 模擬 Reviewer 意見
+
+**Reviewer 1（深度學習方法論專家）：**
+> 「6 個模型的超參數搜索策略未交代。是否都做了 grid search？若只用預設值，公平性存疑。」
+> **正面評價：「統一前處理管道 + AAMI inter-patient split 的設計嚴謹，填補了重要方法論空白。」**
+
+**Reviewer 2（心臟電生理學專家）：**
+> 「MIT-BIH 類別極不平衡（N 類 >90%），Macro-F1 可能被常見類拉高。需報告 per-class F1，特別是 S 類和 F 類的辨識率。」
+> **正面評價：「三資料集評估（含 PTB-XL 12 導程）的泛化性分析有臨床價值。」**
+
+**Reviewer 3（邊緣計算專家）：**
+> 「計算效率測量只在 RTX 3090 上進行，但目標部署場景是可穿戴設備。應在 ARM Cortex-M 或 Raspberry Pi 上實測。」
+> **正面評價：「Pareto frontier 分析直接可供部署決策使用，這是現有 benchmark 最缺的貢獻。」**
 
 ### 升級到 SCI 等級需要
-1. 真實實驗數據替換模擬數值
-2. 從實際模型提取 Grad-CAM
-3. 通過完整 Phase 9（七維度 + Elite Audit）
-4. GitHub repo 開放原始碼
+
+1. **補上真實實驗數據** — 替換所有模擬值（標記為 ^S^ 的數字）
+2. **報告 per-class F1** — 特別是 S/V/F 少數類別
+3. **邊緣設備實測** — 至少在 Raspberry Pi 上量測推論延遲
+4. **超參數搜索文檔** — 明確記載每個模型的搜索空間和最佳配置
+5. **開放原始碼** — GitHub repo 支持可重複性
+
+### 可加強的空間
+
+- 可加入 cross-dataset transfer learning 實驗（在 A 訓練、B 測試）
+- 可加入 fine-tuning 實驗（用大型預訓練模型微調）
+- 2025 已有 2 篇類似 arXiv preprint，建議 3 個月內投稿
 
 ---
 
-## 下載論文初稿 PDF
+## 論文初稿下載
 
-<div style="background:#EFF6FF; border:1px solid #BFDBFE; border-radius:8px; padding:1.5rem; margin:1.5rem 0;">
-  <p style="font-weight:700; color:#1E40AF; margin-bottom:0.5rem;">📄 論文初稿 PDF（含方法學展示標記）</p>
-  <p style="color:#3B82F6; font-size:0.9rem; margin-bottom:1rem;">SHOWCASE DRAFT — 非投稿版本 | 15 頁 | 39 篇引用 | 4 圖 5 表</p>
-  <button onclick="downloadCasePDF('ecg-transformer')" style="background:#2563EB; color:white; border:none; padding:0.6rem 1.5rem; border-radius:6px; font-weight:600; cursor:pointer;">
-    下載 PDF
+<div style="background: linear-gradient(135deg, #0B3C5D, #134B6E); border-radius: 16px; padding: 2rem; text-align: center; margin: 2rem 0;">
+  <p style="color: #FFC857; font-size: 1.2rem; font-weight: 700; margin-bottom: 0.5rem;">論文初稿 PDF（Showcase Draft）</p>
+  <p style="color: rgba(255,255,255,0.7); margin-bottom: 1rem; font-size: 0.95rem;">含 39 篇藍色超連結引用 + SHOWCASE 標記 + 15 頁 + 4 圖 5 表</p>
+  <button onclick="downloadCasePDF('ecg-transformer')" style="background: #0F9D8A; color: white; border: none; padding: 0.85rem 2.5rem; border-radius: 12px; font-size: 1.1rem; font-weight: 700; cursor: pointer; min-height: 48px;">
+    下載 PDF →
   </button>
 </div>
 
