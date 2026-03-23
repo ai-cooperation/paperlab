@@ -48,6 +48,6 @@ Desk Reject 是 editor 在送審前就退稿，代表包裝有問題：選錯期
 
 ---
 
-七維度自審框架、P0-P3 問題分級、多模型交叉審查，完整的投稿前自檢流程在這裡。
-
-[完整做法在這裡 → Phase 10：論文退稿預防](/phase/p10-paper-rejection/)
+<p style="text-align: center; font-size: 1.1em; margin-top: 2rem;">
+<a href="/phase/p10-paper-rejection/"><strong>完整做法在這裡 → Phase 10：退稿預防</strong></a>
+</p>

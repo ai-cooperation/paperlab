@@ -48,6 +48,6 @@ Major Revision 是好消息，代表期刊有興趣。
 
 ---
 
-Rebuttal Matrix 建立步驟、逐點回覆模板、reviewer 矛盾處理策略，完整流程在這裡。
-
-[完整做法在這裡 → Phase 12：審稿回覆](/phase/p12-rebuttal/)
+<p style="text-align: center; font-size: 1.1em; margin-top: 2rem;">
+<a href="/phase/p12-rebuttal/"><strong>完整做法在這裡 → Phase 12：審稿回覆</strong></a>
+</p>

@@ -51,6 +51,6 @@ related_phase: /phase/p11-submission-prep/
 
 ---
 
-選期刊五維框架、投稿 10 項 checklist、Cover Letter 五段結構，全部整理成可執行的 SOP。
-
-[完整做法在這裡 → Phase 11：投稿準備](/phase/p11-submission-prep/)
+<p style="text-align: center; font-size: 1.1em; margin-top: 2rem;">
+<a href="/phase/p11-submission-prep/"><strong>完整做法在這裡 → Phase 11：投稿準備</strong></a>
+</p>

@@ -62,4 +62,6 @@ Claude 4.6 的 DOI 產出品質最好，ChatGPT 假 DOI 比例最高（30-40%）
 
 ---
 
-完整的 AI 假引用防護流程，從文獻搜尋到驗證到建庫，完整做法在這裡 → [Phase 2：AI 假引用防護](/phase/p2-ai-fake-references/)
+<p style="text-align: center; font-size: 1.1em; margin-top: 2rem;">
+<a href="/phase/p2-ai-fake-references/"><strong>完整做法在這裡 → Phase 2：AI 假引用防護</strong></a>
+</p>

@@ -57,4 +57,6 @@ faq:
 
 ---
 
-完整的統計恐懼破解流程，從方法選擇到程式碼生成到結果解讀，完整做法在這裡 → [Phase 7：統計恐懼破解](/phase/p7-statistics-fear/)
+<p style="text-align: center; font-size: 1.1em; margin-top: 2rem;">
+<a href="/phase/p7-statistics-fear/"><strong>完整做法在這裡 → Phase 7：統計恐懼破解</strong></a>
+</p>

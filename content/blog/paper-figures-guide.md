@@ -59,4 +59,6 @@ COLORS = {
 
 ---
 
-完整的論文圖表製作流程，從圖表類型選擇到色彩規範到投稿格式轉換，完整做法在這裡 → [Phase 9：圖表與視覺化](/phase/p9-figures-tables/)
+<p style="text-align: center; font-size: 1.1em; margin-top: 2rem;">
+<a href="/phase/p9-figures-tables/"><strong>完整做法在這裡 → Phase 9：圖表與視覺化</strong></a>
+</p>

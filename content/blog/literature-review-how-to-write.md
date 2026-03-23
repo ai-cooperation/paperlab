@@ -47,6 +47,6 @@ AI 可以幫你建矩陣、找 pattern、生成初稿骨架，但論述邏輯和
 
 ---
 
-從文獻矩陣到主題分群到 gap 收束，完整的文獻分析方法論在這裡。
-
-[完整做法在這裡 → Phase 3：Research Gap 定位](/phase/p3-research-gap/)
+<p style="text-align: center; font-size: 1.1em; margin-top: 2rem;">
+<a href="/phase/p3-research-gap/"><strong>完整做法在這裡 → Phase 3：Research Gap 定位</strong></a>
+</p>

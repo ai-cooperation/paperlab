@@ -62,4 +62,6 @@ faq:
 
 ---
 
-完整的 Storm 法操作步驟和 CARE Framework 四步詳細做法在這裡 → [Phase 1：概念探索](/phase/p1-how-to-start/)
+<p style="text-align: center; font-size: 1.1em; margin-top: 2rem;">
+<a href="/phase/p1-how-to-start/"><strong>完整做法在這裡 → Phase 1：從零開始</strong></a>
+</p>
