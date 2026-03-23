@@ -58,17 +58,6 @@
       {{ .Content }}
     </div>
 
-    <!-- Related Phase CTA -->
-    {{ with .Params.related_phase }}
-    <div class="mt-12 bg-gradient-to-br from-secondary/10 to-tip rounded-2xl p-8 border border-secondary/20">
-      <h3 class="text-xl font-bold text-primary mb-2">想深入了解？</h3>
-      <p class="text-gray-500 mb-6">這篇文章對應的完整方法學階段</p>
-      <a href="{{ . }}" class="inline-flex items-center justify-center bg-secondary hover:bg-secondary-dark text-white font-bold px-8 py-3 rounded-xl transition hover:-translate-y-0.5 min-h-[48px]">
-        查看完整 Phase →
-      </a>
-    </div>
-    {{ end }}
-
     <!-- Related Case CTA -->
     {{ with .Params.related_case }}
     <div class="mt-8 bg-gradient-to-br from-primary/5 to-primary/10 rounded-2xl p-8 border border-primary/10">
