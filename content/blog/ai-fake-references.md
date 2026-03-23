@@ -48,7 +48,7 @@ faq:
 
 ## 批次驗證工具
 
-手動一個一個查 DOI 太慢。Paper Lab 有開發 [citation-check 工具](/tools/)，可以批次驗證 DOI 真假，20 篇文獻 5 分鐘跑完。你也可以用 CrossRef API 自己寫簡單的驗證腳本，丟進 Google Colab 就能跑。
+手動一個一個查 DOI 太慢。我們有開發 [citation-check 工具](https://cooperation.tw/metadata-quality-benchmark/)，可以批次驗證 DOI 真假，20 篇文獻 5 分鐘跑完。你也可以用 CrossRef API 自己寫簡單的驗證腳本，丟進 Google Colab 就能跑。
 
 ## FAQ
 
