@@ -1,6 +1,5 @@
 ---
-title: "案例演練"
-description: "AI 論文方法學的完整流程展示 — 從研究缺口到投稿就緒"
+title: "實戰案例"
+description: "8 個領域 × 完整論文產出 — 每篇都從零跑完 11 Phase"
+layout: list
 ---
-
-每個案例都是 11-Phase 論文方法學的真實演練，展示從概念到初稿的完整過程。

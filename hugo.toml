@@ -43,7 +43,7 @@ buildExpired = false
     weight = 23
   [[menu.main]]
     identifier = "cases"
-    name = "案例演練"
+    name = "實戰案例"
     url = "/cases/"
     weight = 25
   [[menu.main]]
