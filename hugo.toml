@@ -37,6 +37,11 @@ buildExpired = false
     url = "/tools/"
     weight = 20
   [[menu.main]]
+    identifier = "blog"
+    name = "寫作攻略"
+    url = "/blog/"
+    weight = 23
+  [[menu.main]]
     identifier = "cases"
     name = "案例演練"
     url = "/cases/"
