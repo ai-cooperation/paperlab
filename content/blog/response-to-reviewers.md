@@ -1,6 +1,6 @@
 ---
 title: "收到 Major Revision？這是好消息"
-date: 2026-04-18
+date: 2026-03-02
 draft: false
 slug: response-to-reviewers
 description: "Major Revision 代表期刊有興趣。建立 Rebuttal Matrix 逐點追蹤，不要只說「已修改」，要說明改了什麼、為什麼。"

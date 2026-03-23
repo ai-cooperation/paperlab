@@ -1,6 +1,6 @@
 ---
 title: "SCI 論文投稿，不是寫完上傳就好"
-date: 2026-04-04
+date: 2026-03-16
 draft: false
 slug: sci-paper-complete-guide
 description: "SCI 投稿是包裝工程：Cover Letter、Graphical Abstract、Suggested Reviewers 缺一不可。選錯期刊或漏附件，連 reviewer 都見不到。"

@@ -1,6 +1,6 @@
 ---
 title: "Research Gap 怎麼找？關鍵不在讀更多論文"
-date: 2026-03-28
+date: 2026-03-23
 draft: false
 slug: research-gap-how-to-find
 description: "Research Gap 藏在論文之間的空隙，不在單篇論文裡。用 AI 文獻矩陣比對 20 篇論文，讓缺口自己浮現。"

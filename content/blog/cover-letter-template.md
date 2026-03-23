@@ -1,6 +1,6 @@
 ---
 title: "Cover Letter 怎麼寫：SCI 期刊投稿信五段結構"
-date: 2026-05-16
+date: 2026-02-02
 draft: false
 slug: cover-letter-template
 description: "Cover Letter 是 editor 的第一印象，決定 desk reject 或送審。五段結構模板讓你 15 分鐘寫完一封有效的投稿信。"

@@ -1,6 +1,6 @@
 ---
 title: "論文圖表怎麼做：用 AI 生成學術級向量圖"
-date: 2026-05-30
+date: 2026-01-19
 draft: false
 slug: paper-figures-guide
 description: "Excel 截圖是論文圖表的第一大地雷。用 AI 生成 Python 程式碼，在 Google Colab 跑出向量圖，不需要會寫程式。"

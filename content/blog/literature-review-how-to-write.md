@@ -1,6 +1,6 @@
 ---
 title: "文獻回顧怎麼寫？重點是證明 gap 存在，不是證明你讀了很多"
-date: 2026-04-25
+date: 2026-02-23
 draft: false
 slug: literature-review-how-to-write
 description: "文獻回顧的功能是證明你的 research gap 存在。按主題分群建立論點，不要按年份列摘要。"

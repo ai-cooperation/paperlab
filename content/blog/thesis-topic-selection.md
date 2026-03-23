@@ -1,6 +1,6 @@
 ---
 title: "碩士論文題目怎麼選：用 AI 三天內找到可執行的方向"
-date: 2026-05-02
+date: 2026-02-16
 draft: false
 slug: thesis-topic-selection
 description: "不是沒想法，是不知道怎麼把想法變成研究問題。用 Storm 法跟 AI 對話，再用 CARE Framework 收斂，三天內產出可執行的論文大綱。"

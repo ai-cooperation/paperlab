@@ -1,6 +1,6 @@
 ---
 title: "AI 寫論文會產生假引用：如何辨識與避免"
-date: 2026-05-23
+date: 2026-01-26
 draft: false
 slug: ai-fake-references
 description: "ChatGPT 產生 30-40% 假 DOI，Claude 4.6 的 DOI 品質最好但仍需驗證。先收集真實文獻，再讓 AI 基於已驗證來源生成文字。"

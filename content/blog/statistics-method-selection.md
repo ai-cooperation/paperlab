@@ -1,6 +1,6 @@
 ---
 title: "論文統計方法怎麼選：不需要懂統計，需要會描述數據"
-date: 2026-05-09
+date: 2026-02-09
 draft: false
 slug: statistics-method-selection
 description: "統計恐懼的根源不是數學不好，而是不知道怎麼選方法。學會描述你的數據，讓 AI 幫你選對統計方法。"

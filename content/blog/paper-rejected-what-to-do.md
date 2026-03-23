@@ -1,6 +1,6 @@
 ---
 title: "論文被退稿？80% 的問題其實可以自己先發現"
-date: 2026-04-11
+date: 2026-03-09
 draft: false
 slug: paper-rejected-what-to-do
 description: "投稿前花一小時用 AI 模擬審稿，比被退稿後花三個月重來划算。80% 的退稿原因是結構性問題，可以系統化預防。"
