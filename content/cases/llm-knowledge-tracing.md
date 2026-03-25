@@ -262,7 +262,7 @@ async function downloadCasePDF(caseId) {
 
 <!-- ===== 未登入時顯示的提示 ===== -->
 <div id="gate-prompt" style="background: linear-gradient(135deg, #0B3C5D, #134B6E); border-radius: 16px; padding: 2.5rem; text-align: center; margin-top: 2rem;">
-  <h3 style="color: #FFC857; font-size: 1.5rem; font-weight: 800; margin-bottom: 0.75rem;">想看完整分析？</h3>
+  <h3 style="color: #FFC857; font-size: 1.5rem; font-weight: 800; margin-bottom: 0.75rem;">下載完整論文</h3>
   <p style="color: rgba(255,255,255,0.75); font-size: 1.05rem; line-height: 1.6; margin-bottom: 1.5rem;">
     登入後可解鎖：完整缺口深析 × 3 個研究題目 × 期刊推薦 × 結果預覽表格 × 品質評估報告 × 論文 PDF 下載
   </p>
@@ -304,7 +304,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <div style="background: #F5F7FA; border-radius: 12px; padding: 1.5rem; text-align: center;">
   <p style="font-size: 1.1rem; margin-bottom: 1rem;">論文方法學可以應用到任何研究領域。趕快預約諮詢，讓我們幫你找到屬於你的研究缺口。</p>
-  <a href="mailto:aicooperation.tw@gmail.com?subject=論文方法學 預約諮詢（LLM 知識追蹤 案例參考）&body=Hi，我看了 LLM 知識追蹤 vs KT 模型的案例，想了解如何將論文方法學應用到我的研究領域。%0A%0A我的研究方向：%0A預計投稿期刊：%0A目前進度：" style="display:inline-block; background:#0F9D8A; color:white; padding:0.85rem 2.5rem; border-radius:12px; text-decoration:none; font-weight:700; font-size:1.05rem; min-height:48px;">
+  <a href="mailto:paperlab@cooperation.tw?subject=論文方法學 預約諮詢（LLM 知識追蹤 案例參考）&body=Hi，我看了 LLM 知識追蹤 vs KT 模型的案例，想了解如何將論文方法學應用到我的研究領域。%0A%0A我的研究方向：%0A預計投稿期刊：%0A目前進度：" style="display:inline-block; background:#0F9D8A; color:white; padding:0.85rem 2.5rem; border-radius:12px; text-decoration:none; font-weight:700; font-size:1.05rem; min-height:48px;">
     預約諮詢 →
   </a>
 </div>

@@ -315,7 +315,7 @@ async function downloadCasePDF(caseId) {
 <!-- ===== 未登入時顯示的提示 ===== -->
 
 <div id="gate-prompt" style="background: linear-gradient(135deg, #0B3C5D, #134B6E); border-radius: 16px; padding: 2.5rem; text-align: center; margin-top: 2rem;">
-  <h3 style="color: #FFC857; font-size: 1.3rem; font-weight: 700; margin-bottom: 0.5rem;">想看完整分析？</h3>
+  <h3 style="color: #FFC857; font-size: 1.3rem; font-weight: 700; margin-bottom: 0.5rem;">下載完整論文</h3>
   <p style="color: rgba(255,255,255,0.75); margin-bottom: 1.5rem; font-size: 1rem;">登入後可解鎖：完整缺口分析 + 三個可投稿題目 + 10 本期刊推薦 + 論文初稿 PDF 下載 + 品質審查報告</p>
   <button onclick="if(window.paperLabAuth){window.paperLabAuth.login()}else{alert('登入功能載入中，請稍後再試')}" style="background: #0F9D8A; color: white; border: none; padding: 0.85rem 2.5rem; border-radius: 12px; font-size: 1.1rem; font-weight: 700; cursor: pointer; min-height: 48px;">
     Google 登入解鎖 →
@@ -360,7 +360,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <div style="background: #F5F7FA; border-radius: 12px; padding: 1.5rem; text-align: center;">
   <p style="font-size: 1.1rem; margin-bottom: 1rem;">論文方法學可以應用到任何研究領域。趕快預約諮詢，讓我們幫你找到屬於你的研究缺口。</p>
-  <a href="mailto:aicooperation.tw@gmail.com?subject=論文方法學 預約諮詢（信用風險案例參考）&body=您好，我看了信用風險案例演練，想預約諮詢。%0A%0A我的研究領域：%0A目前卡在哪個階段：%0A想諮詢的問題：" style="display:inline-block; background:#0F9D8A; color:white; padding:0.85rem 2.5rem; border-radius:12px; text-decoration:none; font-weight:700; font-size:1.05rem; min-height:48px;">
+  <a href="mailto:paperlab@cooperation.tw?subject=論文方法學 預約諮詢（信用風險案例參考）&body=您好，我看了信用風險案例演練，想預約諮詢。%0A%0A我的研究領域：%0A目前卡在哪個階段：%0A想諮詢的問題：" style="display:inline-block; background:#0F9D8A; color:white; padding:0.85rem 2.5rem; border-radius:12px; text-decoration:none; font-weight:700; font-size:1.05rem; min-height:48px;">
     預約諮詢 →
   </a>
 </div>

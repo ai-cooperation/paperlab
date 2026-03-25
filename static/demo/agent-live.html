@@ -1,0 +1,1248 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Agent 論文生成實況 — Paper Lab</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0e17;
+  --panel: #111827;
+  --border: #1e293b;
+  --text: #e2e8f0;
+  --dim: #64748b;
+  --green: #10b981;
+  --green-dim: #065f46;
+  --blue: #3b82f6;
+  --blue-dim: #1e3a5f;
+  --purple: #8b5cf6;
+  --amber: #f59e0b;
+  --red: #ef4444;
+  --teal: #0f9d8a;
+  --cyan: #06b6d4;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Noto Sans TC', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── Top Bar ── */
+.top-bar {
+  background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+  border-bottom: 1px solid var(--border);
+  padding: 1rem 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.top-bar .logo {
+  font-weight: 900;
+  font-size: 1.1rem;
+  color: var(--teal);
+  letter-spacing: -0.5px;
+}
+.top-bar .logo span { color: var(--dim); font-weight: 400; }
+.top-bar .status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--dim);
+}
+.top-bar .status .dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* ── Layout ── */
+.layout {
+  display: grid;
+  grid-template-columns: 280px 1fr 320px;
+  height: calc(100vh - 56px);
+}
+@media (max-width: 1024px) {
+  .layout { grid-template-columns: 1fr; }
+  .sidebar-left, .sidebar-right { display: none; }
+}
+
+/* ── Left Sidebar: Phase Progress ── */
+.sidebar-left {
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  padding: 1.5rem;
+  overflow-y: auto;
+}
+.sidebar-left h3 {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--dim);
+  margin-bottom: 1rem;
+}
+.phase-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.6rem 0;
+  position: relative;
+  opacity: 0.35;
+  transition: all 0.5s ease;
+}
+.phase-item.active {
+  opacity: 1;
+}
+.phase-item.done {
+  opacity: 0.7;
+}
+.phase-item .phase-icon {
+  width: 28px; height: 28px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  background: var(--border);
+  color: var(--dim);
+  transition: all 0.5s ease;
+  font-family: 'JetBrains Mono', monospace;
+}
+.phase-item.active .phase-icon {
+  background: var(--teal);
+  color: #fff;
+  box-shadow: 0 0 20px rgba(15, 157, 138, 0.4);
+}
+.phase-item.done .phase-icon {
+  background: var(--green-dim);
+  color: var(--green);
+}
+.phase-item .phase-text {
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+.phase-item .phase-text .name {
+  font-weight: 600;
+  color: var(--text);
+}
+.phase-item.active .phase-text .name { color: var(--teal); }
+.phase-item .phase-text .desc {
+  font-size: 0.7rem;
+  color: var(--dim);
+}
+.phase-connector {
+  width: 2px;
+  height: 8px;
+  background: var(--border);
+  margin-left: 13px;
+  transition: background 0.5s;
+}
+.phase-connector.done { background: var(--green-dim); }
+
+/* ── Main Terminal ── */
+.main-area {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.terminal-header {
+  background: #151d2e;
+  border-bottom: 1px solid var(--border);
+  padding: 0.6rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.terminal-dots {
+  display: flex; gap: 6px;
+}
+.terminal-dots span {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+}
+.terminal-dots .r { background: #ef4444; }
+.terminal-dots .y { background: #f59e0b; }
+.terminal-dots .g { background: #10b981; }
+.terminal-title {
+  flex: 1;
+  text-align: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  color: var(--dim);
+}
+.terminal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.82rem;
+  line-height: 1.8;
+  scroll-behavior: smooth;
+}
+.terminal-body::-webkit-scrollbar { width: 6px; }
+.terminal-body::-webkit-scrollbar-track { background: transparent; }
+.terminal-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* Terminal line styles */
+.line { margin-bottom: 2px; white-space: pre-wrap; word-break: break-all; }
+.line.system { color: var(--dim); }
+.line.phase-header {
+  color: var(--teal);
+  font-weight: 700;
+  font-size: 0.95rem;
+  margin-top: 1.2rem;
+  margin-bottom: 0.3rem;
+  padding: 0.4rem 0;
+  border-top: 1px solid var(--border);
+}
+.line.agent {
+  color: var(--purple);
+}
+.line.agent::before {
+  content: '▸ ';
+  color: var(--purple);
+}
+.line.task {
+  color: var(--blue);
+  padding-left: 1.2rem;
+}
+.line.task::before {
+  content: '  ├─ ';
+  color: var(--border);
+}
+.line.result {
+  color: var(--green);
+  padding-left: 1.2rem;
+}
+.line.result::before {
+  content: '  ✓ ';
+  color: var(--green);
+}
+.line.warn {
+  color: var(--amber);
+  padding-left: 1.2rem;
+}
+.line.warn::before {
+  content: '  ⚠ ';
+}
+.line.error {
+  color: var(--red);
+  padding-left: 1.2rem;
+}
+.line.data {
+  color: var(--cyan);
+  padding-left: 2rem;
+  font-size: 0.78rem;
+}
+.line.separator {
+  color: var(--border);
+  margin: 0.5rem 0;
+}
+.line .highlight { color: var(--amber); font-weight: 600; }
+.line .file { color: var(--cyan); }
+.line .num { color: var(--green); font-weight: 600; }
+.line .tag { color: var(--purple); }
+
+/* Cursor blink */
+.cursor {
+  display: inline-block;
+  width: 8px;
+  height: 1.1em;
+  background: var(--teal);
+  animation: blink 1s step-end infinite;
+  vertical-align: text-bottom;
+  margin-left: 2px;
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* ── Right Sidebar: Stats ── */
+.sidebar-right {
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  padding: 1.5rem;
+  overflow-y: auto;
+}
+.sidebar-right h3 {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--dim);
+  margin-bottom: 1rem;
+}
+.stat-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 0.8rem;
+}
+.stat-card .label {
+  font-size: 0.7rem;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.stat-card .value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--teal);
+  margin-top: 0.2rem;
+}
+.stat-card .sub {
+  font-size: 0.72rem;
+  color: var(--dim);
+  margin-top: 0.2rem;
+}
+
+/* Agent avatars */
+.agent-pool {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.8rem;
+}
+.agent-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.6rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.7rem;
+  color: var(--dim);
+  transition: all 0.3s;
+}
+.agent-chip.active {
+  border-color: var(--purple);
+  color: var(--purple);
+  background: rgba(139, 92, 246, 0.08);
+}
+.agent-chip .dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--dim);
+  transition: background 0.3s;
+}
+.agent-chip.active .dot {
+  background: var(--purple);
+  box-shadow: 0 0 6px rgba(139, 92, 246, 0.6);
+}
+
+/* Progress bar */
+.progress-wrap {
+  margin-top: 1.5rem;
+}
+.progress-bar-bg {
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 0.5rem;
+}
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--teal), var(--cyan));
+  border-radius: 3px;
+  width: 0%;
+  transition: width 0.8s ease;
+}
+.progress-text {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: var(--dim);
+  margin-top: 0.3rem;
+}
+
+/* Citation mini-list */
+.cite-list {
+  margin-top: 0.8rem;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.cite-list::-webkit-scrollbar { width: 4px; }
+.cite-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.cite-item {
+  font-size: 0.68rem;
+  color: var(--dim);
+  padding: 0.2rem 0;
+  border-bottom: 1px solid rgba(30,41,59,0.5);
+  font-family: 'JetBrains Mono', monospace;
+  opacity: 0;
+  animation: fadeIn 0.3s forwards;
+}
+.cite-item .doi { color: var(--cyan); }
+@keyframes fadeIn {
+  to { opacity: 1; }
+}
+
+/* PDF Preview overlay */
+.pdf-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.85);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  animation: fadeInOverlay 0.5s;
+}
+.pdf-overlay.show { display: flex; }
+@keyframes fadeInOverlay {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.pdf-viewer {
+  width: 680px;
+  max-width: 95vw;
+  max-height: 90vh;
+  background: #fff;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 40px 100px rgba(0,0,0,0.5);
+  animation: slideUp 0.5s ease;
+}
+@keyframes slideUp {
+  from { transform: translateY(40px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.pdf-toolbar {
+  background: #374151;
+  padding: 0.6rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #e5e7eb;
+  font-size: 0.8rem;
+}
+.pdf-toolbar .file-name { font-family: 'JetBrains Mono', monospace; }
+.pdf-content {
+  padding: 3rem 4rem;
+  max-height: 70vh;
+  overflow-y: auto;
+  color: #1f2937;
+  font-family: 'Times New Roman', serif;
+  font-size: 11pt;
+  line-height: 1.6;
+}
+.pdf-content h1 {
+  font-size: 16pt;
+  text-align: center;
+  margin-bottom: 0.3rem;
+  color: #111;
+}
+.pdf-content .authors {
+  text-align: center;
+  font-size: 10pt;
+  color: #4b5563;
+  margin-bottom: 1.5rem;
+}
+.pdf-content .abstract-title {
+  font-weight: 700;
+  font-size: 11pt;
+  margin-bottom: 0.3rem;
+}
+.pdf-content .abstract-body {
+  font-style: italic;
+  font-size: 9.5pt;
+  color: #374151;
+  margin-bottom: 1.5rem;
+  border-left: 3px solid #d1d5db;
+  padding-left: 1rem;
+}
+.pdf-content .section-title {
+  font-weight: 700;
+  font-size: 12pt;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+.pdf-content p { margin-bottom: 0.8rem; text-align: justify; }
+
+/* ── Bottom Control Bar ── */
+.control-bar {
+  background: #151d2e;
+  border-top: 1px solid var(--border);
+  padding: 0.8rem 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+}
+.btn {
+  padding: 0.5rem 1.5rem;
+  border-radius: 10px;
+  border: none;
+  font-family: 'Noto Sans TC', sans-serif;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-primary {
+  background: var(--teal);
+  color: #fff;
+}
+.btn-primary:hover { background: #0db298; transform: translateY(-1px); }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+.btn-outline {
+  background: transparent;
+  color: var(--dim);
+  border: 1px solid var(--border);
+}
+.btn-outline:hover { border-color: var(--text); color: var(--text); }
+.speed-select {
+  background: var(--bg);
+  color: var(--dim);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.8rem;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ── Intro overlay ── */
+.intro-overlay {
+  position: fixed;
+  inset: 0;
+  background: linear-gradient(135deg, #0a0e17 0%, #1e1b4b 50%, #0f172a 100%);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  text-align: center;
+  transition: opacity 0.8s, visibility 0.8s;
+}
+.intro-overlay.hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.intro-overlay h1 {
+  font-size: 2.8rem;
+  font-weight: 900;
+  background: linear-gradient(135deg, var(--teal), var(--cyan));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 0.5rem;
+}
+.intro-overlay .subtitle {
+  font-size: 1.2rem;
+  color: var(--dim);
+  margin-bottom: 0.5rem;
+}
+.intro-overlay .desc {
+  max-width: 520px;
+  color: #475569;
+  font-size: 0.95rem;
+  line-height: 1.8;
+  margin-bottom: 2rem;
+}
+.intro-overlay .desc strong { color: var(--text); }
+.intro-overlay .start-btn {
+  padding: 0.9rem 3rem;
+  background: var(--teal);
+  color: #fff;
+  border: none;
+  border-radius: 14px;
+  font-size: 1.1rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: 'Noto Sans TC', sans-serif;
+  transition: all 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+.intro-overlay .start-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 40px rgba(15, 157, 138, 0.3);
+}
+.intro-overlay .start-btn .arrow {
+  display: inline-block;
+  margin-left: 0.5rem;
+  transition: transform 0.2s;
+}
+.intro-overlay .start-btn:hover .arrow { transform: translateX(4px); }
+.intro-badge {
+  display: inline-block;
+  padding: 0.3rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  font-size: 0.75rem;
+  color: var(--dim);
+  margin-bottom: 1.5rem;
+  letter-spacing: 1px;
+}
+
+/* ── Floating particles ── */
+.particles {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+.particle {
+  position: absolute;
+  border-radius: 50%;
+  opacity: 0.08;
+  animation: float linear infinite;
+}
+@keyframes float {
+  0% { transform: translateY(100vh) rotate(0deg); }
+  100% { transform: translateY(-100px) rotate(360deg); }
+}
+</style>
+</head>
+<body>
+
+<!-- Particles -->
+<div class="particles" id="particles"></div>
+
+<!-- Intro Overlay -->
+<div class="intro-overlay" id="intro">
+  <div class="intro-badge">PAPER LAB DEMO</div>
+  <h1>AI Agent 論文生成實況</h1>
+  <p class="subtitle">11 Phase 全自動論文方法學</p>
+  <div class="desc">
+    看 AI 如何從零開始：<strong>分析研究問題</strong>、<strong>搜集文獻</strong>、<strong>設計實驗</strong>、<strong>撰寫論文</strong>、<strong>生成圖表</strong>，到最終產出一篇可投稿等級的學術論文。<br><br>
+    以下是一篇「<strong>LLM × ESG 永續報告文本分析</strong>」論文的 AI 生成過程實況重播。
+  </div>
+  <button class="start-btn" onclick="startDemo()">
+    開始觀看 <span class="arrow">→</span>
+  </button>
+</div>
+
+<!-- Top Bar -->
+<div class="top-bar">
+  <div class="logo">Paper Lab <span>/ Agent Live Demo</span></div>
+  <div class="status">
+    <span class="dot" id="statusDot"></span>
+    <span id="statusText">等待啟動</span>
+  </div>
+</div>
+
+<!-- Main Layout -->
+<div class="layout">
+
+  <!-- Left: Phase Progress -->
+  <div class="sidebar-left">
+    <h3>Phase 進度</h3>
+    <div id="phaseList"></div>
+  </div>
+
+  <!-- Center: Terminal -->
+  <div class="main-area">
+    <div class="terminal-header">
+      <div class="terminal-dots">
+        <span class="r"></span><span class="y"></span><span class="g"></span>
+      </div>
+      <div class="terminal-title">paper-agent — LLM_ESG_Taiwan — zsh</div>
+      <div></div>
+    </div>
+    <div class="terminal-body" id="terminal"></div>
+    <div class="control-bar">
+      <button class="btn btn-primary" id="playBtn" onclick="togglePlay()" disabled>
+        ▶ 開始
+      </button>
+      <button class="btn btn-outline" onclick="skipToEnd()">⏭ 跳到結果</button>
+      <select class="speed-select" id="speedSelect" onchange="changeSpeed()">
+        <option value="1">1x 正常</option>
+        <option value="2" selected>2x 快速</option>
+        <option value="5">5x 極速</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Right: Stats -->
+  <div class="sidebar-right">
+    <h3>即時統計</h3>
+
+    <div class="stat-card">
+      <div class="label">已處理文獻</div>
+      <div class="value" id="statRefs">0</div>
+      <div class="sub">DOI 驗證通過</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">論文字數</div>
+      <div class="value" id="statWords">0</div>
+      <div class="sub">學術英文</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">圖表數量</div>
+      <div class="value" id="statFigs">0</div>
+      <div class="sub">SVG + Table</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">經過時間</div>
+      <div class="value" id="statTime">00:00</div>
+      <div class="sub">模擬時間（實際約 8-12 分鐘）</div>
+    </div>
+
+    <div class="progress-wrap">
+      <h3>總進度</h3>
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" id="progressBar"></div>
+      </div>
+      <div class="progress-text">
+        <span id="progressPhase">Phase 0/11</span>
+        <span id="progressPct">0%</span>
+      </div>
+    </div>
+
+    <h3 style="margin-top:1.5rem;">Agent 狀態</h3>
+    <div class="agent-pool" id="agentPool">
+      <div class="agent-chip" data-agent="orchestrator"><span class="dot"></span>Orchestrator</div>
+      <div class="agent-chip" data-agent="literature"><span class="dot"></span>Literature</div>
+      <div class="agent-chip" data-agent="structure"><span class="dot"></span>Structure</div>
+      <div class="agent-chip" data-agent="writing"><span class="dot"></span>Writing</div>
+      <div class="agent-chip" data-agent="review"><span class="dot"></span>Review</div>
+      <div class="agent-chip" data-agent="figure"><span class="dot"></span>Figure</div>
+      <div class="agent-chip" data-agent="stats"><span class="dot"></span>Stats</div>
+      <div class="agent-chip" data-agent="citation"><span class="dot"></span>Citation</div>
+    </div>
+
+    <h3 style="margin-top:1.5rem;">收集文獻</h3>
+    <div class="cite-list" id="citeList"></div>
+  </div>
+</div>
+
+<!-- PDF Preview Overlay -->
+<div class="pdf-overlay" id="pdfOverlay" onclick="closePdf(event)">
+  <div class="pdf-viewer" onclick="event.stopPropagation()">
+    <div class="pdf-toolbar">
+      <span class="file-name">LLM_ESG_Taiwan_draft_v0.pdf</span>
+      <span style="color:#9ca3af;">16 pages · 8,420 words · 44 references</span>
+    </div>
+    <div class="pdf-content">
+      <h1>Large Language Models for ESG Disclosure Analysis:<br>Evidence from Taiwan Listed Companies</h1>
+      <div class="authors">
+        Paper Lab · Cooperation.TW<br>
+        <span style="font-size:9pt;color:#6b7280;">Draft v0 — Generated by AI Paper Agent</span>
+      </div>
+      <div class="abstract-title">Abstract</div>
+      <div class="abstract-body">
+        This study investigates the application of large language models (LLMs) for automated analysis of Environmental, Social, and Governance (ESG) disclosure quality in sustainability reports published by Taiwan-listed companies. Leveraging a corpus of 847 sustainability reports spanning 2019–2024, we develop a multi-dimensional ESG scoring framework that integrates GPT-4 and domain-adapted models to evaluate disclosure specificity, quantitative rigor, and forward-looking commitment. Our findings reveal significant heterogeneity across industries: technology firms demonstrate 23.4% higher environmental disclosure scores compared to financial institutions (p &lt; 0.001, Cohen's d = 0.67), while governance disclosures show remarkable uniformity. The proposed LLM-based framework achieves 91.2% agreement with expert human annotators, substantially outperforming traditional dictionary-based approaches (72.8%). These results suggest that LLMs can serve as scalable, cost-effective tools for regulatory monitoring of ESG disclosure quality, with implications for emerging market sustainability governance.
+      </div>
+      <div class="section-title">1. Introduction</div>
+      <p>The proliferation of ESG reporting mandates across global capital markets has created an unprecedented demand for systematic evaluation of disclosure quality. In Taiwan, the Financial Supervisory Commission (FSC) has progressively expanded mandatory sustainability reporting requirements since 2015, culminating in the 2024 regulation requiring all listed companies with paid-in capital exceeding NT$2 billion to publish TCFD-aligned climate risk disclosures...</p>
+      <div class="section-title">2. Literature Review</div>
+      <p>Prior literature on automated ESG analysis can be categorized into three generations. First-generation approaches relied on keyword dictionaries and rule-based systems (Loughran & McDonald, 2011; Friede et al., 2015), offering transparency but limited semantic understanding. Second-generation methods employed supervised machine learning classifiers trained on domain-specific labeled data (Sokolov et al., 2021; Chen & Liu, 2023)...</p>
+      <p style="text-align:center;color:#9ca3af;margin-top:2rem;">[ 論文預覽到此 — 完整 16 頁 PDF 請至 Paper Lab 下載 ]</p>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Phase definitions ──
+const phases = [
+  { id: 1, name: 'Research Question', desc: '定義研究問題' },
+  { id: 2, name: 'Literature Search', desc: '文獻搜索與篩選' },
+  { id: 3, name: 'Gap Analysis', desc: 'Research Gap 分析' },
+  { id: 4, name: 'Structure Design', desc: '論文架構設計' },
+  { id: 5, name: 'Experiment Design', desc: '實驗設計' },
+  { id: 6, name: 'Execution', desc: '實驗執行與數據收集' },
+  { id: 7, name: 'Results Analysis', desc: '結果分析與統計' },
+  { id: 8, name: 'Writing', desc: '論文撰寫' },
+  { id: 9, name: 'Figures & Tables', desc: '圖表生成' },
+  { id: 10, name: 'Review & Revise', desc: '審查與修訂' },
+  { id: 11, name: 'Submission Ready', desc: '投稿準備' },
+];
+
+// ── Script: each step = { type, text, delay, agents?, stats? } ──
+const script = [
+  // Boot
+  { type: 'system', text: '$ paper-agent init --topic "LLM × ESG Disclosure" --region Taiwan' },
+  { type: 'system', text: 'Paper Agent v2.4.0  ·  Claude Opus 4.6  ·  11-Phase Pipeline' },
+  { type: 'separator', text: '─'.repeat(60) },
+  { type: 'system', text: 'Loading MCP servers: crossref, semantic-scholar, openalex...' },
+  { type: 'result', text: '3 MCP servers connected (avg latency: 42ms)', agents: ['orchestrator'] },
+
+  // Phase 1
+  { type: 'phase', phase: 1, text: '═══ Phase 1: Research Question Definition ═══' },
+  { type: 'agent', text: 'Orchestrator → 啟動 Research Question Agent', agents: ['orchestrator'] },
+  { type: 'task', text: '分析關鍵字: "LLM", "ESG", "sustainability report", "Taiwan"' },
+  { type: 'task', text: '掃描 Semantic Scholar: 找到 2,847 篇相關論文 (2020-2025)' },
+  { type: 'task', text: '識別研究熱點: NLP for ESG, LLM disclosure analysis, Asian markets' },
+  { type: 'result', text: 'RQ 確立: "LLMs 能否有效分析台灣上市公司 ESG 揭露品質？"' },
+  { type: 'result', text: 'Sub-RQ1: 跨產業 ESG 揭露異質性', stats: { refs: 0, words: 0 } },
+  { type: 'result', text: 'Sub-RQ2: LLM vs 傳統字典法準確度比較' },
+  { type: 'result', text: 'Sub-RQ3: 時間趨勢 (2019-2024) 揭露品質演變' },
+
+  // Phase 2
+  { type: 'phase', phase: 2, text: '═══ Phase 2: Literature Search & Screening ═══' },
+  { type: 'agent', text: 'Orchestrator → 分配 3 個 Literature Agents 並行搜索', agents: ['orchestrator', 'literature'] },
+  { type: 'task', text: 'Agent-L1: CrossRef API → "ESG disclosure quality" (limit: 500)' },
+  { type: 'task', text: 'Agent-L2: Semantic Scholar → "LLM text analysis sustainability" (limit: 500)' },
+  { type: 'task', text: 'Agent-L3: OpenAlex → "Taiwan listed companies ESG" (limit: 300)' },
+  { type: 'data', text: '  CrossRef: 487 hits → 篩選 IF > 2.0 → 142 篇' },
+  { type: 'data', text: '  S2: 513 hits → 篩選 citation > 10 → 98 篇' },
+  { type: 'data', text: '  OpenAlex: 276 hits → 篩選 Taiwan-specific → 67 篇', stats: { refs: 12 }, cite: 'Huang & Chen (2023) J.Clean.Prod.' },
+  { type: 'agent', text: '啟動去重與相關性排序...', agents: ['literature'] },
+  { type: 'task', text: '合併 307 篇 → 去重 → 剩餘 234 篇' },
+  { type: 'task', text: '相關性評分 (cosine similarity > 0.72) → 篩選至 86 篇', cite: 'Loughran & McDonald (2011) J.Finance' },
+  { type: 'result', text: '全文閱讀候選: 86 篇 → 納入 44 篇核心文獻', stats: { refs: 44 }, cite: 'Sokolov et al. (2021) J.Financial Econ.' },
+  { type: 'agent', text: 'Citation Agent → DOI 三重驗證啟動', agents: ['citation'] },
+  { type: 'task', text: 'CrossRef verify: 44/44 passed ✓' },
+  { type: 'task', text: 'Semantic Scholar verify: 44/44 matched ✓' },
+  { type: 'task', text: 'OpenAlex verify: 42/44 matched (2 篇 conference → manual check)', cite: 'Chen & Liu (2023) EMNLP Proceedings' },
+  { type: 'result', text: '44 篇文獻全部 DOI 驗證通過，0 篇幻覺引用' },
+
+  // Phase 3
+  { type: 'phase', phase: 3, text: '═══ Phase 3: Research Gap Analysis ═══' },
+  { type: 'agent', text: 'Literature Agent → 文獻矩陣建構', agents: ['literature'] },
+  { type: 'task', text: '建構 44×7 文獻分類矩陣 (method × domain × region × scale)' },
+  { type: 'task', text: '識別空白區域...' },
+  { type: 'result', text: 'Gap 1: 缺乏 LLM 在中文 ESG 報告上的系統性評估' },
+  { type: 'result', text: 'Gap 2: 現有研究未比較 LLM vs 傳統方法在新興市場的表現差異' },
+  { type: 'result', text: 'Gap 3: 缺乏跨產業 ESG 揭露異質性的量化分析框架' },
+  { type: 'result', text: 'Research Contract 鎖定: 三個 gap 全部可由本研究填補' },
+
+  // Phase 4
+  { type: 'phase', phase: 4, text: '═══ Phase 4: Paper Structure Design ═══' },
+  { type: 'agent', text: 'Structure Agent → 設計論文骨架', agents: ['structure'] },
+  { type: 'task', text: '分析目標期刊 (J.Cleaner Production, IF=11.1) 格式要求' },
+  { type: 'task', text: '參考 top-cited 同領域論文結構...' },
+  { type: 'data', text: '  Section 1: Introduction (目標 800 字)' },
+  { type: 'data', text: '  Section 2: Literature Review — 三代方法演進 (1200 字)' },
+  { type: 'data', text: '  Section 3: Methodology — LLM 評分框架 (1500 字)' },
+  { type: 'data', text: '  Section 4: Data & Sample — 847 份永續報告 (800 字)' },
+  { type: 'data', text: '  Section 5: Results — 跨產業分析 + 統計檢定 (2000 字)' },
+  { type: 'data', text: '  Section 6: Discussion & Implications (1200 字)' },
+  { type: 'data', text: '  Section 7: Conclusion (500 字)' },
+  { type: 'result', text: '論文架構確定: 7 sections, 目標 8,000-9,000 字', stats: { words: 0 } },
+  { type: 'result', text: '圖表規劃: 5 figures + 5 tables' },
+
+  // Phase 5
+  { type: 'phase', phase: 5, text: '═══ Phase 5: Experiment Design ═══' },
+  { type: 'agent', text: 'Orchestrator → 實驗設計 Agent', agents: ['orchestrator', 'stats'] },
+  { type: 'task', text: '設計實驗矩陣: 3 models × 5 industries × 4 ESG dimensions' },
+  { type: 'data', text: '  Models: GPT-4, LLaMA-3-70B, Domain-adapted BERT' },
+  { type: 'data', text: '  Industries: Tech, Finance, Manufacturing, Healthcare, Energy' },
+  { type: 'data', text: '  Dimensions: E-score, S-score, G-score, Overall' },
+  { type: 'task', text: '統計檢定規劃: paired t-test, Cohen\'s d, Krippendorff\'s α' },
+  { type: 'result', text: '實驗矩陣: 60 cells, 預估計算量 ~4.2 GPU-hours' },
+
+  // Phase 6
+  { type: 'phase', phase: 6, text: '═══ Phase 6: Experiment Execution [Simulated] ═══' },
+  { type: 'agent', text: 'Stats Agent → 模擬數據生成 (MVP 模式)', agents: ['stats'] },
+  { type: 'warn', text: '⚡ MVP 模式: 使用統計一致的模擬數據 [S]' },
+  { type: 'task', text: '生成 847 × 4 ESG 評分矩陣...' },
+  { type: 'data', text: '  Tech sector: E=78.3(±12.1), S=71.2(±9.8), G=82.4(±7.3)' },
+  { type: 'data', text: '  Finance:     E=54.9(±15.3), S=68.7(±11.2), G=84.1(±6.9)' },
+  { type: 'data', text: '  Energy:      E=72.1(±14.7), S=59.3(±13.1), G=79.8(±8.2)' },
+  { type: 'task', text: '生成模型比較數據...' },
+  { type: 'data', text: '  LLM agreement with experts: 91.2% (κ=0.87)' },
+  { type: 'data', text: '  Dictionary-based baseline:   72.8% (κ=0.64)' },
+  { type: 'result', text: '模擬數據完成: SE, t-stat, p-value 全部自洽 ✓' },
+
+  // Phase 7
+  { type: 'phase', phase: 7, text: '═══ Phase 7: Results Analysis ═══' },
+  { type: 'agent', text: 'Stats Agent → 統計分析啟動', agents: ['stats'] },
+  { type: 'task', text: '執行跨產業 ANOVA: F(4,842)=23.7, p<0.001 ***' },
+  { type: 'task', text: 'Post-hoc Tukey HSD: Tech vs Finance Δ=23.4%, d=0.67' },
+  { type: 'task', text: '時間趨勢分析: β=3.2%/year, R²=0.89' },
+  { type: 'result', text: 'Key finding: Tech 領先 Finance 23.4% (p<0.001, d=0.67)' },
+  { type: 'result', text: 'Key finding: LLM 準確度 91.2% vs 字典法 72.8% (p<0.001)' },
+  { type: 'result', text: 'Key finding: G-score 跨產業最穩定 (CV=8.7%)' },
+
+  // Phase 8
+  { type: 'phase', phase: 8, text: '═══ Phase 8: Paper Writing ═══' },
+  { type: 'agent', text: 'Writing Agent → 全文撰寫啟動', agents: ['writing'] },
+  { type: 'task', text: 'Section 1: Introduction...' },
+  { type: 'data', text: '  撰寫中 ████████░░ 80%    (847 words)', stats: { words: 847 } },
+  { type: 'task', text: 'Section 2: Literature Review...' },
+  { type: 'data', text: '  三代方法演進敘事 ████████░░ 85%', stats: { words: 2100 } },
+  { type: 'data', text: '  引用 32 篇文獻 ✓' },
+  { type: 'task', text: 'Section 3: Methodology...' },
+  { type: 'data', text: '  LLM 評分框架描述 █████████░ 90%', stats: { words: 3650 } },
+  { type: 'task', text: 'Section 4: Data & Sample...' },
+  { type: 'data', text: '  847 reports, 2019-2024, TWSE+TPEx ████████░░', stats: { words: 4420 } },
+  { type: 'task', text: 'Section 5: Results...' },
+  { type: 'data', text: '  跨產業分析 + 統計表格嵌入 ████████░░', stats: { words: 6380 } },
+  { type: 'task', text: 'Section 6: Discussion...' },
+  { type: 'data', text: '  理論貢獻 + 實務意涵 █████████░', stats: { words: 7640 } },
+  { type: 'task', text: 'Section 7: Conclusion...' },
+  { type: 'result', text: '全文撰寫完成: 8,420 words, 44 citations embedded', stats: { words: 8420 } },
+
+  // Phase 9
+  { type: 'phase', phase: 9, text: '═══ Phase 9: Figures & Tables ═══' },
+  { type: 'agent', text: 'Figure Agent → 圖表生成啟動 (5 figures + 5 tables)', agents: ['figure'] },
+  { type: 'task', text: 'Fig.1: Research Framework (SVG, 180×90mm)' },
+  { type: 'data', text: '  matplotlib → SVG 產出 → Reading Glasses 字級檢查 ✓', stats: { figs: 1 } },
+  { type: 'task', text: 'Fig.2: Cross-industry ESG Score Comparison (grouped bar)' },
+  { type: 'data', text: '  5 industries × 4 dimensions, error bars ✓', stats: { figs: 2 } },
+  { type: 'task', text: 'Fig.3: LLM vs Dictionary Accuracy Comparison' },
+  { type: 'data', text: '  paired comparison + significance brackets ✓', stats: { figs: 3 } },
+  { type: 'task', text: 'Fig.4: Temporal Trend 2019-2024 (line + CI band)' },
+  { type: 'data', text: '  trend line R²=0.89, shaded 95% CI ✓', stats: { figs: 4 } },
+  { type: 'task', text: 'Fig.5: Heatmap — Industry × Dimension Score Matrix' },
+  { type: 'data', text: '  5×4 heatmap, annotated cells ✓', stats: { figs: 5 } },
+  { type: 'agent', text: 'Table Agent → 生成 5 張統計表格', agents: ['figure'] },
+  { type: 'task', text: 'Table 1: Sample Distribution by Industry & Year' },
+  { type: 'task', text: 'Table 2: Descriptive Statistics' },
+  { type: 'task', text: 'Table 3: Model Comparison (Accuracy, F1, κ)' },
+  { type: 'task', text: 'Table 4: ANOVA Results' },
+  { type: 'task', text: 'Table 5: Robustness Checks' },
+  { type: 'result', text: '10 圖表全部完成: 5 SVG figures + 5 markdown tables', stats: { figs: 10 } },
+
+  // Phase 10
+  { type: 'phase', phase: 10, text: '═══ Phase 10: Review & Revision ═══' },
+  { type: 'agent', text: 'Review Agent → 七維度審查啟動', agents: ['review'] },
+  { type: 'task', text: '維度 1 — 原創性: ████████░░ 8.2/10' },
+  { type: 'task', text: '維度 2 — 方法論: █████████░ 8.7/10' },
+  { type: 'task', text: '維度 3 — 文獻: █████████░ 9.0/10' },
+  { type: 'task', text: '維度 4 — 寫作品質: ████████░░ 8.5/10' },
+  { type: 'task', text: '維度 5 — 圖表品質: █████████░ 8.8/10' },
+  { type: 'task', text: '維度 6 — 統計嚴謹: ████████░░ 8.3/10' },
+  { type: 'task', text: '維度 7 — 引用完整: █████████░ 9.1/10' },
+  { type: 'separator', text: '─'.repeat(60) },
+  { type: 'result', text: '總評分: 8.66/10 (投稿等級: Strong Draft v0)' },
+  { type: 'warn', text: 'P1 建議: Section 5 增加 robustness check 段落' },
+  { type: 'warn', text: 'P2 建議: Fig.2 增加 significance markers' },
+  { type: 'agent', text: 'Writing Agent → 自動修訂中...', agents: ['writing'] },
+  { type: 'result', text: '修訂完成: 2 項 P1 + 1 項 P2 已修復' },
+
+  // Phase 11
+  { type: 'phase', phase: 11, text: '═══ Phase 11: Submission Ready ═══' },
+  { type: 'agent', text: 'Orchestrator → 最終打包', agents: ['orchestrator'] },
+  { type: 'task', text: 'Quarto render: QMD → PDF (16 pages)...' },
+  { type: 'data', text: '  ✓ PDF 產出: LLM_ESG_Taiwan_draft_v0.pdf (636 KB)' },
+  { type: 'data', text: '  ✓ DOCX 產出: LLM_ESG_Taiwan_draft_v0.docx (428 KB)' },
+  { type: 'task', text: 'BibTeX 匯出: references.bib (44 entries)' },
+  { type: 'task', text: '品質清單最終確認...' },
+  { type: 'data', text: '  ✓ 字數: 8,420 (目標 8,000-9,000)' },
+  { type: 'data', text: '  ✓ 引用: 44 篇 (全部 DOI 驗證通過)' },
+  { type: 'data', text: '  ✓ 圖表: 5 figures + 5 tables' },
+  { type: 'data', text: '  ✓ 統計: 所有 p-value 與 effect size 自洽' },
+  { type: 'data', text: '  ✓ 格式: J.Cleaner Production 投稿規範 ✓' },
+  { type: 'separator', text: '═'.repeat(60) },
+  { type: 'result', text: '🎉 Draft v0 完成！論文已可投稿。' },
+  { type: 'system', text: '' },
+  { type: 'system', text: '產出檔案:' },
+  { type: 'data', text: '  📄 LLM_ESG_Taiwan_draft_v0.pdf    (636 KB, 16 pages)' },
+  { type: 'data', text: '  📄 LLM_ESG_Taiwan_draft_v0.docx   (428 KB)' },
+  { type: 'data', text: '  📊 figures/fig1-fig5.svg           (5 files)' },
+  { type: 'data', text: '  📚 references.bib                  (44 entries)' },
+  { type: 'data', text: '  📋 pipeline_report.md              (品質報告)' },
+  { type: 'system', text: '' },
+  { type: 'system', text: '總耗時: 8 分 42 秒  ·  Token 使用量: 127,400' },
+  { type: 'pdf', text: '' },
+];
+
+// ── State ──
+let playing = false;
+let stepIndex = 0;
+let speedMultiplier = 2;
+let currentPhase = 0;
+let timerInterval = null;
+let elapsedSeconds = 0;
+let animationTimeouts = [];
+
+// ── Init UI ──
+function initPhaseList() {
+  const el = document.getElementById('phaseList');
+  let html = '';
+  phases.forEach((p, i) => {
+    if (i > 0) html += `<div class="phase-connector" id="conn-${p.id}"></div>`;
+    html += `<div class="phase-item" id="phase-${p.id}">
+      <div class="phase-icon">${String(p.id).padStart(2, '0')}</div>
+      <div class="phase-text">
+        <div class="name">${p.name}</div>
+        <div class="desc">${p.desc}</div>
+      </div>
+    </div>`;
+  });
+  el.innerHTML = html;
+}
+
+function initParticles() {
+  const el = document.getElementById('particles');
+  const colors = ['#0f9d8a', '#3b82f6', '#8b5cf6'];
+  for (let i = 0; i < 20; i++) {
+    const p = document.createElement('div');
+    p.className = 'particle';
+    const size = Math.random() * 6 + 3;
+    p.style.width = size + 'px';
+    p.style.height = size + 'px';
+    p.style.left = Math.random() * 100 + '%';
+    p.style.background = colors[Math.floor(Math.random() * colors.length)];
+    p.style.animationDuration = (Math.random() * 20 + 15) + 's';
+    p.style.animationDelay = (Math.random() * 10) + 's';
+    el.appendChild(p);
+  }
+}
+
+// ── Playback Engine ──
+function startDemo() {
+  document.getElementById('intro').classList.add('hidden');
+  document.getElementById('playBtn').disabled = false;
+  togglePlay();
+}
+
+function togglePlay() {
+  playing = !playing;
+  const btn = document.getElementById('playBtn');
+  if (playing) {
+    btn.textContent = '⏸ 暫停';
+    document.getElementById('statusText').textContent = 'Agent 執行中';
+    document.getElementById('statusDot').style.background = 'var(--green)';
+    startTimer();
+    playNext();
+  } else {
+    btn.textContent = '▶ 繼續';
+    document.getElementById('statusText').textContent = '已暫停';
+    document.getElementById('statusDot').style.background = 'var(--amber)';
+    stopTimer();
+    animationTimeouts.forEach(t => clearTimeout(t));
+    animationTimeouts = [];
+  }
+}
+
+function playNext() {
+  if (!playing || stepIndex >= script.length) {
+    if (stepIndex >= script.length) {
+      playing = false;
+      document.getElementById('playBtn').textContent = '✓ 完成';
+      document.getElementById('playBtn').disabled = true;
+      document.getElementById('statusText').textContent = '生成完成';
+      stopTimer();
+    }
+    return;
+  }
+
+  const step = script[stepIndex];
+  stepIndex++;
+
+  // Handle phase change
+  if (step.type === 'phase') {
+    setActivePhase(step.phase);
+  }
+
+  // Handle agent activation
+  if (step.agents) {
+    activateAgents(step.agents);
+  }
+
+  // Handle stats update
+  if (step.stats) {
+    updateStats(step.stats);
+  }
+
+  // Handle citation
+  if (step.cite) {
+    addCitation(step.cite);
+  }
+
+  // Handle PDF preview
+  if (step.type === 'pdf') {
+    const t = setTimeout(() => {
+      document.getElementById('pdfOverlay').classList.add('show');
+    }, 800 / speedMultiplier);
+    animationTimeouts.push(t);
+    playNext();
+    return;
+  }
+
+  // Add line to terminal
+  if (step.text) {
+    addLine(step.type, step.text);
+  }
+
+  // Calculate delay
+  let delay = 120;
+  if (step.type === 'phase') delay = 500;
+  else if (step.type === 'agent') delay = 300;
+  else if (step.type === 'result') delay = 250;
+  else if (step.type === 'data') delay = 180;
+  else if (step.type === 'separator') delay = 100;
+  else if (step.type === 'system') delay = 200;
+
+  delay = delay / speedMultiplier;
+
+  const t = setTimeout(playNext, delay);
+  animationTimeouts.push(t);
+}
+
+function addLine(type, text) {
+  const terminal = document.getElementById('terminal');
+  const div = document.createElement('div');
+  div.className = `line ${type === 'phase' ? 'phase-header' : type}`;
+  div.textContent = text;
+  terminal.appendChild(div);
+
+  // Remove old cursor
+  const oldCursor = terminal.querySelector('.cursor');
+  if (oldCursor) oldCursor.remove();
+
+  // Add cursor
+  if (type !== 'separator') {
+    const cursor = document.createElement('span');
+    cursor.className = 'cursor';
+    div.appendChild(cursor);
+  }
+
+  // Scroll to bottom
+  terminal.scrollTop = terminal.scrollHeight;
+}
+
+function setActivePhase(phaseNum) {
+  currentPhase = phaseNum;
+  // Update phase list UI
+  phases.forEach(p => {
+    const el = document.getElementById(`phase-${p.id}`);
+    const conn = document.getElementById(`conn-${p.id}`);
+    el.classList.remove('active', 'done');
+    if (conn) conn.classList.remove('done');
+    if (p.id < phaseNum) {
+      el.classList.add('done');
+      if (conn) conn.classList.add('done');
+    } else if (p.id === phaseNum) {
+      el.classList.add('active');
+      if (conn) conn.classList.add('done');
+    }
+  });
+  // Update progress
+  const pct = Math.round(((phaseNum - 1) / 11) * 100 + (phaseNum === 11 ? 9 : 0));
+  document.getElementById('progressBar').style.width = pct + '%';
+  document.getElementById('progressPhase').textContent = `Phase ${phaseNum}/11`;
+  document.getElementById('progressPct').textContent = pct + '%';
+}
+
+function activateAgents(names) {
+  document.querySelectorAll('.agent-chip').forEach(chip => {
+    chip.classList.remove('active');
+  });
+  names.forEach(name => {
+    const chip = document.querySelector(`.agent-chip[data-agent="${name}"]`);
+    if (chip) chip.classList.add('active');
+  });
+}
+
+function updateStats(s) {
+  if (s.refs !== undefined) {
+    animateNumber('statRefs', s.refs);
+  }
+  if (s.words !== undefined) {
+    animateNumber('statWords', s.words);
+  }
+  if (s.figs !== undefined) {
+    animateNumber('statFigs', s.figs);
+  }
+}
+
+function animateNumber(id, target) {
+  const el = document.getElementById(id);
+  const current = parseInt(el.textContent.replace(/,/g, '')) || 0;
+  const diff = target - current;
+  const steps = 20;
+  const stepSize = diff / steps;
+  let i = 0;
+  const interval = setInterval(() => {
+    i++;
+    const val = i >= steps ? target : Math.round(current + stepSize * i);
+    el.textContent = val.toLocaleString();
+    if (i >= steps) clearInterval(interval);
+  }, 30);
+}
+
+function addCitation(text) {
+  const list = document.getElementById('citeList');
+  const div = document.createElement('div');
+  div.className = 'cite-item';
+  div.innerHTML = `<span class="doi">✓</span> ${text}`;
+  list.prepend(div);
+}
+
+function startTimer() {
+  if (timerInterval) return;
+  timerInterval = setInterval(() => {
+    elapsedSeconds += speedMultiplier;
+    const m = Math.floor(elapsedSeconds / 60);
+    const s = elapsedSeconds % 60;
+    document.getElementById('statTime').textContent =
+      String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }, 1000);
+}
+
+function stopTimer() {
+  clearInterval(timerInterval);
+  timerInterval = null;
+}
+
+function changeSpeed() {
+  speedMultiplier = parseInt(document.getElementById('speedSelect').value);
+}
+
+function skipToEnd() {
+  // Clear pending animations
+  animationTimeouts.forEach(t => clearTimeout(t));
+  animationTimeouts = [];
+  playing = false;
+
+  // Execute all remaining steps silently
+  const terminal = document.getElementById('terminal');
+  while (stepIndex < script.length) {
+    const step = script[stepIndex];
+    stepIndex++;
+    if (step.type === 'phase') setActivePhase(step.phase);
+    if (step.stats) updateStats(step.stats);
+    if (step.cite) addCitation(step.cite);
+    if (step.text) {
+      const div = document.createElement('div');
+      div.className = `line ${step.type === 'phase' ? 'phase-header' : step.type}`;
+      div.textContent = step.text;
+      terminal.appendChild(div);
+    }
+  }
+  terminal.scrollTop = terminal.scrollHeight;
+
+  // Final state
+  setActivePhase(11);
+  document.getElementById('progressBar').style.width = '100%';
+  document.getElementById('progressPct').textContent = '100%';
+  document.getElementById('playBtn').textContent = '✓ 完成';
+  document.getElementById('playBtn').disabled = true;
+  document.getElementById('statusText').textContent = '生成完成';
+  document.getElementById('statTime').textContent = '08:42';
+  stopTimer();
+
+  // Show PDF after a beat
+  setTimeout(() => {
+    document.getElementById('pdfOverlay').classList.add('show');
+  }, 500);
+}
+
+function closePdf(e) {
+  if (e.target === document.getElementById('pdfOverlay')) {
+    document.getElementById('pdfOverlay').classList.remove('show');
+  }
+}
+
+// ── Init ──
+initPhaseList();
+initParticles();
+</script>
+</body>
+</html>
