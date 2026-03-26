@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FARS 事實查核 — AI 17天寫166篇論文，真相是什麼？</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Fira+Code:wght@400;700&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════
+   grow.google 簡潔風 + Reading Glasses
+   投影教學用 (3-10m 觀看距離)
+   ═══════════════════════════════════════
+
+   ▸ 每頁安全內容高度規則 ◂
+   ─────────────────────────────────────
+   固定遮擋區：
+     頂部 = module-badge (top:1rem + h≈1.6rem) → 留 3.5rem
+     底部 = controls (bottom:1.2rem + h≈2.2rem) + progress → 留 4.5rem
+   可用 = 100vh − 8rem
+     1080p → 904px ≈ 41rem
+     900px 筆電 → 724px ≈ 33rem
+     768px 平板 → 592px ≈ 27rem
+
+   ★ 規則：每頁內容（含 h2）不得超過 30rem (660px)
+     - h2 標題 ≈ 3.5rem
+     - 剩餘內容 ≈ 26.5rem (583px)
+     - 6 行表格 + info-box 已達極限，超過就拆頁
+     - 若需放更多內容，拆成兩頁或用 fragment 分批顯示
+   ─────────────────────────────────────
+   */
+:root {
+  --white:#FFF; --offwhite:#F8F9FA; --g50:#F1F3F4; --g100:#E8EAED;
+  --g200:#DADCE0; --g400:#9AA0A6; --g600:#5F6368; --g800:#3C4043; --g900:#202124;
+  --blue:#1A73E8; --blue-lt:#E8F0FE;
+  --green:#0F9D8A; --green-lt:#E6F4F1;
+  --gold:#F9AB00; --gold-lt:#FEF7E0;
+  --red:#D93025; --red-lt:#FCE8E6;
+  --purple:#7C3AED; --purple-lt:#F3E8FF;
+  --navy:#0B3C5D;
+  --orange:#E8710A; --orange-lt:#FEF0E1;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;overflow:hidden;font-family:'Noto Sans TC',sans-serif;color:var(--g900);font-size:22px;line-height:1.7;font-weight:400;background:var(--white);}
+
+/* Slides */
+.slides{width:100%;height:100%;position:relative;}
+/* padding-top/bottom 對齊 fixed overlay 遮擋區，避免內容被蓋住 */
+.slide{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:3.5rem 4rem 4.5rem;opacity:0;transform:translateX(30px);pointer-events:none;transition:opacity .4s,transform .4s ease;background:var(--white);overflow-y:auto;}
+/* 短內容自動垂直置中（替代 justify-content:center，避免溢出時頂部被裁） */
+.slide::before,.slide::after{content:'';flex:1 0 0px;}
+.slide.active{opacity:1;transform:none;pointer-events:auto;}
+.slide.prev{opacity:0;transform:translateX(-30px);}
+.slide.cover{background:var(--navy);color:#fff;text-align:center;}
+.slide.section-title{background:var(--green);color:#fff;text-align:center;}
+.slide.break-slide{background:var(--offwhite);text-align:center;}
+
+/* Typography */
+h1{font-size:3rem;font-weight:900;line-height:1.3;}
+h2{font-size:2rem;font-weight:700;color:var(--g900);margin-bottom:1rem;line-height:1.4;}
+h3{font-size:1.3rem;font-weight:700;margin-bottom:.4rem;}
+p,li{font-size:1.1rem;line-height:1.8;}
+.subtitle{font-size:1.15rem;color:var(--g600);font-weight:500;}
+.blue{color:var(--blue);}.green{color:var(--green);}.gold{color:var(--gold);}.red{color:var(--red);}.purple{color:var(--purple);}.dim{color:var(--g600);}.bold{font-weight:700;}
+
+/* Fragment */
+.fragment{opacity:0;transform:translateY(10px);transition:opacity .3s,transform .3s;}
+.fragment.visible{opacity:1;transform:none;}
+
+/* Cards */
+.card-grid{display:flex;gap:1.5rem;flex-wrap:wrap;justify-content:center;margin-top:1.2rem;max-width:1100px;}
+.card{background:var(--white);border:2px solid var(--g100);border-radius:16px;padding:1.8rem;min-width:220px;max-width:300px;flex:1;transition:border-color .2s;}
+.card:hover{border-color:var(--blue);}
+.card .icon{font-size:2.5rem;margin-bottom:.6rem;}
+.card p{font-size:1rem;color:var(--g600);}
+
+/* Steps */
+.step-list{text-align:left;max-width:800px;width:100%;}
+.step{display:flex;gap:1.2rem;align-items:flex-start;padding:.8rem 0;border-bottom:1px solid var(--g100);}
+.step:last-child{border:none;}
+.step-num{flex-shrink:0;width:40px;height:40px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;}
+.step-content{flex:1;}.step-content strong{font-size:1.1rem;}.step-content p{font-size:1rem;color:var(--g600);margin-top:.15rem;}
+
+/* Table */
+.compare-table{border-collapse:collapse;font-size:1rem;margin-top:.6rem;width:100%;max-width:860px;}
+.compare-table th{background:var(--navy);color:#fff;padding:.5rem 1rem;text-align:left;font-size:.95rem;}
+.compare-table td{padding:.5rem 1rem;border-bottom:1px solid var(--g100);font-size:.95rem;}
+.compare-table tr:hover td{background:var(--g50);}
+.compare-table .highlight{color:var(--blue);font-weight:700;}
+.compare-table .warn{color:var(--orange);font-weight:700;}
+.compare-table .danger{color:var(--red);font-weight:700;}
+
+/* Info boxes */
+.info-box{border-radius:12px;padding:1.3rem 1.8rem;max-width:800px;width:100%;text-align:left;margin-top:.8rem;}
+.info-box.analogy{background:var(--blue-lt);border-left:4px solid var(--blue);}
+.info-box.warning{background:var(--red-lt);border-left:4px solid var(--red);}
+.info-box.success{background:var(--green-lt);border-left:4px solid var(--green);}
+.info-box.tip{background:var(--gold-lt);border-left:4px solid var(--gold);}
+.info-box .label{font-weight:700;font-size:1rem;margin-bottom:.4rem;}
+.info-box p{font-size:1.05rem;}
+
+/* Flow */
+.flow{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;justify-content:center;margin:1.2rem 0;}
+.flow-box{background:var(--offwhite);border:2px solid var(--g200);border-radius:12px;padding:.7rem 1rem;font-size:1rem;font-weight:700;text-align:center;}
+.flow-arrow{color:var(--blue);font-size:1.5rem;font-weight:900;}
+
+/* Two col */
+.two-col{display:flex;gap:2rem;width:100%;max-width:960px;text-align:left;}
+.two-col .col{flex:1;}
+
+/* Big number */
+.big-num{font-size:4.5rem;font-weight:900;color:var(--blue);line-height:1;}
+
+/* Stat grid */
+.stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1.2rem;max-width:860px;width:100%;margin-top:1rem;}
+.stat-box{background:var(--offwhite);border:2px solid var(--g100);border-radius:16px;padding:1.3rem;text-align:center;}
+.stat-box .val{font-size:2.4rem;font-weight:900;color:var(--blue);line-height:1.1;}
+.stat-box .label{font-size:.9rem;color:var(--g600);margin-top:.3rem;}
+
+/* Verdict */
+.verdict-list{max-width:860px;width:100%;display:flex;flex-direction:column;gap:1rem;margin-top:.8rem;}
+.verdict{display:flex;gap:1.2rem;align-items:flex-start;background:var(--offwhite);border:2px solid var(--g100);border-radius:16px;padding:1.3rem 1.5rem;}
+.verdict .badge{flex-shrink:0;width:48px;height:48px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.4rem;font-weight:900;}
+.verdict.true .badge{background:var(--green-lt);color:var(--green);}
+.verdict.false .badge{background:var(--red-lt);color:var(--red);}
+.verdict.half .badge{background:var(--gold-lt);color:var(--gold);}
+.verdict .claim{font-weight:700;font-size:1.1rem;margin-bottom:.2rem;}
+.verdict .detail{font-size:1rem;color:var(--g600);line-height:1.6;}
+
+/* Score bar */
+.score-wrap{max-width:800px;width:100%;background:var(--offwhite);border:2px solid var(--g100);border-radius:16px;padding:1.5rem 2rem;margin-top:.8rem;}
+.score-labels{display:flex;justify-content:space-between;font-size:.85rem;color:var(--g400);margin-bottom:.6rem;}
+.score-track{position:relative;height:32px;border-radius:16px;background:linear-gradient(90deg,var(--red) 0%,var(--gold) 50%,var(--green) 100%);margin-bottom:1rem;}
+.score-marker{position:absolute;top:-6px;width:3px;height:44px;background:var(--g900);border-radius:2px;transform:translateX(-50%);}
+.score-marker::after{content:attr(data-label);position:absolute;top:50px;left:50%;transform:translateX(-50%);font-size:.75rem;font-weight:700;white-space:nowrap;padding:.2rem .6rem;border-radius:8px;background:var(--white);border:1px solid var(--g200);color:var(--g800);}
+.score-legend{display:flex;gap:1.5rem;flex-wrap:wrap;font-size:.9rem;color:var(--g600);margin-top:2.8rem;}
+.score-legend span{display:flex;align-items:center;gap:.4rem;}
+.score-legend .dot{width:10px;height:10px;border-radius:50%;}
+
+/* Risk card */
+.risk-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1.5rem;max-width:960px;width:100%;margin-top:1rem;}
+.risk-card{background:var(--offwhite);border:2px solid var(--g200);border-radius:16px;padding:1.5rem;transition:border-color .2s;}
+.risk-card:hover{border-color:var(--orange);}
+.risk-card .num{font-size:2.8rem;font-weight:900;color:var(--orange);line-height:1;margin-bottom:.5rem;}
+.risk-card .title{font-weight:700;font-size:1.1rem;margin-bottom:.4rem;}
+.risk-card .desc{font-size:.95rem;color:var(--g600);line-height:1.6;}
+
+/* Timeline */
+.timeline{position:relative;padding-left:32px;max-width:800px;width:100%;text-align:left;margin-top:.8rem;}
+.timeline::before{content:"";position:absolute;left:10px;top:6px;bottom:6px;width:3px;background:var(--g200);border-radius:2px;}
+.tl-item{position:relative;margin-bottom:1.5rem;}
+.tl-item:last-child{margin-bottom:0;}
+.tl-item::before{content:"";position:absolute;left:-28px;top:8px;width:14px;height:14px;border-radius:50%;background:var(--blue);border:3px solid var(--white);}
+.tl-item .date{font-size:.9rem;color:var(--blue);font-weight:700;}
+.tl-item .event{font-size:1.05rem;margin-top:.1rem;}
+
+/* Quote */
+.quote-box{max-width:800px;width:100%;background:var(--g50);border-left:5px solid var(--navy);border-radius:0 12px 12px 0;padding:1.5rem 2rem;margin:.8rem 0;text-align:left;}
+.quote-box .quote-text{font-size:1.3rem;font-weight:700;line-height:1.6;color:var(--navy);}
+.quote-box .quote-src{font-size:.9rem;color:var(--g600);margin-top:.5rem;}
+
+/* Bottom line */
+.bottom-line{max-width:800px;width:100%;background:var(--blue-lt);border:2px solid var(--blue);border-radius:16px;padding:2rem;text-align:center;margin-top:1rem;}
+.bottom-line h3{font-size:1.6rem;color:var(--blue);margin-bottom:.8rem;}
+.bottom-line p{font-size:1.05rem;color:var(--g800);max-width:640px;margin:0 auto;line-height:1.7;}
+
+/* Source list */
+.source-list{list-style:none;max-width:800px;width:100%;text-align:left;margin-top:.8rem;}
+.source-list li{padding:.6rem 0;border-bottom:1px solid var(--g100);font-size:.95rem;display:flex;align-items:baseline;gap:.8rem;}
+.source-list li:last-child{border-bottom:none;}
+.source-list .tag{font-size:.7rem;font-weight:700;padding:.15rem .6rem;border-radius:6px;background:var(--g100);color:var(--g600);white-space:nowrap;flex-shrink:0;text-transform:uppercase;letter-spacing:.3px;}
+.source-list a{color:var(--blue);text-decoration:none;}
+.source-list a:hover{text-decoration:underline;}
+
+/* Controls */
+.progress{position:fixed;bottom:0;left:0;height:4px;background:var(--green);transition:width .4s;z-index:100;}
+.controls{position:fixed;bottom:1.2rem;right:1.2rem;z-index:100;display:flex;gap:.5rem;}
+.controls button{width:48px;height:48px;border:2px solid var(--g200);border-radius:12px;background:var(--white);color:var(--g800);font-size:1.2rem;cursor:pointer;transition:all .15s;}
+.controls button:hover{background:var(--blue-lt);border-color:var(--blue);color:var(--blue);}
+.controls button:disabled{opacity:.25;cursor:default;}
+.slide-counter{position:fixed;bottom:1.5rem;left:1.2rem;z-index:100;color:var(--g400);font-size:.85rem;font-weight:500;}
+.module-badge{position:fixed;top:1rem;right:1rem;z-index:100;background:var(--red-lt);color:var(--red);padding:.25rem .8rem;border-radius:100px;font-size:.8rem;font-weight:700;}
+.module-title{position:fixed;top:1rem;left:1.2rem;z-index:100;color:var(--g400);font-size:.85rem;font-weight:700;}
+
+@media(max-width:768px){
+  .slide{padding:3rem 1.5rem 4rem;}
+  h1{font-size:2rem;}h2{font-size:1.5rem;}
+  .stat-grid{grid-template-columns:repeat(2,1fr);gap:.8rem;}
+  .stat-box .val{font-size:1.8rem;}
+  .risk-grid{grid-template-columns:1fr;gap:1rem;}
+  .verdict{flex-direction:column;gap:.6rem;}
+  .score-marker::after{font-size:.65rem;}
+  .compare-table th,.compare-table td{padding:.5rem .6rem;font-size:.85rem;}
+  .two-col{flex-direction:column;gap:1rem;}
+}
+</style>
+</head>
+<body>
+
+<div class="module-title">Fact Check</div>
+<div class="module-badge">FARS 事實查核</div>
+<div class="slides">
+
+<!-- ===== 0: COVER ===== -->
+<div class="slide cover" data-index="0">
+  <p style="font-size:1.1rem;color:rgba(255,255,255,.6);margin-bottom:1rem;">Paper Lab — 事實查核系列</p>
+  <h1>AI 17天寫<span style="color:var(--gold);">166篇論文</span><br><span style="font-size:2rem;">真相是什麼？</span></h1>
+  <p class="subtitle" style="margin-top:1.5rem;font-size:1.3rem;">FARS 全自動科研系統 — 逐條驗證，還原脈絡</p>
+  <p style="color:rgba(255,255,255,.4);margin-top:3rem;font-size:.9rem;">按 → 或空白鍵開始</p>
+</div>
+
+<!-- ===== 1: 議程 ===== -->
+<div class="slide" data-index="1">
+  <h2>查核路線</h2>
+  <div class="step-list">
+    <div class="step fragment" data-order="0"><div class="step-num">1</div><div class="step-content"><strong>關鍵數據一覽</strong><p>166 篇、$186K、21.6B tokens</p></div></div>
+    <div class="step fragment" data-order="1"><div class="step-num" style="background:var(--green);">2</div><div class="step-content"><strong>背後推手</strong><p>MOSS 開發者孫天祥 → Analemma 創業</p></div></div>
+    <div class="step fragment" data-order="2"><div class="step-num" style="background:var(--gold);">3</div><div class="step-content"><strong>逐條事實查核</strong><p>六個說法，逐一驗證真假</p></div></div>
+    <div class="step fragment" data-order="3"><div class="step-num" style="background:var(--red);">4</div><div class="step-content"><strong>論文品質實況</strong><p>AI 評分 vs 人類門檻</p></div></div>
+    <div class="step fragment" data-order="4"><div class="step-num" style="background:var(--orange);">5</div><div class="step-content"><strong>三大風險 & 結論</strong><p>工程壯舉 ≠ 科學貢獻</p></div></div>
+  </div>
+</div>
+
+<!-- ===== SECTION: 關鍵數據 ===== -->
+<div class="slide section-title" data-index="2">
+  <p class="subtitle">Part 1</p>
+  <h1>關鍵數據一覽</h1>
+  <p class="subtitle" style="margin-top:.5rem;">先看數字，再下判斷</p>
+</div>
+
+<!-- ===== 3: 六大數字 ===== -->
+<div class="slide" data-index="3">
+  <h2>六個數字看 FARS</h2>
+  <div class="stat-grid">
+    <div class="stat-box fragment" data-order="0"><div class="val">166</div><div class="label">論文產出（第一輪）</div></div>
+    <div class="stat-box fragment" data-order="1"><div class="val">417h</div><div class="label">連續運行時間</div></div>
+    <div class="stat-box fragment" data-order="2"><div class="val">$186K</div><div class="label">總成本（美元）</div></div>
+    <div class="stat-box fragment" data-order="3"><div class="val">21.6B</div><div class="label">Token 消耗量</div></div>
+    <div class="stat-box fragment" data-order="4"><div class="val">2h17m</div><div class="label">平均每篇耗時</div></div>
+    <div class="stat-box fragment" data-order="5" style="border-color:var(--red);"><div class="val" style="color:var(--red);">0</div><div class="label">正式發表篇數</div></div>
+  </div>
+</div>
+
+<!-- ===== 4: 兩輪比較 ===== -->
+<div class="slide" data-index="4">
+  <h2>兩輪實驗比較</h2>
+  <table class="compare-table">
+    <thead>
+      <tr><th>指標</th><th>第一輪（內部）</th><th>第二輪（公開直播）</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>運行時間</td><td>417 小時（~17 天）</td><td>228 小時（~9.5 天）</td></tr>
+      <tr><td>論文數量</td><td class="highlight">166 篇</td><td class="highlight">100 篇</td></tr>
+      <tr><td>Token 消耗</td><td>216 億</td><td>114 億</td></tr>
+      <tr><td>估計成本</td><td>$186,000</td><td>$104,000（~¥750K）</td></tr>
+      <tr><td>每篇成本</td><td>~$1,100</td><td>~$1,000</td></tr>
+      <tr><td>正式發表</td><td class="danger">0 篇</td><td class="danger">0 篇</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ===== SECTION: 背後推手 ===== -->
+<div class="slide section-title" data-index="5" style="background:var(--blue);">
+  <p class="subtitle">Part 2</p>
+  <h1>背後推手</h1>
+  <p class="subtitle" style="color:rgba(255,255,255,.9);margin-top:.5rem;">從 MOSS 到 Analemma</p>
+</div>
+
+<!-- ===== 6: Timeline ===== -->
+<div class="slide" data-index="6">
+  <h2>孫天祥 — FARS 之父</h2>
+  <div class="timeline">
+    <div class="tl-item fragment" data-order="0">
+      <div class="date">2023 年初</div>
+      <div class="event"><strong>孫天祥</strong>在復旦大學邱錫鵬教授 NLP 實驗室，作為核心開發者打造 <strong>MOSS</strong> — 中國首個 ChatGPT 級開源對話模型</div>
+    </div>
+    <div class="tl-item fragment" data-order="1">
+      <div class="date">2024 年</div>
+      <div class="event">博士畢業，未加入大廠，決定創業</div>
+    </div>
+    <div class="tl-item fragment" data-order="2">
+      <div class="date">2025 年 3 月</div>
+      <div class="event">創立 <strong>Analemma</strong>（日行跡智能），團隊約 15 人，核心成員來自 MOSS 與 InternLM</div>
+    </div>
+    <div class="tl-item fragment" data-order="3">
+      <div class="date">2026/2/13 – 3/3</div>
+      <div class="event">FARS 公開直播實驗：<strong>228 小時、100 篇論文、全程可觀看</strong></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SECTION: 事實查核 ===== -->
+<div class="slide section-title" data-index="7" style="background:var(--gold);">
+  <p class="subtitle">Part 3</p>
+  <h1>逐條事實查核</h1>
+  <p class="subtitle" style="color:rgba(255,255,255,.9);margin-top:.5rem;">✓ 屬實 &nbsp; △ 半真半假 &nbsp; ✗ 誤導</p>
+</div>
+
+<!-- ===== 8: 查核 — 屬實 ===== -->
+<div class="slide" data-index="8">
+  <h2>查核結果：<span class="green">屬實</span>的部分</h2>
+  <div class="verdict-list">
+    <div class="verdict true fragment" data-order="0">
+      <div class="badge">✓</div>
+      <div>
+        <div class="claim">「17天寫了166篇論文」</div>
+        <div class="detail">數字本身屬實。系統確實連續運行 417 小時產出 166 份文件。但這些是<strong>短篇文件</strong>，非傳統意義上的完整學術論文。</div>
+      </div>
+    </div>
+    <div class="verdict true fragment" data-order="1">
+      <div class="badge">✓</div>
+      <div>
+        <div class="claim">「背後推手是 MOSS 開發者」</div>
+        <div class="detail">確認屬實。孫天祥是復旦 MOSS 核心開發者，現為 Analemma 創辦人。</div>
+      </div>
+    </div>
+    <div class="verdict true fragment" data-order="2">
+      <div class="badge">✓</div>
+      <div>
+        <div class="claim">「總成本 18.6 萬美元」</div>
+        <div class="detail">成本數字可信。每篇消耗約 1.14 億 token，這是暴力堆算力的結果。</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 9: 查核 — 半真半假 & 誤導 ===== -->
+<div class="slide" data-index="9">
+  <h2>查核結果：<span class="gold">爭議</span>與<span class="red">誤導</span></h2>
+  <div class="verdict-list">
+    <div class="verdict half fragment" data-order="0">
+      <div class="badge">△</div>
+      <div>
+        <div class="claim">「有實驗、有對照，能被審稿」</div>
+        <div class="detail">論文確實包含實驗設計，但「審稿」用的是 Stanford 的 <strong>AI 自動審稿系統</strong>。AI 評 AI，存在循環論證。</div>
+      </div>
+    </div>
+    <div class="verdict half fragment" data-order="1">
+      <div class="badge">△</div>
+      <div>
+        <div class="claim">「AI 審稿分數超越人類平均」</div>
+        <div class="detail">FARS 得分 5.05，人類平均投稿 4.21 — 但人類平均投稿<strong>本來就是被拒稿的</strong>（接受門檻 5.39）。</div>
+      </div>
+    </div>
+    <div class="verdict false fragment" data-order="2">
+      <div class="badge">✗</div>
+      <div>
+        <div class="claim">「論文已開始被學界接受」</div>
+        <div class="detail">嚴重誤導。截至目前 <strong>零篇</strong> 被任何同行評審期刊或會議正式接受。ArXiv 禁止 AI 作為作者。</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SECTION: 品質 ===== -->
+<div class="slide section-title" data-index="10" style="background:var(--red);">
+  <p class="subtitle">Part 4</p>
+  <h1>論文品質實況</h1>
+  <p class="subtitle" style="color:rgba(255,255,255,.9);margin-top:.5rem;">數字背後的真實水準</p>
+</div>
+
+<!-- ===== 11: 評分光譜 ===== -->
+<div class="slide" data-index="11">
+  <h2>ICLR 評分光譜</h2>
+  <div class="score-wrap">
+    <div class="score-labels"><span>1（最低）</span><span>ICLR 評分尺度</span><span>10（最高）</span></div>
+    <div class="score-track">
+      <div class="score-marker" style="left:42%" data-label="人類平均 4.21（被拒）"></div>
+      <div class="score-marker" style="left:50.5%;background:var(--blue);" data-label="FARS 5.05"></div>
+      <div class="score-marker" style="left:54%;background:var(--green);" data-label="接受門檻 5.39"></div>
+    </div>
+    <div class="score-legend">
+      <span><span class="dot" style="background:var(--red);"></span> 拒稿區</span>
+      <span><span class="dot" style="background:var(--gold);"></span> 邊緣區</span>
+      <span><span class="dot" style="background:var(--green);"></span> 接受區</span>
+    </div>
+  </div>
+  <div class="quote-box fragment" data-order="0" style="margin-top:1.2rem;">
+    <div class="quote-text">「讀完幾篇，頂多是 EI 等級的水準，相當於碩士生第一次投稿。」</div>
+    <div class="quote-src">— 知乎用戶，實際閱讀 FARS 論文後的評價</div>
+  </div>
+</div>
+
+<!-- ===== 12: 品質維度 ===== -->
+<div class="slide" data-index="12">
+  <h2>品質維度檢視</h2>
+  <table class="compare-table">
+    <thead><tr><th>品質維度</th><th>結果</th></tr></thead>
+    <tbody>
+      <tr><td>實驗弱點</td><td class="danger">100% 的論文存在實驗設計缺陷</td></tr>
+      <tr><td>方法論問題</td><td class="danger">96.4% 有方法論缺陷或表述不清</td></tr>
+      <tr><td>正式發表</td><td class="danger">0 篇被同行評審接受</td></tr>
+      <tr><td>研究範圍</td><td class="warn">僅限 AI 領域（AI4AI），無法跨領域</td></tr>
+      <tr><td>代表作評分</td><td class="warn">5.2 / 10 — 碩士生首投水準</td></tr>
+      <tr><td>AI 評分參考性</td><td class="warn">AI 評 AI，存在循環論證</td></tr>
+    </tbody>
+  </table>
+  <div class="info-box warning fragment" data-order="0" style="margin-top:1rem;">
+    <div class="label">關鍵問題</div>
+    <p>略高於拒稿線，不等於「可以發表」。FARS 論文得分仍<strong>低於</strong>接受門檻 5.39。</p>
+  </div>
+</div>
+
+<!-- ===== SECTION: 風險 ===== -->
+<div class="slide section-title" data-index="13" style="background:var(--orange);">
+  <p class="subtitle">Part 5</p>
+  <h1>三大真實風險</h1>
+  <p class="subtitle" style="color:rgba(255,255,255,.9);margin-top:.5rem;">學術界的擔憂</p>
+</div>
+
+<!-- ===== 14: 三大風險 ===== -->
+<div class="slide" data-index="14">
+  <h2>三大真實風險</h2>
+  <div class="risk-grid">
+    <div class="risk-card fragment" data-order="0">
+      <div class="num">01</div>
+      <div class="title">淹沒審稿系統</div>
+      <div class="desc">大量低品質投稿將癱瘓本已超負荷的同行評審制度，嚴重影響學術出版效率。</div>
+    </div>
+    <div class="risk-card fragment" data-order="1">
+      <div class="num">02</div>
+      <div class="title">侵蝕研究訓練</div>
+      <div class="desc">研究生過度依賴 AI 產出論文，將失去獨立思考、實驗設計等核心能力的培養機會。</div>
+    </div>
+    <div class="risk-card fragment" data-order="2">
+      <div class="num">03</div>
+      <div class="title">自主探索風險</div>
+      <div class="desc">AI 自動決定研究方向，可能在缺乏人類監督下探索敏感或有倫理爭議的路線。</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 15: 結論 ===== -->
+<div class="slide" data-index="15">
+  <h2>結論</h2>
+  <div class="bottom-line">
+    <h3>工程壯舉 ≠ 科學貢獻</h3>
+    <p>FARS 是一個<strong>工程上令人印象深刻的 AI Agent 系統</strong>，展示了多代理協作的潛力。但其產出品質距離可發表的學術研究仍有明顯差距。新聞標題「博士還要活嗎」屬於典型的<strong>焦慮行銷</strong>。</p>
+  </div>
+  <div class="quote-box fragment" data-order="0" style="margin-top:1.2rem;">
+    <div class="quote-text">數字是真的，焦慮是製造的。<br>AI 能量產文件，但離取代科學研究者，還差得遠。</div>
+    <div class="quote-src">— 一句話總結</div>
+  </div>
+</div>
+
+<!-- ===== 16: 資料來源 ===== -->
+<div class="slide" data-index="16">
+  <h2>資料來源</h2>
+  <ul class="source-list">
+    <li><span class="tag">官方</span><a href="https://analemma.ai/fars" target="_blank">Analemma — FARS 官方頁面</a></li>
+    <li><span class="tag">官方</span><a href="https://analemma.ai/blog/introducing-fars/" target="_blank">Introducing FARS — Analemma Blog</a></li>
+    <li><span class="tag">媒體</span><a href="https://www.huxiu.com/article/4844214.html" target="_blank">虎嗅 — 17天產出166篇論文</a></li>
+    <li><span class="tag">媒體</span><a href="https://eu.36kr.com/en/p/3696795271966336" target="_blank">36Kr — 228 Hours, 100 Papers</a></li>
+    <li><span class="tag">媒體</span><a href="https://36kr.com/p/3680086801936003" target="_blank">36Kr — MOSS 孫天祥新公司讓 AI 寫 100 篇論文</a></li>
+    <li><span class="tag">媒體</span><a href="https://news.sciencenet.cn/htmlnews/2026/2/560216.shtm" target="_blank">科學網 — 復旦 MOSS 核心團隊推出多代理系統</a></li>
+    <li><span class="tag">社群</span><a href="https://www.zhihu.com/question/2009388139421115997" target="_blank">知乎 — 如何看待 FARS 量產 100 篇論文？</a></li>
+    <li><span class="tag">社群</span><a href="https://x.com/AnalemmaAI/status/2029517097467068771" target="_blank">X/Twitter — Analemma 官方宣布實驗結束</a></li>
+    <li><span class="tag">代碼</span><a href="https://github.com/open-fars/openfars" target="_blank">GitHub — open-fars/openfars（開源復刻）</a></li>
+  </ul>
+</div>
+
+<!-- ===== 17: 封底 ===== -->
+<div class="slide cover" data-index="17">
+  <p style="font-size:1rem;color:rgba(255,255,255,.5);margin-bottom:2rem;">一句話記住</p>
+  <h1 style="font-size:2.6rem;line-height:1.5;">
+    AI 能量產文件<br><br>
+    但離取代科學研究者<br>
+    <span style="color:var(--gold);">還差得遠</span>
+  </h1>
+  <p style="color:rgba(255,255,255,.5);margin-top:2rem;font-size:1.1rem;">決定研究價值的不是<strong style="color:var(--gold);">產出數量</strong>，而是<strong style="color:var(--gold);">科學洞見</strong></p>
+  <p style="color:rgba(255,255,255,.3);margin-top:2rem;font-size:.85rem;">事實查核 by Paper Lab · 2026-03-26<br>本頁內容基於公開資料整理，不代表任何立場</p>
+</div>
+
+</div>
+
+<div class="slide-counter"><span id="current">1</span> / <span id="total"></span></div>
+<div class="progress" id="progress"></div>
+<div class="controls"><button id="prev" disabled>←</button><button id="next">→</button></div>
+
+<script>
+const slides=document.querySelectorAll('.slide'),tot=slides.length;
+let idx=0,fi=-1;
+document.getElementById('total').textContent=tot;
+const gf=el=>el.querySelectorAll('.fragment');
+function go(n){slides.forEach((s,i)=>{s.classList.remove('active','prev');if(i<n)s.classList.add('prev');s.querySelectorAll('.fragment').forEach(f=>f.classList.remove('visible'));});idx=n;fi=-1;slides[idx].classList.add('active');ui();}
+function ui(){document.getElementById('current').textContent=idx+1;document.getElementById('prev').disabled=idx===0&&fi<=0;const f=gf(slides[idx]);document.getElementById('next').disabled=idx===tot-1&&fi>=f.length-1;document.getElementById('progress').style.width=((idx+1)/tot*100)+'%';}
+function adv(){const f=gf(slides[idx]);if(fi<f.length-1){fi++;f[fi].classList.add('visible');ui();}else if(idx<tot-1)go(idx+1);}
+function ret(){const f=gf(slides[idx]);if(fi>=0){f[fi].classList.remove('visible');fi--;ui();}else if(idx>0){go(idx-1);const p=gf(slides[idx]);p.forEach(x=>x.classList.add('visible'));fi=p.length-1;ui();}}
+document.getElementById('next').onclick=adv;document.getElementById('prev').onclick=ret;
+document.addEventListener('keydown',e=>{if(['ArrowRight',' ','PageDown'].includes(e.key)){e.preventDefault();adv();}if(['ArrowLeft','PageUp'].includes(e.key)){e.preventDefault();ret();}if(e.key==='Home'){e.preventDefault();go(0);}if(e.key==='End'){e.preventDefault();go(tot-1);}if(e.key==='f'||e.key==='F'){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();}});
+let tx=0;document.addEventListener('touchstart',e=>{tx=e.changedTouches[0].screenX;});document.addEventListener('touchend',e=>{const d=tx-e.changedTouches[0].screenX;if(Math.abs(d)>50){d>0?adv():ret();}});
+go(0);
+
+// postMessage bridge for iframe embedding
+window.addEventListener('message', function(e) {
+  if (!e.data || typeof e.data !== 'object') return;
+  if (e.data.type === 'slide-control') {
+    if (e.data.action === 'next') adv();
+    else if (e.data.action === 'prev') ret();
+    else if (e.data.action === 'goto' && typeof e.data.index === 'number') go(e.data.index);
+  }
+});
+</script>
+</body>
+</html>
