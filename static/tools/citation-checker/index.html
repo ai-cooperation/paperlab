@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Citation Metadata Checker — Cross-Database Verification</title>
+  <meta name="description" content="Verify citation metadata across CrossRef, OpenAlex, and Semantic Scholar. Detect disagreements, get suggested citations.">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Citation Metadata Checker</h1>
+      <p class="subtitle">Cross-database verification across CrossRef, OpenAlex &amp; Semantic Scholar</p>
+    </header>
+
+    <!-- Mode tabs -->
+    <div class="mode-tabs">
+      <button id="tab-single" class="mode-tab mode-active">Single DOI</button>
+      <button id="tab-batch" class="mode-tab">Batch .bib</button>
+    </div>
+
+    <!-- Single DOI panel -->
+    <div id="single-panel">
+      <div class="search-box">
+        <input type="text" id="doi-input" placeholder="Enter DOI e.g. 10.1038/s41598-023-41032-5" autocomplete="off">
+        <button id="verify-btn">Verify</button>
+      </div>
+      <div class="search-meta">
+        <span>Paste a DOI or full DOI URL — we'll extract it automatically</span>
+        <span id="usage-counter">0/50 today</span>
+      </div>
+      <div id="result"></div>
+    </div>
+
+    <!-- Batch panel -->
+    <div id="batch-panel" class="hidden">
+      <div class="batch-upload" id="batch-drop-zone">
+        <div class="batch-upload-inner">
+          <p class="batch-upload-title">Upload .bib file or paste DOI list</p>
+          <p class="batch-upload-hint">Drag &amp; drop a .bib file, or click to browse, or paste below</p>
+          <input type="file" id="batch-file-input" accept=".bib,.txt" class="file-input-hidden">
+          <button class="upload-browse-btn" onclick="document.getElementById('batch-file-input').click()">Choose .bib file</button>
+        </div>
+      </div>
+      <textarea id="batch-text" class="batch-textarea" rows="6" placeholder="Paste .bib content or DOI list (one per line)..."></textarea>
+      <div class="batch-controls">
+        <span id="batch-info" class="batch-info"></span>
+        <div class="batch-buttons">
+          <button id="batch-stop-btn" class="stop-btn hidden">Stop</button>
+          <button id="batch-start-btn" class="start-btn" disabled>Verify All</button>
+        </div>
+      </div>
+      <div id="batch-result"></div>
+    </div>
+
+    <div class="how-it-works">
+      <h2>How it works</h2>
+      <div class="steps">
+        <div class="step">
+          <div class="number">1</div>
+          <h3>Query 3 databases</h3>
+          <p>CrossRef, OpenAlex, and Semantic Scholar are queried simultaneously for the same DOI.</p>
+        </div>
+        <div class="step">
+          <div class="number">2</div>
+          <h3>Compare 7 fields</h3>
+          <p>Title, authors, year, journal, volume, pages, and DOI are normalized and compared.</p>
+        </div>
+        <div class="step">
+          <div class="number">3</div>
+          <h3>Suggest best values</h3>
+          <p>Disagreements are classified as variants or substantive, and the most reliable value is suggested.</p>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <p>
+        No data stored on server &middot; All queries run in your browser
+      </p>
+    </footer>
+  </div>
+
+  <script type="module" src="js/app.js?v=2"></script>
+</body>
+</html>

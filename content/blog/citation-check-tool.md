@@ -28,7 +28,7 @@ faq:
 
 如果你用 AI 輔助寫論文，引用清單裡可能混了假 DOI。手動一個一個查 `doi.org/你的DOI` 可以，但 30 篇以上就不實際。
 
-我們開發了 [Citation Check 批次驗證工具](https://cooperation.tw/metadata-quality-benchmark/)，一次丟入整份引用清單，自動比對三個學術資料庫：
+我們開發了 [Citation Check 批次驗證工具](/tools/citation-checker/)，一次丟入整份引用清單，自動比對三個學術資料庫：
 
 - **CrossRef**：最權威的 DOI 註冊中心
 - **Semantic Scholar**：AI 驅動的學術搜尋
@@ -52,7 +52,7 @@ faq:
 
 **Q：驗證工具怎麼用？**
 
-把你的 BibTeX 或 DOI 清單丟進 [Citation Check](https://cooperation.tw/metadata-quality-benchmark/)，工具自動比對三個資料庫，回報每筆引用的真假狀態。
+把你的 BibTeX 或 DOI 清單丟進 [Citation Check](/tools/citation-checker/)，工具自動比對三個資料庫，回報每筆引用的真假狀態。
 
 **Q：換期刊一定要重新排引用格式嗎？**
 
