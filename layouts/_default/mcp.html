@@ -1,0 +1,224 @@
+{{ define "main" }}
+<div class="max-w-3xl mx-auto px-4 sm:px-6 py-10">
+
+  <header class="mb-8">
+    <h1 class="text-3xl font-black text-primary mb-2">MCP 連線設定</h1>
+    <p class="text-gray-600 text-lg leading-relaxed">
+      把 Paper Lab 接到 claude.ai 的對話框（手機 / 桌面都行）。
+      連上後，直接跟 AI 說「我想研究 X」，它會用引導式提問帶你發想題目、界定 research gap、產出一份可執行的研究計畫提案。
+    </p>
+  </header>
+
+  <!-- States are toggled by JS based on login + use_mcp feature -->
+  <div id="mcp-loading" class="text-gray-400 py-10">載入中…</div>
+
+  <!-- Not logged in -->
+  <div id="mcp-guest" class="hidden">
+    <div class="bg-tip border-l-4 border-secondary rounded-r-lg p-6">
+      <h2 class="text-xl font-bold text-primary mb-2">先登入才能使用</h2>
+      <p class="text-gray-700 mb-4">MCP 連線是會員功能。用 Google 登入後即可申請連線 Token。</p>
+      <button onclick="window.paperLabAuth.login()" class="px-5 py-2.5 rounded-lg bg-accent text-primary-dark font-bold hover:bg-accent-dark transition">Google 登入</button>
+    </div>
+  </div>
+
+  <!-- Logged in but no use_mcp -->
+  <div id="mcp-nofeature" class="hidden">
+    <div class="bg-surface border border-gray-200 rounded-lg p-6">
+      <h2 class="text-xl font-bold text-primary mb-2">尚無 MCP 權限</h2>
+      <p class="text-gray-700">
+        你的帳號目前沒有 <code>use_mcp</code> 權限。會員預設可使用；若顯示此訊息，請
+        <a href="mailto:aicooperation.tw@gmail.com?subject=Paper Lab MCP 權限申請" class="text-secondary underline">來信申請開通</a>。
+      </p>
+    </div>
+  </div>
+
+  <!-- Has use_mcp -->
+  <div id="mcp-app" class="hidden space-y-8">
+
+    <div id="mcp-error" class="hidden p-4 rounded-lg bg-red-50 text-red-700 text-base"></div>
+
+    <!-- Step 1: issue -->
+    <section class="bg-white border border-gray-200 rounded-xl p-6">
+      <div class="flex items-center gap-3 mb-4">
+        <span class="w-8 h-8 rounded-full bg-accent text-primary-dark font-black flex items-center justify-center">1</span>
+        <h2 class="text-xl font-bold text-primary">產生連線 Token</h2>
+      </div>
+      <div class="flex flex-col sm:flex-row gap-3">
+        <input id="mcp-label" type="text" maxlength="40" placeholder="標籤（可空白，例：我的 iPhone）"
+          class="flex-1 px-4 py-2.5 rounded-lg border border-gray-300 bg-surface focus:outline-none focus:border-secondary text-base">
+        <button id="mcp-issue-btn" onclick="paperlabMcp.issue()"
+          class="px-5 py-2.5 rounded-lg bg-secondary text-white font-bold hover:bg-secondary-dark transition whitespace-nowrap">產生 Token</button>
+      </div>
+      <p class="text-sm text-gray-500 mt-3">90 天有效，每人最多 5 個。Token 內含你目前的權限快照 — 權限變更後需重發。</p>
+    </section>
+
+    <!-- Just issued (one-time) -->
+    <section id="mcp-issued" class="hidden bg-tip border-2 border-secondary rounded-xl p-6">
+      <h2 class="text-xl font-bold text-secondary-dark mb-2">Token 已產生 — 請立刻複製</h2>
+      <p class="text-gray-700 mb-3 text-base">重新整理後就看不到完整網址了。把下面的 Connector URL 貼到 claude.ai：</p>
+      <div class="text-sm text-gray-500 mb-1">Connector URL</div>
+      <div class="flex gap-2">
+        <input id="mcp-connector-url" type="text" readonly onfocus="this.select()"
+          class="flex-1 px-3 py-2.5 rounded-lg border border-gray-300 bg-white font-mono text-sm">
+        <button onclick="paperlabMcp.copy(document.getElementById('mcp-connector-url').value, 'Connector URL')"
+          class="px-4 py-2.5 rounded-lg border-2 border-secondary text-secondary font-bold hover:bg-secondary hover:text-white transition">複製</button>
+      </div>
+      <div id="mcp-copy-state" class="hidden mt-2 text-emerald-600 font-medium"></div>
+    </section>
+
+    <!-- Step 2: my tokens -->
+    <section class="bg-white border border-gray-200 rounded-xl p-6">
+      <div class="flex items-center gap-3 mb-4">
+        <span class="w-8 h-8 rounded-full bg-gray-200 text-gray-700 font-black flex items-center justify-center">2</span>
+        <h2 class="text-xl font-bold text-primary">我的 Token</h2>
+        <span id="mcp-token-count" class="ml-auto text-sm text-gray-500"></span>
+      </div>
+      <div id="mcp-token-list" class="space-y-2"></div>
+    </section>
+
+    <!-- Step 3: connect in claude.ai -->
+    <section class="bg-white border border-gray-200 rounded-xl p-6">
+      <div class="flex items-center gap-3 mb-4">
+        <span class="w-8 h-8 rounded-full bg-gray-200 text-gray-700 font-black flex items-center justify-center">3</span>
+        <h2 class="text-xl font-bold text-primary">在 claude.ai 加入 Connector</h2>
+      </div>
+      <ol class="list-decimal pl-6 space-y-2 text-gray-700 text-base">
+        <li>打開 <a href="https://claude.ai/settings/connectors" target="_blank" rel="noreferrer" class="text-secondary underline">claude.ai → Settings → Connectors</a></li>
+        <li>按 <strong>Add custom connector</strong></li>
+        <li>貼上剛剛複製的 Connector URL，儲存</li>
+        <li>新開一個對話，說「<strong>我想研究 …</strong>」就會進入引導式發想</li>
+      </ol>
+    </section>
+
+    <!-- Step 4: profile -->
+    <section class="bg-white border border-gray-200 rounded-xl p-6">
+      <div class="flex items-center gap-3 mb-4">
+        <span class="w-8 h-8 rounded-full bg-gray-200 text-gray-700 font-black flex items-center justify-center">4</span>
+        <h2 class="text-xl font-bold text-primary">設定 claude.ai 個性化指示（建議）</h2>
+      </div>
+      <p class="text-gray-700 mb-3 text-base">
+        到 <a href="https://claude.ai/settings/profile" target="_blank" rel="noreferrer" class="text-secondary underline">claude.ai → Settings → Profile</a>
+        把下面這段貼進「個性化指示」，AI 才知道要走引導式發想、不要憑印象瞎給題目：
+      </p>
+      <div class="relative">
+        <pre id="mcp-profile" class="text-sm p-4 rounded-lg bg-surface border border-gray-200 overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed text-gray-700"></pre>
+        <button onclick="paperlabMcp.copy(document.getElementById('mcp-profile').textContent, '個性化指示')"
+          class="absolute top-2 right-2 px-3 py-1 rounded text-sm bg-white border border-gray-300 hover:border-secondary hover:text-secondary">複製</button>
+      </div>
+      <p class="text-sm text-gray-500 mt-3">驗證：新開對話說「我想研究 X」，AI 第一步應呼叫 start_brainstorm 帶你跑 5 步引導，而不是直接給你題目。</p>
+    </section>
+  </div>
+</div>
+
+<script>
+const RECOMMENDED_PROFILE = `Paper Lab（論文方法學 — 研究題目發想 + 研究計畫提案產出）
+- 透過 MCP 把模糊想法收斂成可執行的研究計畫提案
+- 工具：start_brainstorm / confirm_direction / add_seed_ref / propose_proposal / save_project / list_projects
+- 文獻：search_literature（OpenAlex）/ verify_doi（CrossRef 驗真，防假引用）
+
+當我說「我想研究 X」「幫我想題目」「不知道做什麼」時
+- 先呼叫 start_brainstorm，然後一步步引導我跑 5 步（起點 / 創新策略 / 資料源 / 期刊層級 / 產出範圍）
+- 每步列選項 + 推薦 + 理由，等我選才下一步；不要替我決定，也不要直接丟答案
+
+界定 research gap
+- 用 search_literature 找文獻，找到後一定先 verify_doi 確認真實存在，再 add_seed_ref
+- gap 在文獻之間的空白，不在單篇裡：要找出「A 做了 X、B 做了 Y、沒人做 Z」
+- 「我訓練資料記得有/沒有人做過」不算數，先查再說
+
+風格
+- 簡潔、不拍馬屁、不延伸給未被要求的建議
+- 種子文獻不足 2 篇不要急著定稿，先查到佐證再 propose_proposal / save_project`;
+
+const paperlabMcp = (() => {
+  let issuing = false;
+  const $ = (id) => document.getElementById(id);
+  const show = (id, on) => $(id).classList.toggle('hidden', !on);
+  const showError = (msg) => { const e = $('mcp-error'); e.textContent = msg; show('mcp-error', !!msg); };
+
+  function fmtExpiry(sec) {
+    const days = Math.max(0, Math.floor((sec - Date.now() / 1000) / 86400));
+    return `${days} 天後到期`;
+  }
+
+  async function refresh() {
+    try {
+      const resp = await window.paperLab.apiFetch('/api/mcp/my-tokens');
+      if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error || `HTTP ${resp.status}`);
+      const data = await resp.json();
+      const list = $('mcp-token-list');
+      $('mcp-token-count').textContent = `${data.tokens.length} / 5`;
+      if (data.tokens.length === 0) {
+        list.innerHTML = '<div class="text-gray-400 py-2">尚未產生任何 token</div>';
+        return;
+      }
+      list.innerHTML = data.tokens.map((t) => `
+        <div class="flex items-center gap-3 p-3 rounded-lg bg-surface">
+          <div class="flex-1 min-w-0">
+            <div class="font-medium text-gray-800">${escapeHtml(t.label)}</div>
+            <div class="text-sm text-gray-500 font-mono mt-0.5">${escapeHtml(t.token_preview)} · ${fmtExpiry(t.expires_at)}</div>
+          </div>
+          <button onclick="paperlabMcp.revoke('${t.token_id}')" class="text-sm text-red-500 hover:underline">撤銷</button>
+        </div>`).join('');
+    } catch (err) { showError(err.message || '載入 token 失敗'); }
+  }
+
+  async function issue() {
+    if (issuing) return;
+    issuing = true; showError(''); $('mcp-issue-btn').textContent = '產生中…';
+    try {
+      const label = $('mcp-label').value.trim() || '預設';
+      const resp = await window.paperLab.apiFetch('/api/mcp/issue-token', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ label }),
+      });
+      if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error || `HTTP ${resp.status}`);
+      const data = await resp.json();
+      $('mcp-connector-url').value = data.connector_url;
+      show('mcp-issued', true);
+      $('mcp-label').value = '';
+      await refresh();
+    } catch (err) { showError(err.message || '產生失敗'); }
+    finally { issuing = false; $('mcp-issue-btn').textContent = '產生 Token'; }
+  }
+
+  async function revoke(tokenId) {
+    if (!confirm('確定撤銷此 token？已連線的 claude.ai connector 會立即失效')) return;
+    try {
+      await window.paperLab.apiFetch('/api/mcp/revoke-token', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: tokenId }),
+      });
+      await refresh();
+    } catch (err) { showError(err.message || '撤銷失敗'); }
+  }
+
+  function copy(text, label) {
+    navigator.clipboard.writeText(text).then(() => {
+      const el = $('mcp-copy-state');
+      if (el) { el.textContent = `已複製${label}`; show('mcp-copy-state', true); setTimeout(() => show('mcp-copy-state', false), 2000); }
+    });
+  }
+
+  function escapeHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+  let inited = false;
+  function render() {
+    show('mcp-loading', false);
+    const pl = window.paperLab;
+    if (!pl || !pl.user) { show('mcp-guest', true); show('mcp-nofeature', false); show('mcp-app', false); return; }
+    show('mcp-guest', false);
+    if (pl.hasFeature('use_mcp')) {
+      show('mcp-nofeature', false); show('mcp-app', true);
+      if (!inited) { inited = true; $('mcp-profile').textContent = RECOMMENDED_PROFILE; refresh(); }
+    } else {
+      show('mcp-nofeature', true); show('mcp-app', false);
+    }
+  }
+
+  window.addEventListener('paperlab:tier-changed', render);
+  window.addEventListener('paperlab:auth-changed', render);
+  // initial paint (in case events already fired before this script ran)
+  setTimeout(render, 300);
+
+  return { issue, revoke, copy };
+})();
+</script>
+{{ end }}

@@ -47,6 +47,11 @@ buildExpired = false
     url = "/cases/"
     weight = 25
   [[menu.main]]
+    identifier = "mcp"
+    name = "AI 發想 (MCP)"
+    url = "/mcp/"
+    weight = 28
+  [[menu.main]]
     identifier = "about"
     name = "關於"
     url = "/about/"

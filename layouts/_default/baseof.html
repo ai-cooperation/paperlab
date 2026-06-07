@@ -133,67 +133,119 @@
 
   {{ block "head" . }}{{ end }}
 
-  <!-- Firebase SDK -->
+  <!-- Firebase SDK (cooperation-hub shared project — auth + tier/features + MCP) -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js";
     import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js";
-    import { getFirestore, doc, setDoc, getDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
+    import { getFirestore, doc, getDoc, setDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
 
+    // Shared cooperation-hub project (same as insurance-kb / hematology-kb).
+    // apiKey is a public identifier, safe to commit.
     const firebaseConfig = {
-      apiKey: "AIzaSyA5N58oOpOi7Nio9hkGE3oZa7sp8vAcY9M",
-      authDomain: "paperlab-3ce7e.firebaseapp.com",
-      projectId: "paperlab-3ce7e",
-      storageBucket: "paperlab-3ce7e.firebasestorage.app",
-      messagingSenderId: "97297143010",
-      appId: "1:97297143010:web:d9c335667c038d3fbe7abb"
+      apiKey: "AIzaSyCgCdmBYX-XYM9LmOA9Mk9M-WdxzLDS2QI",
+      authDomain: "cooperation-hub-bfe79.firebaseapp.com",
+      projectId: "cooperation-hub-bfe79",
+      appId: "1:875529451396:web:da9beaf3aa0833b6954fd1",
+    };
+    const PROJECT_ID = 'paperlab';                 // membership key in /users/{uid}/memberships/{PROJECT_ID}
+    // Paper Lab KB MCP backend (Cloudflare Worker). Update if a custom domain is set.
+    const API_BASE = 'https://paperlab-kb-api.alan-chen75.workers.dev';
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+
+    // ---- shared page state ----
+    window.paperLab = {
+      user: null,
+      tier: 'guest',                              // guest | member | vip
+      features: new Set(),
+      hasFeature: (key) => window.paperLab.features.has('*') || window.paperLab.features.has(key),
+      apiBase: API_BASE,
+      // Authenticated fetch to the KB backend — attaches the Firebase ID token.
+      apiFetch: async (path, init = {}) => {
+        const u = auth.currentUser;
+        const headers = new Headers(init.headers || {});
+        if (u) headers.set('Authorization', `Bearer ${await u.getIdToken()}`);
+        return fetch(`${API_BASE}${path}`, { ...init, headers });
+      },
     };
 
-    // 只有 config 填入後才初始化
-    if (firebaseConfig.apiKey) {
-      const app = initializeApp(firebaseConfig);
-      const auth = getAuth(app);
-      const db = getFirestore(app);
-      const provider = new GoogleAuthProvider();
-
-      window.paperLabAuth = {
-        login: async function() {
-          try {
-            const result = await signInWithPopup(auth, provider);
-            const user = result.user;
-            // 存用戶資料到 Firestore
-            await setDoc(doc(db, "users", user.uid), {
-              email: user.email,
-              name: user.displayName,
-              photo: user.photoURL,
-              last_login: serverTimestamp(),
-              source_page: window.location.pathname,
-              role: "free"
-            }, { merge: true });
-          } catch (e) {
-            console.error("Login error:", e);
-          }
-        },
-        logout: function() { signOut(auth); }
-      };
-
-      onAuthStateChanged(auth, function(user) {
-        const btn = document.getElementById('auth-btn');
-        const avatar = document.getElementById('auth-avatar');
-        if (!btn) return;
-        if (user) {
-          btn.textContent = user.displayName ? user.displayName.split(' ')[0] : '已登入';
-          btn.onclick = window.paperLabAuth.logout;
-          if (avatar && user.photoURL) {
-            avatar.src = user.photoURL;
-            avatar.classList.remove('hidden');
-          }
+    async function login() {
+      try {
+        const result = await signInWithPopup(auth, provider);
+        const userRef = doc(db, 'users', result.user.uid);
+        const snap = await getDoc(userRef);
+        if (!snap.exists()) {
+          await setDoc(userRef, {
+            email: result.user.email,
+            displayName: result.user.displayName ?? '',
+            photoURL: result.user.photoURL ?? null,
+            createdAt: serverTimestamp(),
+            lastLoginAt: serverTimestamp(),
+          });
         } else {
-          btn.textContent = 'Google 登入';
-          btn.onclick = window.paperLabAuth.login;
-          if (avatar) avatar.classList.add('hidden');
+          await setDoc(userRef, { lastLoginAt: serverTimestamp() }, { merge: true });
         }
-      });
+      } catch (e) { console.error('Login error:', e); }
     }
+    function logout() { return signOut(auth); }
+    window.paperLabAuth = { login, logout };
+
+    // ---- compute tier/features from /projects/{PROJECT_ID} + /users/{uid} ----
+    let projectDoc = null, userDoc = null;
+    function recompute() {
+      const mem = userDoc?.memberships?.[PROJECT_ID];
+      let tier = 'guest';
+      if (window.paperLab.user) {
+        // logged-in without explicit membership falls back to project.defaultTier
+        tier = projectDoc?.defaultTier ?? 'member';
+        if (mem) {
+          if (mem.tier !== 'vip') tier = mem.tier;
+          else if (!mem.expiresAt || mem.expiresAt.toMillis?.() > Date.now() || mem.expiresAt > Date.now()) tier = 'vip';
+          else tier = 'member';
+        }
+      }
+      const features = new Set(projectDoc?.tiers?.[tier]?.features ?? []);
+      Object.entries(mem?.features ?? {}).forEach(([k, v]) => v ? features.add(k) : features.delete(k));
+      window.paperLab.tier = tier;
+      window.paperLab.features = features;
+      window.dispatchEvent(new CustomEvent('paperlab:tier-changed', { detail: { tier, features } }));
+    }
+
+    onSnapshot(doc(db, 'projects', PROJECT_ID), (snap) => {
+      projectDoc = snap.exists() ? snap.data() : null;
+      recompute();
+    });
+
+    // ---- UI binding ----
+    let unsubUser = null;
+    onAuthStateChanged(auth, function(user) {
+      const btn = document.getElementById('auth-btn');
+      const avatar = document.getElementById('auth-avatar');
+      window.paperLab.user = user;
+      if (unsubUser) { unsubUser(); unsubUser = null; }
+
+      if (user) {
+        unsubUser = onSnapshot(doc(db, 'users', user.uid), (snap) => {
+          userDoc = snap.exists() ? snap.data() : null;
+          recompute();
+        });
+        if (btn) {
+          btn.textContent = user.displayName ? user.displayName.split(' ')[0] : '已登入';
+          btn.onclick = logout;
+        }
+        if (avatar && user.photoURL) { avatar.src = user.photoURL; avatar.classList.remove('hidden'); }
+      } else {
+        userDoc = null;
+        recompute();
+        if (btn) { btn.textContent = 'Google 登入'; btn.onclick = login; }
+        if (avatar) avatar.classList.add('hidden');
+      }
+      window.dispatchEvent(new CustomEvent('paperlab:auth-changed', { detail: { user } }));
+    });
   </script>
 
   {{- if .IsHome }}
