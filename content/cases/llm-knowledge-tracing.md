@@ -245,16 +245,23 @@ pyKT 框架的系統性比較揭示，DKT 在 ASSISTments 2009 上的報告 AUC 
 
 <script>
 async function downloadCasePDF(caseId) {
+  if (!window.paperLabAuth) { alert('載入中，請稍後再試'); return; }
   try {
-    if (typeof firebase !== 'undefined' && firebase.auth().currentUser) {
-      const user = firebase.auth().currentUser;
-      await firebase.firestore().collection('downloads').add({
-        uid: user.uid, email: user.email, case_id: caseId,
-        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-      });
-    }
-  } catch(e) { console.log('Firestore logging skipped:', e); }
-  window.open('/cases/' + caseId + '/paper_draft_v0_showcase.pdf', '_blank');
+    const { getAuth } = await import("https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js");
+    const { getApps } = await import("https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js");
+    const { getFirestore, collection, addDoc, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js");
+    const apps = getApps();
+    if (!apps.length) return;
+    const auth = getAuth(apps[0]);
+    const user = auth.currentUser;
+    if (!user) { await window.paperLabAuth.login(); return; }
+    const db = getFirestore(apps[0]);
+    await addDoc(collection(db, "downloads"), {
+      uid: user.uid, email: user.email, case_id: caseId,
+      timestamp: serverTimestamp()
+    });
+    window.open('/cases/' + caseId + '/paper_draft_v0_showcase.pdf', '_blank');
+  } catch(e) { console.error(e); window.open('/cases/' + caseId + '/paper_draft_v0_showcase.pdf', '_blank'); }
 }
 </script>
 

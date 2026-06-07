@@ -279,16 +279,17 @@ ECG 心律不整自動分類的深度學習方法歷經三個階段：
 <script>
 async function downloadCasePDF(caseId) {
   if (!window.paperLabAuth) { alert('載入中，請稍後再試'); return; }
-  const { getAuth } = await import("https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js");
-  const { getApps } = await import("https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js");
-  const apps = getApps();
-  if (apps.length === 0) return;
-  const user = getAuth(apps[0]).currentUser;
-  if (!user) { await window.paperLabAuth.login(); return; }
   try {
+    const { getAuth } = await import("https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js");
+    const { getApps } = await import("https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js");
     const { getFirestore, collection, addDoc, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js");
+    const apps = getApps();
+    if (!apps.length) return;
+    const auth = getAuth(apps[0]);
+    const user = auth.currentUser;
+    if (!user) { await window.paperLabAuth.login(); return; }
     const db = getFirestore(apps[0]);
-    await addDoc(collection(db, 'downloads'), {
+    await addDoc(collection(db, "downloads"), {
       uid: user.uid, email: user.email, case_id: caseId,
       timestamp: serverTimestamp()
     });
