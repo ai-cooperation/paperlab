@@ -148,8 +148,8 @@
       appId: "1:875529451396:web:da9beaf3aa0833b6954fd1",
     };
     const PROJECT_ID = 'paperlab';                 // membership key in /users/{uid}/memberships/{PROJECT_ID}
-    // Paper Lab KB MCP backend (Cloudflare Worker). Update if a custom domain is set.
-    const API_BASE = 'https://paperlab-kb-api.alan-chen75.workers.dev';
+    // Paper Lab KB MCP backend (Cloudflare Worker custom domain — workers.dev 加 custom domain 後會被停用).
+    const API_BASE = 'https://mcp.paperlab.cooperation.tw';
 
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
