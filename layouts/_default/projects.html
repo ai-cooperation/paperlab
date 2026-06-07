@@ -1,0 +1,85 @@
+{{ define "main" }}
+<div class="max-w-3xl mx-auto px-4 sm:px-6 py-10">
+
+  <header class="mb-8">
+    <h1 class="text-3xl font-black text-primary mb-2">我的研究專案</h1>
+    <p class="text-gray-600 text-lg leading-relaxed">
+      你發想的研究提案，以及送進 pipeline 後的執行進度。提案送出後 a 段會非同步跑完整論文，這裡看狀態。
+    </p>
+  </header>
+
+  <div id="pj-loading" class="text-gray-400 py-10">載入中…</div>
+
+  <!-- Not logged in -->
+  <div id="pj-guest" class="hidden">
+    <div class="bg-tip border-l-4 border-secondary rounded-r-lg p-6">
+      <h2 class="text-xl font-bold text-primary mb-2">先登入</h2>
+      <p class="text-gray-700 mb-4">用 Google 登入後即可看到你自己的研究專案與進度。</p>
+      <button onclick="window.paperLabAuth.login()" class="px-5 py-2.5 rounded-lg bg-accent text-primary-dark font-bold hover:bg-accent-dark transition">Google 登入</button>
+    </div>
+  </div>
+
+  <!-- Logged in -->
+  <div id="pj-app" class="hidden">
+    <div id="pj-error" class="hidden p-4 rounded-lg bg-red-50 text-red-700 text-base mb-4"></div>
+    <div class="flex justify-end mb-3">
+      <button onclick="PJ.load()" class="text-sm px-3 py-1.5 rounded-lg border border-gray-300 hover:border-secondary hover:text-secondary transition">重新整理</button>
+    </div>
+    <div id="pj-list" class="space-y-4"></div>
+    <div id="pj-empty" class="hidden text-gray-400 py-10 text-center">
+      還沒有專案。到 <a href="/mcp/" class="text-secondary underline">MCP 連線設定</a> 接上 chat.ai，說「我想研究 X」開始發想第一個研究題目。
+    </div>
+  </div>
+</div>
+
+<script>
+const PJ = (() => {
+  const $ = (id) => document.getElementById(id);
+  const show = (id, on) => $(id).classList.toggle('hidden', !on);
+  const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const BADGE = { ready:'bg-gray-100 text-gray-600', submitted:'bg-blue-100 text-blue-700', running:'bg-amber-100 text-amber-700', done:'bg-green-100 text-green-700', blocked:'bg-red-100 text-red-700', error:'bg-red-100 text-red-700' };
+  const LABEL = { ready:'已存草稿（未送出）', submitted:'已送出', running:'執行中', done:'完成', blocked:'卡住', error:'錯誤' };
+
+  async function load() {
+    try {
+      const resp = await window.paperLab.apiFetch('/api/projects');
+      if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error || `HTTP ${resp.status}`);
+      const { projects } = await resp.json();
+      show('pj-error', false);
+      if (!projects || !projects.length) { $('pj-list').innerHTML = ''; show('pj-empty', true); return; }
+      show('pj-empty', false);
+      $('pj-list').innerHTML = projects.map((p) => {
+        const st = p.status || 'ready';
+        const badge = BADGE[st] || BADGE.ready;
+        const statusLink = p.pipeline_status_url ? `<a href="${esc(p.pipeline_status_url)}" target="_blank" rel="noreferrer" class="text-secondary underline">查即時進度</a>` : '';
+        const paperLink = (st === 'done' && p.pipeline_status_url) ? `<a href="${esc(p.pipeline_status_url).replace(/\/status$/, '/paper')}" target="_blank" rel="noreferrer" class="text-green-700 font-bold underline">下載論文 PDF</a>` : '';
+        return `<div class="bg-white border border-gray-200 rounded-xl p-5">
+          <div class="flex items-start justify-between gap-3 mb-2">
+            <h3 class="font-bold text-primary flex-1 leading-snug">${esc(p.topic || p.id)}</h3>
+            <span class="px-2.5 py-1 rounded-full text-xs font-bold whitespace-nowrap ${badge}">${LABEL[st] || st}</span>
+          </div>
+          <div class="text-xs text-gray-400 mb-3 font-mono">${esc(p.id)}</div>
+          <div class="flex flex-wrap gap-4 text-sm items-center">
+            ${paperLink}${statusLink}
+            ${st === 'ready' ? '<span class="text-gray-400">尚未送進 pipeline（在 chat.ai 說「送進 pipeline」觸發）</span>' : ''}
+          </div>
+        </div>`;
+      }).join('');
+    } catch (e) { const el = $('pj-error'); el.textContent = e.message || '載入失敗'; show('pj-error', true); }
+  }
+
+  let inited = false;
+  function render() {
+    show('pj-loading', false);
+    const pl = window.paperLab;
+    if (!pl || !pl.user) { show('pj-guest', true); show('pj-app', false); return; }
+    show('pj-guest', false); show('pj-app', true);
+    if (!inited) { inited = true; load(); }
+  }
+  window.addEventListener('paperlab:tier-changed', render);
+  window.addEventListener('paperlab:auth-changed', render);
+  setTimeout(render, 300);
+  return { load };
+})();
+</script>
+{{ end }}

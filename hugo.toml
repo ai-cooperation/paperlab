@@ -52,6 +52,11 @@ buildExpired = false
     url = "/mcp/"
     weight = 28
   [[menu.main]]
+    identifier = "projects"
+    name = "我的研究專案"
+    url = "/projects/"
+    weight = 29
+  [[menu.main]]
     identifier = "about"
     name = "關於"
     url = "/about/"
