@@ -460,6 +460,75 @@ Write the revised paper_draft_v0.qmd. Append one line to progress.md. Stop after
     return base_requirements(contract, lane) + body
 
 
+COPILOT_BIN = os.environ.get("PAPER_COPILOT_BIN", "copilot")
+
+
+def copilot_env() -> dict[str, str]:
+    """Environment for the copilot subprocess: load COPILOT_GITHUB_TOKEN from ~/.env
+    if not already set, and allow non-interactive tool use."""
+    env = os.environ.copy()
+    if not env.get("COPILOT_GITHUB_TOKEN"):
+        envfile = Path.home() / ".env"
+        if envfile.is_file():
+            for line in envfile.read_text(encoding="utf-8", errors="ignore").splitlines():
+                if line.startswith("COPILOT_GITHUB_TOKEN="):
+                    env["COPILOT_GITHUB_TOKEN"] = line.split("=", 1)[1].strip()
+                    break
+    env["COPILOT_ALLOW_ALL"] = "1"
+    return env
+
+
+def copilot_available(env: dict[str, str]) -> bool:
+    return bool(env.get("COPILOT_GITHUB_TOKEN")) and shutil.which(COPILOT_BIN) is not None
+
+
+def build_copilot_review_prompt(contract: dict[str, Any], real_summary: str | None, elite: bool) -> str:
+    elite_line = '  "desk_reject_probability": 0.0,\n' if elite else ""
+    grounding = real_summary or "(read real_experiments/real_results.json for the real metrics)"
+    return f"""Read paper_draft_v0.qmd (a research manuscript) and real_experiments/real_results.json in the
+current directory. Act as a strict but fair journal reviewer for {contract.get('target_journal')}.
+
+GROUND TRUTH — the experiment really ran; do NOT claim the data is missing, failed, or simulated:
+{grounding}
+
+Score these 7 dimensions on a 1.0-10.0 scale, judging only what is actually written on the page:
+novelty, methodological_rigor, evidence_validity, literature_grounding, result_interpretation,
+limitation_honesty, writing_coherence. Then list concrete problems: for each give a severity
+(P0 = blocking/desk-reject, P1, P2), the section location, and a SPECIFIC required change.
+
+Write a short markdown review, then END the output with exactly one fenced json block and nothing after it:
+```json
+{{"scores_7dim": {{"novelty": 0.0, "methodological_rigor": 0.0, "evidence_validity": 0.0, "literature_grounding": 0.0, "result_interpretation": 0.0, "limitation_honesty": 0.0, "writing_coherence": 0.0}},
+{elite_line}  "problems": [{{"id": "R1", "severity": "P1", "location": "section", "description": "specific change"}}]}}
+```
+Replace every 0.0 and the example problem with your real assessment."""
+
+
+def run_copilot_review(run_dir: Path, contract: dict[str, Any], real_summary: str | None,
+                       elite: bool, timeout_s: int = 600) -> int:
+    """Engine B reviewer via Copilot (GPT-class, honest). Writes paper_review_report.md
+    with a trailing json block (scores_7dim + problems) that compile_review parses."""
+    prompt = build_copilot_review_prompt(contract, real_summary, elite)
+    log_dir = run_dir / "_phase_logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    (log_dir / "review_copilot.prompt.txt").write_text(prompt, encoding="utf-8")
+    try:
+        proc = subprocess.run([COPILOT_BIN, "-p", prompt], cwd=run_dir, env=copilot_env(),
+                              text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        (log_dir / "review_copilot.stderr.txt").write_text("copilot review timed out", encoding="utf-8")
+        return 124
+    out = proc.stdout or ""
+    (log_dir / "review_copilot.stdout.txt").write_text(out, encoding="utf-8")
+    if proc.stderr:
+        (log_dir / "review_copilot.stderr.txt").write_text(proc.stderr[-2000:], encoding="utf-8")
+    if "```" in out:
+        (run_dir / "paper_review_report.md").write_text(out, encoding="utf-8")
+    ok = (run_dir / "paper_review_report.md").is_file()
+    print(f"review_copilot: exit={proc.returncode} report_written={ok}", flush=True)
+    return 0 if ok else (proc.returncode or 1)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--run-dir", required=True)
@@ -581,13 +650,19 @@ def main() -> int:
         tasks = gather_tasks()
         record(f"consistency_gate_r{round_idx}", p0=p0(tasks), n=len(tasks))
 
-    # Reviews + final score (7-dim artifact). compile_review merges the remaining
-    # Engine C tasks so p0_count reflects the deterministic truth.
-    review_kinds = ["review_mvp", "review_7dim"] + (["review_elite"] if elite else [])
-    for kind in review_kinds:
-        code = run_hermes(run_dir, kind, review_prompt(kind, contract, args.lane),
-                          args.model, provider, args.timeout)
-        record(kind, exit=code)
+    # Engine B reviewer: prefer Copilot (honest GPT-class) for 7-dim scoring +
+    # qualitative problems; fall back to the big-pickle hermes review only if no
+    # Copilot token is configured. (big-pickle is an unreliable judge — it
+    # hallucinates and skips the json block — so it is not the default reviewer.)
+    cenv = copilot_env()
+    if copilot_available(cenv):
+        rc = run_copilot_review(run_dir, contract, rev_real, elite)
+        record("review_copilot", exit=rc)
+    else:
+        for kind in ["review_mvp", "review_7dim"] + (["review_elite"] if elite else []):
+            code = run_hermes(run_dir, kind, review_prompt(kind, contract, args.lane),
+                              args.model, provider, args.timeout)
+            record(kind, exit=code)
     summary = compile_review.compile_reviews(run_dir, content_threshold=args.content_threshold, elite_required=elite)
     record("compile_review", mean_7dim=summary.get("mean_7dim"), p0=summary.get("p0_count"))
 

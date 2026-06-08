@@ -103,6 +103,8 @@ def compile_reviews(run_dir: Path, content_threshold: float = 6.0, elite_require
 
     review = _read_block(run_dir, "paper_review_report.md") or {}
     raw_scores = review.get("scores_7dim") if isinstance(review.get("scores_7dim"), dict) else {}
+    # The Copilot reviewer emits scores AND problems in paper_review_report.md.
+    problems.extend(p for p in (review.get("problems") or []) if isinstance(p, dict))
     scores: dict[str, float] = {}
     for dim in SEVEN_DIMS:
         try:
@@ -120,18 +122,20 @@ def compile_reviews(run_dir: Path, content_threshold: float = 6.0, elite_require
             "description": f"paper-review-skill did not emit all 7 dimensions (got {sorted(scores)}).",
         })
 
+    # desk_reject_probability may come from the elite audit OR the copilot review block.
     desk_reject = None
-    if elite_required or (run_dir / "elite_audit_report.md").is_file():
-        elite = _read_block(run_dir, "elite_audit_report.md") or {}
+    for src in (_read_block(run_dir, "elite_audit_report.md") or {}, review):
         try:
-            desk_reject = round(float(elite["desk_reject_probability"]), 3)
+            desk_reject = round(float(src["desk_reject_probability"]), 3)
+            break
         except (KeyError, TypeError, ValueError):
-            if elite_required:
-                problems.append({
-                    "id": "ELITE_INCOMPLETE", "severity": "P1", "location": "elite_audit_report.md",
-                    "type": "missing_desk_reject_probability",
-                    "description": "elite-reviewer-audit did not emit desk_reject_probability.",
-                })
+            continue
+    if desk_reject is None and elite_required:
+        problems.append({
+            "id": "ELITE_INCOMPLETE", "severity": "P1", "location": "review",
+            "type": "missing_desk_reject_probability",
+            "description": "no reviewer emitted desk_reject_probability.",
+        })
 
     prose_words = _qmd_prose_words(run_dir)
     has_placeholder = _has_placeholder(run_dir)
