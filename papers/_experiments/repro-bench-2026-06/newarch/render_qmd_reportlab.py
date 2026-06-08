@@ -335,6 +335,10 @@ def build_pdf(qmd: Path, pdf: Path, bib_path: Path | None = None) -> None:
         if fig:
             flush_para(); flush_table()
             rel = fig.group(2).split("#", 1)[0].strip()
+            # reportlab cannot embed SVG; QMD figures reference .svg but phase 7
+            # writes a .png twin — fall back to it so figures appear in the PDF.
+            if rel.lower().endswith(".svg") and (qmd.parent / (rel[:-4] + ".png")).is_file():
+                rel = rel[:-4] + ".png"
             img = (qmd.parent / rel).resolve()
             if img.is_file() and rel.lower().endswith((".png", ".jpg", ".jpeg")):
                 fig_n[0] += 1
