@@ -103,8 +103,9 @@ def compile_reviews(run_dir: Path, content_threshold: float = 6.0, elite_require
 
     review = _read_block(run_dir, "paper_review_report.md") or {}
     raw_scores = review.get("scores_7dim") if isinstance(review.get("scores_7dim"), dict) else {}
-    # The Copilot reviewer emits scores AND problems in paper_review_report.md.
+    # The Copilot reviewer emits scores AND a task/problem list in paper_review_report.md.
     problems.extend(p for p in (review.get("problems") or []) if isinstance(p, dict))
+    problems.extend(t for t in (review.get("tasks") or []) if isinstance(t, dict))
     scores: dict[str, float] = {}
     for dim in SEVEN_DIMS:
         try:

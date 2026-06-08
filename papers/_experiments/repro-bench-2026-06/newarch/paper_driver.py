@@ -491,23 +491,31 @@ current directory. Act as a strict but fair journal reviewer for {contract.get('
 GROUND TRUTH — the experiment really ran; do NOT claim the data is missing, failed, or simulated:
 {grounding}
 
-Score these 7 dimensions on a 1.0-10.0 scale, judging only what is actually written on the page:
-novelty, methodological_rigor, evidence_validity, literature_grounding, result_interpretation,
-limitation_honesty, writing_coherence. Then list concrete problems: for each give a severity
-(P0 = blocking/desk-reject, P1, P2), the section location, and a SPECIFIC required change.
+Score 7 dimensions on a 1.0-10.0 scale, judging only what is written on the page: novelty,
+methodological_rigor, evidence_validity, literature_grounding, result_interpretation,
+limitation_honesty, writing_coherence.
 
-Write a short markdown review, then END the output with exactly one fenced json block and nothing after it:
+Then produce a CONCRETE, EXECUTABLE revision TASK LIST. For each issue, copy the EXACT current text
+from the manuscript into target_content and write the corrected text into replacement_content (a
+verbatim find-and-replace the pipeline will apply). Keep replacements local and faithful; never drop
+@-citations. severity: P0 = blocking/desk-reject (factual error, unsupported claim), P1 = should fix,
+P2 = minor. verification.absent = a regex of the wrong text (must be gone after), verification.present
+= a regex of the new text (must appear after).
+
+Write a short markdown review, then END with exactly one fenced json block and nothing after it:
 ```json
 {{"scores_7dim": {{"novelty": 0.0, "methodological_rigor": 0.0, "evidence_validity": 0.0, "literature_grounding": 0.0, "result_interpretation": 0.0, "limitation_honesty": 0.0, "writing_coherence": 0.0}},
-{elite_line}  "problems": [{{"id": "R1", "severity": "P1", "location": "section", "description": "specific change"}}]}}
+{elite_line}  "tasks": [{{"id": "C1", "severity": "P1", "type": "value_swap", "target_section": "Results", "target_content": "<exact current text>", "replacement_content": "<corrected text>", "description": "why", "verification": {{"absent": "<regex of old>", "present": "<regex of new>"}}}}]}}
 ```
-Replace every 0.0 and the example problem with your real assessment."""
+Replace every 0.0 and the example task with your real assessment. Use type "value_swap" when you can
+give exact target+replacement text; use "block_rewrite" only when a whole passage must be rewritten."""
 
 
 def run_copilot_review(run_dir: Path, contract: dict[str, Any], real_summary: str | None,
-                       elite: bool, timeout_s: int = 600) -> int:
+                       elite: bool, timeout_s: int = 600) -> list[dict[str, Any]]:
     """Engine B reviewer via Copilot (GPT-class, honest). Writes paper_review_report.md
-    with a trailing json block (scores_7dim + problems) that compile_review parses."""
+    (scores_7dim + tasks) for compile_review, and RETURNS the revision tasks so the
+    loop can apply them alongside Engine C's deterministic tasks."""
     prompt = build_copilot_review_prompt(contract, real_summary, elite)
     log_dir = run_dir / "_phase_logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -515,18 +523,24 @@ def run_copilot_review(run_dir: Path, contract: dict[str, Any], real_summary: st
     try:
         proc = subprocess.run([COPILOT_BIN, "-p", prompt], cwd=run_dir, env=copilot_env(),
                               text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout_s)
+        out = proc.stdout or ""
     except subprocess.TimeoutExpired:
         (log_dir / "review_copilot.stderr.txt").write_text("copilot review timed out", encoding="utf-8")
-        return 124
-    out = proc.stdout or ""
+        return []
     (log_dir / "review_copilot.stdout.txt").write_text(out, encoding="utf-8")
     if proc.stderr:
         (log_dir / "review_copilot.stderr.txt").write_text(proc.stderr[-2000:], encoding="utf-8")
     if "```" in out:
         (run_dir / "paper_review_report.md").write_text(out, encoding="utf-8")
-    ok = (run_dir / "paper_review_report.md").is_file()
-    print(f"review_copilot: exit={proc.returncode} report_written={ok}", flush=True)
-    return 0 if ok else (proc.returncode or 1)
+    block = compile_review._last_json_block(out) or {}
+    tasks = [t for t in (block.get("tasks") or []) if isinstance(t, dict)]
+    for t in tasks:
+        t.setdefault("engine", "B")
+        t.setdefault("type", "value_swap")
+    (run_dir / "copilot_tasks.json").write_text(
+        json.dumps({"tasks": tasks}, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"review_copilot: exit={proc.returncode} tasks={len(tasks)} p0={sum(1 for t in tasks if t.get('severity')=='P0')}", flush=True)
+    return tasks
 
 
 def main() -> int:
@@ -605,18 +619,28 @@ def main() -> int:
     record("render_pdf", ok=render_pdf(run_dir))
     rev_real = load_real_summary() if args.lane == "cpu-real" else None
 
-    # Task-driven revision loop. Engine C (deterministic consistency_gate) is the
-    # reliable trigger; value_swap tasks apply deterministically, block_rewrite
-    # tasks via a targeted big-pickle revision. Every round is validated and
-    # rolled back on regression/crash (never ship a worse version).
+    # Task-driven revision loop. Tasks come from Engine C (deterministic factual
+    # gate) AND Engine B (Copilot reviewer — honest, also writes the score report).
+    # value_swap tasks apply deterministically; block_rewrite via big-pickle. Every
+    # round is validated and rolled back on regression/crash (never ship worse).
+    cenv = copilot_env()
+    use_copilot = copilot_available(cenv)
+
     def gather_tasks() -> list[dict[str, Any]]:
-        return consistency_gate.run(run_dir).get("tasks", [])
+        tasks = list(consistency_gate.run(run_dir).get("tasks", []))
+        if use_copilot:
+            tasks += run_copilot_review(run_dir, contract, rev_real, elite)
+        else:
+            for kind in ["review_mvp", "review_7dim"] + (["review_elite"] if elite else []):
+                run_hermes(run_dir, kind, review_prompt(kind, contract, args.lane),
+                           args.model, provider, args.timeout)
+        return tasks
 
     def p0(tasks: list[dict[str, Any]]) -> int:
         return sum(1 for t in tasks if t.get("severity") == "P0")
 
     tasks = gather_tasks()
-    record("consistency_gate", p0=p0(tasks), n=len(tasks))
+    record("gather_tasks", p0=p0(tasks), n=len(tasks))
     round_idx = 0
     while p0(tasks) > 0 and round_idx < args.max_revision_rounds:
         round_idx += 1
@@ -648,21 +672,10 @@ def main() -> int:
             record(f"rollback_r{round_idx}", reason="validation failed; restored last good version")
             break
         tasks = gather_tasks()
-        record(f"consistency_gate_r{round_idx}", p0=p0(tasks), n=len(tasks))
+        record(f"gather_tasks_r{round_idx}", p0=p0(tasks), n=len(tasks))
 
-    # Engine B reviewer: prefer Copilot (honest GPT-class) for 7-dim scoring +
-    # qualitative problems; fall back to the big-pickle hermes review only if no
-    # Copilot token is configured. (big-pickle is an unreliable judge — it
-    # hallucinates and skips the json block — so it is not the default reviewer.)
-    cenv = copilot_env()
-    if copilot_available(cenv):
-        rc = run_copilot_review(run_dir, contract, rev_real, elite)
-        record("review_copilot", exit=rc)
-    else:
-        for kind in ["review_mvp", "review_7dim"] + (["review_elite"] if elite else []):
-            code = run_hermes(run_dir, kind, review_prompt(kind, contract, args.lane),
-                              args.model, provider, args.timeout)
-            record(kind, exit=code)
+    # Final score artifact. gather_tasks already ran the Copilot review this round,
+    # so paper_review_report.md + consistency_tasks.json reflect the latest draft.
     summary = compile_review.compile_reviews(run_dir, content_threshold=args.content_threshold, elite_required=elite)
     record("compile_review", mean_7dim=summary.get("mean_7dim"), p0=summary.get("p0_count"))
 
