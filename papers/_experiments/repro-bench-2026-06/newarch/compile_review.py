@@ -101,6 +101,16 @@ def compile_reviews(run_dir: Path, content_threshold: float = 6.0, elite_require
                     "description": t.get("description"),
                 })
 
+    # Render-quality issues (deterministic gate on the rendered PDF) — a broken
+    # deliverable must not pass with a high content score.
+    rq_path = run_dir / "render_quality.json"
+    if rq_path.is_file():
+        try:
+            rq = json.loads(rq_path.read_text(encoding="utf-8")).get("issues", [])
+        except (json.JSONDecodeError, AttributeError):
+            rq = []
+        problems.extend(i for i in rq if isinstance(i, dict))
+
     review = _read_block(run_dir, "paper_review_report.md") or {}
     raw_scores = review.get("scores_7dim") if isinstance(review.get("scores_7dim"), dict) else {}
     # The Copilot reviewer emits scores AND a task/problem list in paper_review_report.md.

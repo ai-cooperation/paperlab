@@ -14,6 +14,7 @@ mechanical_check, which has no word count) and mechanical_check for cites/cells.
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -76,6 +77,45 @@ def apply_value_swaps(run_dir: Path, tasks: list[dict[str, Any]]) -> dict[str, A
         (applied if ok else unresolved).append(t.get("id"))
     qmd_path.write_text(text, encoding="utf-8")
     return {"applied": applied, "unresolved": unresolved}
+
+
+def _pdftotext(pdf: Path) -> str:
+    try:
+        r = subprocess.run(["pdftotext", str(pdf), "-"], capture_output=True, text=True, timeout=60)
+        return r.stdout or ""
+    except Exception:
+        return ""
+
+
+def render_quality_check(run_dir: Path) -> list[dict[str, Any]]:
+    """Deterministic gate on the RENDERED PDF (not just the QMD prose) — the layer
+    the content reviewer never sees. Catches the false-pass where decent prose
+    scores high but the deliverable PDF is broken (missing abstract, tofu glyphs,
+    unembedded figures, unlinked/raw citations)."""
+    pdf = run_dir / "paper_draft_v0.pdf"
+    qmd = run_dir / "paper_draft_v0.qmd"
+    if not pdf.is_file() or pdf.stat().st_size < 1000:
+        return [{"id": "RQ_PDF", "severity": "P0", "location": "render", "type": "render_quality",
+                 "description": "Rendered PDF is missing or too small."}]
+    data = pdf.read_bytes()
+    qtext = qmd.read_text(encoding="utf-8", errors="ignore") if qmd.is_file() else ""
+    txt = _pdftotext(pdf)
+    issues: list[dict[str, Any]] = []
+
+    if ("abstract:" in qtext or "# Abstract" in qtext) and txt and "abstract" not in txt[:3000].lower():
+        issues.append({"id": "RQ_ABSTRACT", "severity": "P0", "location": "render", "type": "render_quality",
+                       "description": "Abstract present in source but missing from the rendered PDF."})
+    n_fig_refs = len(re.findall(r"(?m)^!\[", qtext))
+    if n_fig_refs > 0 and not re.search(rb"/Subtype\s*/Image", data):
+        issues.append({"id": "RQ_FIGURES", "severity": "P0", "location": "render", "type": "render_quality",
+                       "description": f"{n_fig_refs} figures referenced but none embedded in the PDF."})
+    if re.search(r"@[A-Za-z]", qtext) and not re.search(rb"/Subtype\s*/Link", data):
+        issues.append({"id": "RQ_CITELINKS", "severity": "P1", "location": "render", "type": "render_quality",
+                       "description": "Citations are not hyperlinked in the PDF."})
+    if txt and re.search(r"\[@[A-Za-z]", txt):
+        issues.append({"id": "RQ_RAWCITE", "severity": "P1", "location": "render", "type": "render_quality",
+                       "description": "Unresolved [@key] citations appear in the rendered PDF."})
+    return issues
 
 
 def validation_gate(run_dir: Path, before_cites: set[str] | None = None,

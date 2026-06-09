@@ -674,6 +674,13 @@ def main() -> int:
         tasks = gather_tasks()
         record(f"gather_tasks_r{round_idx}", p0=p0(tasks), n=len(tasks))
 
+    # Render-quality gate: inspect the actual PDF (the layer the content reviewer
+    # never sees) so a broken render cannot pass with a high content score.
+    rq = revision_tasks.render_quality_check(run_dir)
+    (run_dir / "render_quality.json").write_text(
+        json.dumps({"issues": rq}, indent=2, ensure_ascii=False), encoding="utf-8")
+    record("render_quality", issues=len(rq), p0=sum(1 for i in rq if i.get("severity") == "P0"))
+
     # Final score artifact. gather_tasks already ran the Copilot review this round,
     # so paper_review_report.md + consistency_tasks.json reflect the latest draft.
     summary = compile_review.compile_reviews(run_dir, content_threshold=args.content_threshold, elite_required=elite)
