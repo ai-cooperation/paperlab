@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Springer-style (Scientometrics) ReportLab renderer for paper-draft QMD output.
 
-Used as the pipeline's deterministic render step when Quarto/LaTeX are unavailable
-(ac-2012 has only reportlab). Unlike the old plain-text fallback, this parses the
-YAML frontmatter, resolves @-citations against references.bib, numbers sections,
-lays out booktabs tables, captions figures, and appends a hanging bibliography —
-producing a publication-shaped manuscript rather than a text dump.
+Deterministic render step when Quarto/LaTeX are unavailable (ac-2012 has only
+reportlab). Parses YAML frontmatter (incl. the abstract block), resolves
+@-citations to blue hyperlinked author-year, numbers sections, lays out booktabs
+tables, captions figures, and appends a hanging bibliography.
 
-Dependency-free beyond reportlab (no yaml / bibtexparser). Every parser degrades
-gracefully (e.g. an unparseable citation key is left as-is) rather than crashing.
+Unicode: registers DejaVu Serif (normal/bold — full glyph coverage incl. — – ∈ α)
+plus Liberation Serif italics, so academic symbols render instead of tofu boxes.
+Falls back to the built-in Times/Helvetica if those TTFs are absent (no crash).
 
 Usage: render_qmd_reportlab.py <qmd> <pdf> [--bib references.bib]
 """
@@ -24,18 +24,51 @@ from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch, mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
 )
 
 NO_NUMBER_HEADINGS = {"abstract", "references", "keywords", "acknowledgements", "acknowledgments"}
+CITE_COLOR = "#0b5394"  # blue, hyperlinked
+DEJAVU = "/usr/share/fonts/truetype/dejavu"
+LIBERATION = "/usr/share/fonts/truetype/liberation"
+
+# Replacements for the rare glyphs even Liberation italics may miss, so an italic
+# span never tofus. (Normal/bold DejaVu covers these; this only guards italics.)
+GLYPH_FALLBACK = {"∈": " in ", "∉": " not in "}
+
+
+def register_fonts() -> dict[str, str]:
+    """Register Unicode TTFs; return the font names to use. Falls back to the
+    built-in fonts if the TTFs are missing (e.g. when run off-box)."""
+    fonts = {"body": "Times-Roman", "head": "Helvetica-Bold", "mono": "Courier"}
+    try:
+        reg = [
+            ("Body", f"{DEJAVU}/DejaVuSerif.ttf"),
+            ("Body-Bold", f"{DEJAVU}/DejaVuSerif-Bold.ttf"),
+            ("Body-Italic", f"{LIBERATION}/LiberationSerif-Italic.ttf"),
+            ("Body-BoldItalic", f"{LIBERATION}/LiberationSerif-BoldItalic.ttf"),
+            ("Head", f"{DEJAVU}/DejaVuSans-Bold.ttf"),
+            ("Mono", f"{DEJAVU}/DejaVuSansMono.ttf"),
+        ]
+        if not all(Path(p).is_file() for _, p in reg):
+            return fonts
+        for name, path in reg:
+            pdfmetrics.registerFont(TTFont(name, path))
+        pdfmetrics.registerFontFamily(
+            "Body", normal="Body", bold="Body-Bold", italic="Body-Italic", boldItalic="Body-BoldItalic")
+        fonts.update(body="Body", head="Head", mono="Mono")
+    except Exception:
+        pass
+    return fonts
 
 
 # ---------------------------------------------------------------------------
 # Frontmatter
 # ---------------------------------------------------------------------------
 def split_frontmatter(text: str) -> tuple[str, str]:
-    """Return (frontmatter_text, body_text). Empty frontmatter if absent."""
     if text.startswith("---"):
         end = text.find("\n---", 3)
         if end != -1:
@@ -45,32 +78,42 @@ def split_frontmatter(text: str) -> tuple[str, str]:
 
 
 def parse_frontmatter(fm: str) -> dict[str, object]:
-    """Targeted (non-YAML) parse of the fields we render."""
     meta: dict[str, object] = {"authors": []}
 
     def unquote(v: str) -> str:
         return v.strip().strip('"').strip("'").strip()
 
-    lines = fm.splitlines()
     cur_author: dict[str, str] | None = None
     in_authors = False
-    for line in lines:
+    in_abstract = False
+    abstract_lines: list[str] = []
+    for line in fm.splitlines():
+        # abstract: |  (YAML literal block — collect indented continuation lines)
+        if in_abstract:
+            if line.strip() == "" or line.startswith((" ", "\t")):
+                abstract_lines.append(line.strip())
+                continue
+            in_abstract = False  # dedent ends the block
         m_title = re.match(r"^title:\s*(.+)$", line)
         m_date = re.match(r"^date:\s*(.+)$", line)
         m_bib = re.match(r"^bibliography:\s*(.+)$", line)
         m_kw = re.match(r"^keywords:\s*(.+)$", line)
+        m_abs = re.match(r"^abstract:\s*(\|?>?\s*)(.*)$", line)
         if m_title:
-            meta["title"] = unquote(m_title.group(1))
+            meta["title"] = unquote(m_title.group(1)); in_authors = False
+        elif m_abs:
             in_authors = False
+            inline_val = m_abs.group(2).strip()
+            if inline_val:
+                abstract_lines.append(unquote(inline_val))
+            else:
+                in_abstract = True
         elif m_date:
-            meta["date"] = unquote(m_date.group(1))
-            in_authors = False
+            meta["date"] = unquote(m_date.group(1)); in_authors = False
         elif m_bib:
-            meta["bibliography"] = unquote(m_bib.group(1))
-            in_authors = False
+            meta["bibliography"] = unquote(m_bib.group(1)); in_authors = False
         elif m_kw and m_kw.group(1).strip() not in {"", "|"}:
-            meta["keywords"] = unquote(m_kw.group(1))
-            in_authors = False
+            meta["keywords"] = unquote(m_kw.group(1)); in_authors = False
         elif re.match(r"^author:\s*$", line):
             in_authors = True
         elif in_authors:
@@ -84,13 +127,15 @@ def parse_frontmatter(fm: str) -> dict[str, object]:
                 cur_author["affiliation"] = unquote(m_aff.group(1))
             elif m_email and cur_author is not None:
                 cur_author["email"] = unquote(m_email.group(1))
-            elif re.match(r"^\S", line):  # dedent => authors block ended
+            elif re.match(r"^\S", line):
                 in_authors = False
+    if abstract_lines:
+        meta["abstract"] = " ".join(x for x in abstract_lines if x).strip()
     return meta
 
 
 # ---------------------------------------------------------------------------
-# BibTeX (references.bib)
+# BibTeX
 # ---------------------------------------------------------------------------
 def parse_bib(bib_path: Path) -> dict[str, dict[str, str]]:
     if not bib_path.is_file():
@@ -99,9 +144,8 @@ def parse_bib(bib_path: Path) -> dict[str, dict[str, str]]:
     entries: dict[str, dict[str, str]] = {}
     for m in re.finditer(r"@\w+\s*\{\s*([^,]+),(.*?)\n\}", text, re.DOTALL):
         key = m.group(1).strip()
-        body = m.group(2)
         fields: dict[str, str] = {}
-        for fm in re.finditer(r"(\w+)\s*=\s*\{(.*?)\}\s*,?\s*$", body, re.MULTILINE):
+        for fm in re.finditer(r"(\w+)\s*=\s*\{(.*?)\}\s*,?\s*$", m.group(2), re.MULTILINE):
             fields[fm.group(1).lower()] = fm.group(2).strip()
         if key:
             entries[key] = fields
@@ -109,10 +153,8 @@ def parse_bib(bib_path: Path) -> dict[str, dict[str, str]]:
 
 
 def _authors(entry: dict[str, str]) -> list[tuple[str, str]]:
-    """Return [(last, firsts)] from a bib author field."""
-    raw = entry.get("author", "")
     out: list[tuple[str, str]] = []
-    for part in re.split(r"\s+and\s+", raw):
+    for part in re.split(r"\s+and\s+", entry.get("author", "")):
         part = part.strip()
         if not part:
             continue
@@ -126,7 +168,6 @@ def _authors(entry: dict[str, str]) -> list[tuple[str, str]]:
 
 
 def cite_label(entry: dict[str, str]) -> str:
-    """Author part of an in-text author-year citation."""
     auths = _authors(entry)
     year = entry.get("year", "n.d.")
     if not auths:
@@ -149,10 +190,9 @@ def cite_narrative(entry: dict[str, str]) -> str:
 
 
 def full_reference(entry: dict[str, str]) -> str:
-    auths = _authors(entry)
     def initials(first: str) -> str:
         return "".join(p[0].upper() for p in re.split(r"[\s.-]+", first) if p)
-    names = ", ".join(f"{last} {initials(first)}".strip() for last, first in auths) or "Anon"
+    names = ", ".join(f"{last} {initials(first)}".strip() for last, first in _authors(entry)) or "Anon"
     year = entry.get("year", "n.d.")
     title = entry.get("title", "").rstrip(". ")
     journal = entry.get("journal", "").strip()
@@ -166,155 +206,142 @@ def full_reference(entry: dict[str, str]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# In-text citations
+# In-text citations -> blue hyperlinked author-year (applied AFTER inline escaping)
 # ---------------------------------------------------------------------------
 def replace_citations(text: str, bib: dict[str, dict[str, str]], used: set[str]) -> str:
+    def link(key: str, label: str) -> str:
+        used.add(key)
+        return f'<a href="#cite-{key}" color="{CITE_COLOR}">{label}</a>'
+
     def render_keys(keys: list[str], narrative: bool) -> str:
         parts: list[str] = []
         for k in keys:
             k = k.lstrip("@").strip()
             if k in bib:
-                used.add(k)
-                parts.append(cite_narrative(bib[k]) if narrative and len(keys) == 1 else cite_label(bib[k]))
+                parts.append(link(k, cite_narrative(bib[k]) if narrative and len(keys) == 1 else cite_label(bib[k])))
             else:
                 parts.append(k)
         if narrative and len(keys) == 1:
             return parts[0]
         return "(" + "; ".join(parts) + ")"
 
-    # bracketed groups: [@a], [@a; @b], [@a, @b] (any bracket containing @keys)
-    def repl_bracket(m: re.Match) -> str:
-        keys = re.findall(r"@([A-Za-z0-9_:-]+)", m.group(0))
-        return render_keys(keys, narrative=False) if keys else m.group(0)
-
-    text = re.sub(r"\[[^\]]*@[A-Za-z][^\]]*\]", repl_bracket, text)
-    # bare narrative @key (not preceded by [ or word char, e.g. emails handled in frontmatter)
-    text = re.sub(
-        r"(?<![\w\[@])@([A-Za-z][A-Za-z0-9_:-]+)",
-        lambda m: render_keys([m.group(1)], narrative=True),
-        text,
-    )
+    text = re.sub(r"\[[^\]]*@[A-Za-z][^\]]*\]",
+                  lambda m: render_keys(re.findall(r"@([A-Za-z0-9_:-]+)", m.group(0)), narrative=False), text)
+    text = re.sub(r"(?<![\w\[@])@([A-Za-z][A-Za-z0-9_:-]+)",
+                  lambda m: render_keys([m.group(1)], narrative=True), text)
     return text
 
 
-# ---------------------------------------------------------------------------
-# Inline markdown -> reportlab markup
-# ---------------------------------------------------------------------------
 def inline(text: str) -> str:
+    for bad, repl in GLYPH_FALLBACK.items():
+        text = text.replace(bad, repl)
     text = html.escape(text, quote=False)
     text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
     text = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"<i>\1</i>", text)
-    text = re.sub(r"`([^`]+)`", r"<font face='Courier'>\1</font>", text)
-    text = re.sub(r"\[([^\]]+)\]\((?:[^)]+)\)", r"\1", text)  # leftover md links
+    text = re.sub(r"`([^`]+)`", r"<font face='Mono'>\1</font>", text)
+    text = re.sub(r"\[([^\]]+)\]\((?:[^)]+)\)", r"\1", text)
     return text
 
 
-# ---------------------------------------------------------------------------
-# Build
-# ---------------------------------------------------------------------------
-def styles() -> dict[str, ParagraphStyle]:
+def styles(F: dict[str, str]) -> dict[str, ParagraphStyle]:
     s = getSampleStyleSheet()
     return {
-        "title": ParagraphStyle("title", parent=s["Title"], fontName="Helvetica-Bold",
-                                 fontSize=16, leading=20, alignment=TA_CENTER, spaceAfter=10),
-        "authors": ParagraphStyle("authors", parent=s["Normal"], fontSize=11, leading=14,
+        "title": ParagraphStyle("title", parent=s["Title"], fontName=F["head"], fontSize=16, leading=20,
+                                 alignment=TA_CENTER, spaceAfter=10),
+        "authors": ParagraphStyle("authors", parent=s["Normal"], fontName=F["body"], fontSize=11, leading=14,
                                    alignment=TA_CENTER, spaceAfter=2),
-        "affil": ParagraphStyle("affil", parent=s["Normal"], fontSize=9, leading=12,
+        "affil": ParagraphStyle("affil", parent=s["Normal"], fontName=F["body"], fontSize=9, leading=12,
                                  alignment=TA_CENTER, textColor=colors.HexColor("#333333"), spaceAfter=12),
-        "abstract": ParagraphStyle("abstract", parent=s["Normal"], fontSize=8.8, leading=11.5,
+        "abshead": ParagraphStyle("abshead", parent=s["Normal"], fontName=F["head"], fontSize=11, leading=14,
+                                   leftIndent=24, spaceBefore=4, spaceAfter=3),
+        "abstract": ParagraphStyle("abstract", parent=s["Normal"], fontName=F["body"], fontSize=8.8, leading=11.5,
                                     alignment=TA_JUSTIFY, leftIndent=24, rightIndent=24, spaceAfter=6),
-        "keywords": ParagraphStyle("keywords", parent=s["Normal"], fontSize=8.8, leading=11.5,
+        "keywords": ParagraphStyle("keywords", parent=s["Normal"], fontName=F["body"], fontSize=8.8, leading=11.5,
                                    leftIndent=24, rightIndent=24, spaceAfter=12),
-        "h1": ParagraphStyle("h1", parent=s["Heading1"], fontName="Helvetica-Bold",
-                             fontSize=12, leading=15, spaceBefore=10, spaceAfter=5),
-        "h2": ParagraphStyle("h2", parent=s["Heading2"], fontName="Helvetica-Bold",
-                             fontSize=10.5, leading=13, spaceBefore=7, spaceAfter=4),
-        "body": ParagraphStyle("body", parent=s["BodyText"], fontName="Times-Roman",
-                               fontSize=10, leading=13, alignment=TA_JUSTIFY, spaceAfter=5),
-        "caption": ParagraphStyle("caption", parent=s["Normal"], fontSize=8.5, leading=11,
+        "h1": ParagraphStyle("h1", parent=s["Heading1"], fontName=F["head"], fontSize=12, leading=15,
+                             spaceBefore=10, spaceAfter=5),
+        "h2": ParagraphStyle("h2", parent=s["Heading2"], fontName=F["head"], fontSize=10.5, leading=13,
+                             spaceBefore=7, spaceAfter=4),
+        "body": ParagraphStyle("body", parent=s["BodyText"], fontName=F["body"], fontSize=10, leading=13,
+                               alignment=TA_JUSTIFY, spaceAfter=5),
+        "caption": ParagraphStyle("caption", parent=s["Normal"], fontName=F["body"], fontSize=8.5, leading=11,
                                   alignment=TA_CENTER, spaceBefore=3, spaceAfter=10),
-        "tcaption": ParagraphStyle("tcaption", parent=s["Normal"], fontName="Helvetica-Bold",
-                                   fontSize=8.8, leading=11, spaceBefore=8, spaceAfter=3),
-        "cell": ParagraphStyle("cell", parent=s["Normal"], fontName="Times-Roman", fontSize=8.5, leading=10.5),
-        "cellh": ParagraphStyle("cellh", parent=s["Normal"], fontName="Helvetica-Bold", fontSize=8.5, leading=10.5),
-        "ref": ParagraphStyle("ref", parent=s["Normal"], fontName="Times-Roman", fontSize=8.8, leading=11.5,
+        "tcaption": ParagraphStyle("tcaption", parent=s["Normal"], fontName=F["head"], fontSize=8.8, leading=11,
+                                   spaceBefore=8, spaceAfter=3),
+        "cell": ParagraphStyle("cell", parent=s["Normal"], fontName=F["body"], fontSize=8.5, leading=10.5),
+        "cellh": ParagraphStyle("cellh", parent=s["Normal"], fontName=F["head"], fontSize=8.5, leading=10.5),
+        "ref": ParagraphStyle("ref", parent=s["Normal"], fontName=F["body"], fontSize=8.8, leading=11.5,
                               leftIndent=14, firstLineIndent=-14, spaceAfter=3),
     }
 
 
-def title_block(story: list, meta: dict, st: dict) -> None:
+def title_block(story: list, meta: dict, st: dict, bib: dict, used: set) -> None:
     story.append(Paragraph(inline(str(meta.get("title") or "Untitled")), st["title"]))
     authors = meta.get("authors") or []
     if authors:
-        names = ", ".join(str(a.get("name", "")) for a in authors)  # type: ignore[union-attr]
-        story.append(Paragraph(inline(names), st["authors"]))
-        affil = authors[0].get("affiliation", "")  # type: ignore[union-attr]
-        email = authors[0].get("email", "")  # type: ignore[union-attr]
-        sub = affil + (f" · {email}" if email else "")
-        if sub:
+        story.append(Paragraph(inline(", ".join(str(a.get("name", "")) for a in authors)), st["authors"]))
+        a0 = authors[0]
+        sub = str(a0.get("affiliation", "")) + (f" · {a0.get('email')}" if a0.get("email") else "")
+        if sub.strip():
             story.append(Paragraph(inline(sub), st["affil"]))
     if meta.get("date"):
         story.append(Paragraph(inline(str(meta["date"])), st["affil"]))
+    if meta.get("abstract"):
+        story.append(Paragraph("Abstract", st["abshead"]))
+        story.append(Paragraph(replace_citations(inline(str(meta["abstract"])), bib, used), st["abstract"]))
+    if meta.get("keywords"):
+        story.append(Paragraph("<b>Keywords</b> " + inline(str(meta["keywords"])), st["keywords"]))
 
 
 def make_table(rows: list[str], st: dict, counter: list[int]) -> list:
     grid = [[c.strip() for c in r.strip().strip("|").split("|")] for r in rows]
-    grid = [g for i, g in enumerate(grid) if not re.match(r"^[-:\s|]+$", "|".join(g))]
+    grid = [g for g in grid if not re.match(r"^[-:\s|]+$", "|".join(g))]
     if not grid:
         return []
     header, *data = grid
     table_data = [[Paragraph(inline(c), st["cellh"]) for c in header]] + [
-        [Paragraph(inline(c), st["cell"]) for c in r] for r in data
-    ]
+        [Paragraph(inline(c), st["cell"]) for c in r] for r in data]
     counter[0] += 1
     tbl = Table(table_data, hAlign="CENTER", repeatRows=1)
     tbl.setStyle(TableStyle([
         ("LINEABOVE", (0, 0), (-1, 0), 1.1, colors.black),
         ("LINEBELOW", (0, 0), (-1, 0), 0.6, colors.black),
         ("LINEBELOW", (0, -1), (-1, -1), 1.1, colors.black),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5), ("RIGHTPADDING", (0, 0), (-1, -1), 5),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
     ]))
     return [Paragraph(f"<b>Table {counter[0]}</b>", st["tcaption"]), tbl, Spacer(1, 8)]
 
 
 def build_pdf(qmd: Path, pdf: Path, bib_path: Path | None = None) -> None:
+    F = register_fonts()
+    st = styles(F)
     text = qmd.read_text(encoding="utf-8", errors="ignore")
     fm, body = split_frontmatter(text)
     meta = parse_frontmatter(fm)
-    bib_file = bib_path or (qmd.parent / str(meta.get("bibliography") or "references.bib"))
-    bib = parse_bib(bib_file)
-    used_keys: set[str] = set()
-    st = styles()
+    bib = parse_bib(bib_path or (qmd.parent / str(meta.get("bibliography") or "references.bib")))
+    used: set[str] = set()
 
-    doc = SimpleDocTemplate(
-        str(pdf), pagesize=A4,
-        leftMargin=20 * mm, rightMargin=20 * mm, topMargin=18 * mm, bottomMargin=18 * mm,
-        title=str(meta.get("title") or qmd.stem),
-    )
+    doc = SimpleDocTemplate(str(pdf), pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm,
+                            topMargin=18 * mm, bottomMargin=18 * mm, title=str(meta.get("title") or qmd.stem))
     story: list = []
-    title_block(story, meta, st)
-    if meta.get("keywords"):
-        pass  # keywords rendered right after abstract below
+    title_block(story, meta, st, bib, used)
 
-    fig_n = [0]
-    tbl_n = [0]
-    h1_n, h2_n = [0], [0]
+    fig_n, tbl_n, h1_n, h2_n = [0], [0], [0], [0]
     para: list[str] = []
     table_block: list[str] = []
     in_code = False
-    section_ctx = {"name": ""}
+    section = {"name": ""}
 
     def flush_para() -> None:
         if para:
             joined = " ".join(p.strip() for p in para if p.strip())
             if joined:
-                joined = replace_citations(joined, bib, used_keys)
-                style = st["abstract"] if section_ctx["name"] == "abstract" else st["body"]
-                story.append(Paragraph(inline(joined), style))
+                # escape + inline markup FIRST, then add (unescaped) citation links.
+                marked = replace_citations(inline(joined), bib, used)
+                style = st["abstract"] if section["name"] == "abstract" else st["body"]
+                story.append(Paragraph(marked, style))
             para.clear()
 
     def flush_table() -> None:
@@ -325,77 +352,53 @@ def build_pdf(qmd: Path, pdf: Path, bib_path: Path | None = None) -> None:
     for raw in body.splitlines():
         line = raw.rstrip()
         if line.startswith("```"):
-            flush_para(); flush_table()
-            in_code = not in_code
-            continue
+            flush_para(); flush_table(); in_code = not in_code; continue
         if in_code:
             continue
-
         fig = re.match(r"^!\[(.*?)\]\(([^)]+)\)", line)
         if fig:
             flush_para(); flush_table()
             rel = fig.group(2).split("#", 1)[0].strip()
-            # reportlab cannot embed SVG; QMD figures reference .svg but phase 7
-            # writes a .png twin — fall back to it so figures appear in the PDF.
             if rel.lower().endswith(".svg") and (qmd.parent / (rel[:-4] + ".png")).is_file():
                 rel = rel[:-4] + ".png"
             img = (qmd.parent / rel).resolve()
             if img.is_file() and rel.lower().endswith((".png", ".jpg", ".jpeg")):
                 fig_n[0] += 1
                 story.append(Image(str(img), width=5.6 * inch, height=3.5 * inch, kind="proportional"))
-                cap = replace_citations(fig.group(1), bib, used_keys)
-                story.append(Paragraph(f"<b>Fig. {fig_n[0]}</b> {inline(cap)}", st["caption"]))
+                story.append(Paragraph(f"<b>Fig. {fig_n[0]}</b> " + replace_citations(inline(fig.group(1)), bib, used), st["caption"]))
             continue
-
         if line.startswith("|") and line.rstrip().endswith("|"):
-            flush_para()
-            table_block.append(line)
-            continue
+            flush_para(); table_block.append(line); continue
         if table_block:
             flush_table()
-
         heading = re.match(r"^(#{1,3})\s+(.+)$", line)
         if heading:
             flush_para()
-            level = len(heading.group(1))
-            htext = heading.group(2).strip()
-            key = htext.lower().strip()
-            section_ctx["name"] = key
+            level, htext = len(heading.group(1)), heading.group(2).strip()
+            section["name"] = htext.lower().strip()
             if level == 1:
-                if key in NO_NUMBER_HEADINGS:
+                if section["name"] in NO_NUMBER_HEADINGS:
                     label = htext
                 else:
-                    h1_n[0] += 1; h2_n[0] = 0
-                    label = f"{h1_n[0]} {htext}"
+                    h1_n[0] += 1; h2_n[0] = 0; label = f"{h1_n[0]} {htext}"
                 story.append(Paragraph(inline(label), st["h1"]))
-                if key == "abstract":
-                    pass
             else:
                 h2_n[0] += 1
-                label = f"{h1_n[0]}.{h2_n[0]} {htext}"
-                story.append(Paragraph(inline(label), st["h2"]))
-            # inject keywords right after the abstract heading's content later
+                story.append(Paragraph(inline(f"{h1_n[0]}.{h2_n[0]} {htext}"), st["h2"]))
             continue
-
         if line.strip() in {r"\newpage", r"\pagebreak"}:
             flush_para(); story.append(PageBreak()); continue
         if not line.strip():
-            flush_para()
-            # keywords printed once, right after abstract block ends
-            if section_ctx["name"] == "abstract" and meta.get("keywords") and "kw_done" not in section_ctx:
-                story.append(Paragraph(f"<b>Keywords</b> {inline(str(meta['keywords']))}", st["keywords"]))
-                section_ctx["kw_done"] = "1"  # type: ignore[assignment]
-            continue
+            flush_para(); continue
         para.append(line)
 
     flush_para(); flush_table()
 
-    # Bibliography (hanging indent, alphabetical) from cited keys
-    refs = sorted((bib[k] for k in used_keys if k in bib), key=lambda e: cite_label(e).lower())
+    refs = sorted(((k, bib[k]) for k in used if k in bib), key=lambda kv: cite_label(kv[1]).lower())
     if refs:
         story.append(Paragraph("References", st["h1"]))
-        for e in refs:
-            story.append(Paragraph(inline(full_reference(e)), st["ref"]))
+        for key, e in refs:
+            story.append(Paragraph(f'<a name="cite-{key}"/>' + inline(full_reference(e)), st["ref"]))
 
     doc.build(story)
 
