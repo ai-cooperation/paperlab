@@ -253,6 +253,15 @@ Stop after Phase 9.
 """,
     }
     body = bodies[phase]
+    if phase == "phase7":
+        body += (
+            "\n\nThe architecture/method/pipeline figure MUST be authored as TikZ, NOT matplotlib boxes: "
+            "write a standalone .tex in figures/ matching the name referenced in the QMD (e.g. "
+            "figures/fig1_pipeline_architecture.tex) by ADAPTING the template below — change node labels "
+            "and band names to the real pipeline, keep the structure; use real_results values. The "
+            "pipeline compiles the .tex to .png + .svg. Data plots (forest plots, distributions, bar "
+            "charts) stay matplotlib with both .png and .svg.\n\nTikZ template (adapt, don't copy verbatim):\n"
+            + TIKZ_TEMPLATE + "\n")
     if phase in {"phase7", "phase8"} and real_summary:
         body += "\n\n" + real_summary + "\n"
     return base + body
@@ -350,6 +359,65 @@ def run_real_experiment(run_dir: Path, limit: int, timeout_s: int) -> dict[str, 
         reason = result.get("reason") or proc.stderr[-500:] or proc.stdout[-500:]
         raise RuntimeError(f"real experiment failed closed: {reason}")
     return result
+
+
+TIKZ_TEMPLATE = r"""\documentclass[border=10pt]{standalone}
+\usepackage{tikz}
+\usepackage[scaled]{helvet}\renewcommand\familydefault{\sfdefault}
+\usetikzlibrary{positioning,fit,backgrounds,arrows.meta}
+\definecolor{cA}{HTML}{EEF3FB}\definecolor{cB}{HTML}{EAFAEF}\definecolor{cC}{HTML}{FDEEEE}
+\begin{document}
+\begin{tikzpicture}[font=\small,
+  box/.style={rounded corners=2pt, draw=black!45, fill=white, align=center, minimum height=12mm, text width=37mm, inner sep=4pt, line width=0.6pt},
+  arr/.style={-{Stealth[length=2.6mm]}, draw=black!55, line width=1pt},
+  bandlbl/.style={font=\footnotesize\bfseries, text=black!65}]
+% --- ROW 1 nodes (left to right), then ROW 2, ROW 3. Edit labels/content; keep structure. ---
+\node[box,fill=blue!8] (a1) {\textbf{Stage}\\[2pt]{\scriptsize detail}};
+\node[box,fill=orange!18,right=14mm of a1] (a2) {\textbf{Stage}\\[2pt]{\scriptsize detail}};
+\node[box,fill=blue!8,right=14mm of a2] (a3) {\textbf{Stage}\\[2pt]{\scriptsize detail}};
+\draw[arr](a1)--(a2);\draw[arr](a2)--(a3);
+\node[box,fill=green!14,below=22mm of a1,xshift=18mm] (b1) {\textbf{Stage}\\[2pt]{\scriptsize detail}};
+\node[box,fill=green!14,right=14mm of b1] (b2) {\textbf{Stage}\\[2pt]{\scriptsize detail}};
+\draw[arr](b1)--(b2);\draw[arr](a3) to[out=-90,in=90] (b2);
+\node[box,fill=red!12,below=22mm of b1,xshift=-9mm] (c1) {\textbf{Stage}\\[2pt]{\scriptsize detail}};
+\node[box,fill=red!12,right=14mm of c1] (c2) {\textbf{Stage}\\[2pt]{\scriptsize detail}};
+\node[box,fill=black!10,right=14mm of c2] (c3) {\textbf{Output}\\[2pt]{\scriptsize detail}};
+\draw[arr](c1)--(c2);\draw[arr](c2)--(c3);\draw[arr](b2) to[out=-90,in=90] (c1);
+\begin{scope}[on background layer]
+\node[fill=cA,rounded corners=5pt,fit=(a1)(a2)(a3),inner sep=6mm,label={[bandlbl]above right:Band A}]{};
+\node[fill=cB,rounded corners=5pt,fit=(b1)(b2),inner sep=6mm,label={[bandlbl]above right:Band B}]{};
+\node[fill=cC,rounded corners=5pt,fit=(c1)(c2)(c3),inner sep=6mm,label={[bandlbl]above right:Band C}]{};
+\end{scope}
+\end{tikzpicture}
+\end{document}"""
+
+
+def compile_tikz_figures(run_dir: Path) -> list[str]:
+    """Deterministically compile any figures/*.tex (TikZ) the model wrote into
+    publication-quality .png + .svg. This is how architecture/method figures reach
+    journal quality (vs matplotlib boxes); data plots stay matplotlib."""
+    figdir = run_dir / "figures"
+    if not figdir.is_dir() or not shutil.which("pdflatex"):
+        return []
+    done: list[str] = []
+    for tex in sorted(figdir.glob("*.tex")):
+        base = tex.stem
+        try:
+            subprocess.run(["pdflatex", "-interaction=nonstopmode", "-halt-on-error", tex.name],
+                           cwd=figdir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120)
+            pdf = figdir / f"{base}.pdf"
+            if pdf.is_file():
+                subprocess.run(["pdftoppm", "-png", "-r", "300", "-singlefile", f"{base}.pdf", base],
+                               cwd=figdir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+                subprocess.run(["pdftocairo", "-svg", f"{base}.pdf", f"{base}.svg"],
+                               cwd=figdir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+                if (figdir / f"{base}.png").is_file():
+                    done.append(base)
+        except Exception:
+            pass
+        for ext in (".aux", ".log", ".pdf"):
+            (figdir / f"{base}{ext}").unlink(missing_ok=True)
+    return done
 
 
 def render_pdf(run_dir: Path) -> bool:
@@ -609,6 +677,9 @@ def main() -> int:
             trace["final_status"] = f"failed_at_{phase}"
             record("abort", reason=f"{phase} did not produce required artifacts")
             return code
+        if phase == "phase7":
+            # Compile any TikZ figures the model authored into publication-quality png/svg.
+            record("compile_tikz", figures=compile_tikz_figures(run_dir))
         if phase == "phase2":
             gate = doi_gate(run_dir)
             record("doi_gate", **{k: gate.get(k) for k in ("real_existence_rate", "passed", "suspicious_404")})
