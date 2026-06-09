@@ -212,9 +212,19 @@ Append one line to progress.md only if the artifact exists. Stop after Phase 4.
         "phase7": """
 Bounded task: complete Phase 7 (Results, figures, tables) only.
 Inputs: phase1_concept.md, phase4_structure.md. For cpu-real lane also read
-real_experiments/real_results.json and use its real metrics verbatim.
+real_experiments/real_results.json and use its real metrics verbatim. Follow the figure standards in
+figure-design.SKILL.md (same skills directory as the skills listed above).
 Required outputs: figures/ with at least 3 figures, each with both .svg and .png; tables/ with at
 least 2 non-empty markdown tables; at least 5 figure+table artifacts total; no empty table cells.
+FIGURE CORRECTNESS (critical, P0 if violated): every number, axis value, label, and annotation drawn
+INSIDE a figure must come from real_experiments/real_results.json — the bootstrap resample count, fold
+count, class count, model names, and metric values. Do NOT round to a "nice" number or invent values
+(a figure that says "1,000 resamples" when the run used 300, or "9 classes" when it is 7, is a P0
+error). Figure in-image text, captions, tables, and prose must all agree.
+Figure quality (figure-design.SKILL.md): axis labels >=14pt, ticks >=13pt, >=300 DPI, no overlapping
+labels, and do NOT use matplotlib fig.text() for captions (the QMD supplies them).
+In table headers and cells use Unicode or ASCII symbols (Mean ± SD, alpha=0.05), never raw LaTeX
+like $\\pm$ or $\\alpha$ — the renderer shows raw LaTeX literally.
 Append one line to progress.md only after artifacts exist. Stop after Phase 7.
 """,
         "phase8": """

@@ -115,6 +115,9 @@ def render_quality_check(run_dir: Path) -> list[dict[str, Any]]:
     if txt and re.search(r"\[@[A-Za-z]", txt):
         issues.append({"id": "RQ_RAWCITE", "severity": "P1", "location": "render", "type": "render_quality",
                        "description": "Unresolved [@key] citations appear in the rendered PDF."})
+    if txt and re.search(r"\$\s*\\?[A-Za-z]|\\(?:pm|times|alpha|beta|mu|sigma|leq|geq|le|ge|neq|approx)\b", txt):
+        issues.append({"id": "RQ_MATH", "severity": "P1", "location": "render", "type": "render_quality",
+                       "description": "Unrendered LaTeX math ($...$ or \\pm/\\alpha) appears in the rendered PDF (tables/text)."})
     return issues
 
 

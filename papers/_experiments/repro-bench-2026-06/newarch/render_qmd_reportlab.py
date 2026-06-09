@@ -39,6 +39,28 @@ LIBERATION = "/usr/share/fonts/truetype/liberation"
 # span never tofus. (Normal/bold DejaVu covers these; this only guards italics.)
 GLYPH_FALLBACK = {"∈": " in ", "∉": " not in "}
 
+# Inline LaTeX math ($...$) -> Unicode (DejaVu renders these). QMD tables/text use
+# $\pm$, $\alpha$, etc.; without this they print the raw "$\pm$".
+LATEX_MATH = {
+    r"\pm": "±", r"\mp": "∓", r"\times": "×", r"\cdot": "·", r"\div": "÷",
+    r"\leq": "≤", r"\le": "≤", r"\geq": "≥", r"\ge": "≥", r"\neq": "≠",
+    r"\approx": "≈", r"\sim": "~", r"\propto": "∝", r"\infty": "∞", r"\to": "→", r"\rightarrow": "→",
+    r"\alpha": "α", r"\beta": "β", r"\gamma": "γ", r"\delta": "δ", r"\epsilon": "ε", r"\mu": "µ",
+    r"\sigma": "σ", r"\rho": "ρ", r"\lambda": "λ", r"\tau": "τ", r"\theta": "θ", r"\chi": "χ",
+    r"\kappa": "κ", r"\eta": "η", r"\phi": "φ", r"\pi": "π", r"\Delta": "Δ", r"\%": "%", r"\,": " ",
+}
+
+
+def latex_math_to_unicode(text: str) -> str:
+    def repl(m: re.Match) -> str:
+        s = m.group(1)
+        for cmd, sym in sorted(LATEX_MATH.items(), key=lambda kv: -len(kv[0])):
+            s = s.replace(cmd, sym)
+        s = re.sub(r"\\[a-zA-Z]+", "", s)            # drop unknown commands
+        s = s.replace("{", "").replace("}", "").replace("^", "").replace("_", " ")
+        return s.strip()
+    return re.sub(r"\$([^$]+)\$", repl, text)
+
 
 def register_fonts() -> dict[str, str]:
     """Register Unicode TTFs; return the font names to use. Falls back to the
@@ -233,6 +255,7 @@ def replace_citations(text: str, bib: dict[str, dict[str, str]], used: set[str])
 
 
 def inline(text: str) -> str:
+    text = latex_math_to_unicode(text)
     for bad, repl in GLYPH_FALLBACK.items():
         text = text.replace(bad, repl)
     text = html.escape(text, quote=False)
