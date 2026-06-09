@@ -404,6 +404,17 @@ def compile_tikz_figures(run_dir: Path) -> list[str]:
     done: list[str] = []
     for tex in sorted(figdir.glob("*.tex")):
         base = tex.stem
+        # Deterministic normalization: the weak model ignores the template's label
+        # placement and writes `above right`, which puts band labels under the
+        # right-side inter-band arrows. Force `above left` (clear of the arrows)
+        # regardless of what the model wrote.
+        try:
+            src = tex.read_text(encoding="utf-8", errors="ignore")
+            fixed = src.replace("above right", "above left")
+            if fixed != src:
+                tex.write_text(fixed, encoding="utf-8")
+        except Exception:
+            pass
         try:
             subprocess.run(["pdflatex", "-interaction=nonstopmode", "-halt-on-error", tex.name],
                            cwd=figdir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120)
