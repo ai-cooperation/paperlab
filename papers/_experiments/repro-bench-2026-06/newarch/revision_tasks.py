@@ -105,7 +105,12 @@ def render_quality_check(run_dir: Path) -> list[dict[str, Any]]:
     if ("abstract:" in qtext or "# Abstract" in qtext) and txt and "abstract" not in txt[:3000].lower():
         issues.append({"id": "RQ_ABSTRACT", "severity": "P0", "location": "render", "type": "render_quality",
                        "description": "Abstract present in source but missing from the rendered PDF."})
-    n_fig_refs = len(re.findall(r"(?m)^!\[", qtext))
+    # Line-number prefix corruption (e.g. "85|...") — an agentic edit artifact that
+    # also breaks figure/heading parsing.
+    if len(re.findall(r"(?m)^\s*\d{1,4}\s*\|", qtext)) >= 5:
+        issues.append({"id": "RQ_LINEPREFIX", "severity": "P0", "location": "qmd", "type": "render_quality",
+                       "description": "QMD has line-number prefixes (NN|...) — corrupted source; strip before render."})
+    n_fig_refs = len(re.findall(r"!\[[^\]]*\]\([^)]*\)", qtext))  # anywhere, not only line-start
     if n_fig_refs > 0 and not re.search(rb"/Subtype\s*/Image", data):
         issues.append({"id": "RQ_FIGURES", "severity": "P0", "location": "render", "type": "render_quality",
                        "description": f"{n_fig_refs} figures referenced but none embedded in the PDF."})

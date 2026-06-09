@@ -216,6 +216,8 @@ real_experiments/real_results.json and use its real metrics verbatim. Follow the
 figure-design.SKILL.md (same skills directory as the skills listed above).
 Required outputs: figures/ with at least 3 figures, each with both .svg and .png; tables/ with at
 least 2 non-empty markdown tables; at least 5 figure+table artifacts total; no empty table cells.
+Do NOT create or edit paper_draft_v0.qmd in this phase (that is Phase 8) — only write figures/ and
+tables/. Never write line-number prefixes (like "12|") into any file.
 FIGURE CORRECTNESS (critical, P0 if violated): every number, axis value, label, and annotation drawn
 INSIDE a figure must come from real_experiments/real_results.json — the bootstrap resample count, fold
 count, class count, model names, and metric values. Do NOT round to a "nice" number or invent values

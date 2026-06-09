@@ -373,7 +373,9 @@ def build_pdf(qmd: Path, pdf: Path, bib_path: Path | None = None) -> None:
             table_block.clear()
 
     for raw in body.splitlines():
-        line = raw.rstrip()
+        # Defensive: strip leading "NN|" / "NN " line-number prefixes that an agentic
+        # model can bake into the file when it "edits with line numbers".
+        line = re.sub(r"^\s*\d{1,4}\s*\|", "", raw.rstrip())
         if line.startswith("```"):
             flush_para(); flush_table(); in_code = not in_code; continue
         if in_code:
