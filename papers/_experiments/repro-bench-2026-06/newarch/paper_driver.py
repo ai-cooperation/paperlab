@@ -376,17 +376,19 @@ TIKZ_TEMPLATE = r"""\documentclass[border=10pt]{standalone}
 \node[box,fill=orange!18,right=14mm of a1] (a2) {\textbf{Stage}\\[2pt]{\scriptsize detail}};
 \node[box,fill=blue!8,right=14mm of a2] (a3) {\textbf{Stage}\\[2pt]{\scriptsize detail}};
 \draw[arr](a1)--(a2);\draw[arr](a2)--(a3);
-\node[box,fill=green!14,below=22mm of a1,xshift=18mm] (b1) {\textbf{Stage}\\[2pt]{\scriptsize detail}};
+\node[box,fill=green!14,below=30mm of a1,xshift=18mm] (b1) {\textbf{Stage}\\[2pt]{\scriptsize detail}};
 \node[box,fill=green!14,right=14mm of b1] (b2) {\textbf{Stage}\\[2pt]{\scriptsize detail}};
 \draw[arr](b1)--(b2);\draw[arr](a3) to[out=-90,in=90] (b2);
-\node[box,fill=red!12,below=22mm of b1,xshift=-9mm] (c1) {\textbf{Stage}\\[2pt]{\scriptsize detail}};
+\node[box,fill=red!12,below=30mm of b1,xshift=-9mm] (c1) {\textbf{Stage}\\[2pt]{\scriptsize detail}};
 \node[box,fill=red!12,right=14mm of c1] (c2) {\textbf{Stage}\\[2pt]{\scriptsize detail}};
 \node[box,fill=black!10,right=14mm of c2] (c3) {\textbf{Output}\\[2pt]{\scriptsize detail}};
 \draw[arr](c1)--(c2);\draw[arr](c2)--(c3);\draw[arr](b2) to[out=-90,in=90] (c1);
+% Band labels sit at the TOP-LEFT corner (above the band box) so the curved
+% inter-band arrows (which run down the right side) never cross the text.
 \begin{scope}[on background layer]
-\node[fill=cA,rounded corners=5pt,fit=(a1)(a2)(a3),inner sep=6mm,label={[bandlbl]above right:Band A}]{};
-\node[fill=cB,rounded corners=5pt,fit=(b1)(b2),inner sep=6mm,label={[bandlbl]above right:Band B}]{};
-\node[fill=cC,rounded corners=5pt,fit=(c1)(c2)(c3),inner sep=6mm,label={[bandlbl]above right:Band C}]{};
+\node[fill=cA,rounded corners=5pt,fit=(a1)(a2)(a3),inner sep=6mm,label={[bandlbl]above left:Band A}]{};
+\node[fill=cB,rounded corners=5pt,fit=(b1)(b2),inner sep=6mm,label={[bandlbl]above left:Band B}]{};
+\node[fill=cC,rounded corners=5pt,fit=(c1)(c2)(c3),inner sep=6mm,label={[bandlbl]above left:Band C}]{};
 \end{scope}
 \end{tikzpicture}
 \end{document}"""
