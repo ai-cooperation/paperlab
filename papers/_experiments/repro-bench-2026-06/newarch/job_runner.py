@@ -384,9 +384,24 @@ def extract_output(
     except (TypeError, ValueError):
         score_float = None
     no_p0 = review.get("p0_count", 0) == 0 if isinstance(review.get("p0_count"), int) else (gate.get("no_p0") is not False)
+    # An external-reviewer outage (e.g. Copilot quota_exceeded) yields a valid paper +
+    # PDF but no score. Surface that as a distinct, recoverable "review_pending" state
+    # rather than "failed", so the deliverable is retained and b/orchestrator can
+    # trigger an out-of-band re-review instead of treating it as a content rejection.
+    reviewer_unavailable = bool(review.get("reviewer_unavailable"))
+    if reviewer_unavailable and pdf_path:
+        status_value = "review_pending"
+        job_blockers.append(
+            "Engine B reviewer unavailable (e.g. Copilot quota) — paper produced; "
+            "out-of-band re-review required before scoring."
+        )
+    elif score_float is not None and pdf_path:
+        status_value = "done"
+    else:
+        status_value = "failed"
     output = {
         "job_id": job_id,
-        "status": "done" if score_float is not None and pdf_path else "failed",
+        "status": status_value,
         "run_dir": str(run_dir),
         **threshold_fields(routing_decision, score_float, no_p0),
         "content_score": score_float,

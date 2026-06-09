@@ -123,15 +123,37 @@ def compile_reviews(run_dir: Path, content_threshold: float = 6.0, elite_require
         except (KeyError, TypeError, ValueError):
             pass
 
+    reviewer_unavailable = False
     if len(scores) == len(SEVEN_DIMS):
         mean_7dim = round(sum(scores.values()) / len(SEVEN_DIMS), 2)
     else:
         mean_7dim = None  # fail closed: do NOT invent a score
-        problems.append({
-            "id": "REVIEW_INCOMPLETE", "severity": "P0", "location": "paper_review_report.md",
-            "type": "missing_seven_dimension_scores",
-            "description": f"paper-review-skill did not emit all 7 dimensions (got {sorted(scores)}).",
-        })
+        rstatus: dict[str, Any] = {}
+        rpath = run_dir / "reviewer_status.json"
+        if rpath.is_file():
+            try:
+                rstatus = json.loads(rpath.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                rstatus = {}
+        if rstatus.get("status") == "unavailable":
+            # The external reviewer (e.g. Copilot quota_exceeded) could not score the
+            # paper. This is an outage, NOT a desk-reject: the manuscript + PDF were
+            # produced and are valid; the orchestrator must re-review out-of-band. We
+            # keep meets_threshold False (no invented score) but raise a DISTINCT,
+            # non-P0 problem so the job is not mislabelled as a content failure.
+            reviewer_unavailable = True
+            problems.append({
+                "id": "REVIEWER_UNAVAILABLE", "severity": "REVIEW_PENDING",
+                "location": "reviewer_status.json", "type": "external_reviewer_unavailable",
+                "description": f"Engine B reviewer unavailable (reason={rstatus.get('reason') or 'unknown'}); "
+                               "paper produced but unscored — out-of-band re-review required.",
+            })
+        else:
+            problems.append({
+                "id": "REVIEW_INCOMPLETE", "severity": "P0", "location": "paper_review_report.md",
+                "type": "missing_seven_dimension_scores",
+                "description": f"paper-review-skill did not emit all 7 dimensions (got {sorted(scores)}).",
+            })
 
     # desk_reject_probability may come from the elite audit OR the copilot review block.
     desk_reject = None
@@ -178,6 +200,7 @@ def compile_reviews(run_dir: Path, content_threshold: float = 6.0, elite_require
         "problems": problems,
         "elite": {"desk_reject_probability": desk_reject},
         "content_threshold": content_threshold,
+        "reviewer_unavailable": reviewer_unavailable,
         "meets_threshold": bool(mean_7dim is not None and p0_count == 0 and mean_7dim >= content_threshold),
     }
     (run_dir / "final_content_review_deterministic.json").write_text(

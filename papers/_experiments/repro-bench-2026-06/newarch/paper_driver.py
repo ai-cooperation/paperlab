@@ -604,6 +604,14 @@ Replace every 0.0 and the example task with your real assessment. Use type "valu
 give exact target+replacement text; use "block_rewrite" only when a whole passage must be rewritten."""
 
 
+def _write_reviewer_status(run_dir: Path, status: str, reason: str = "") -> None:
+    """Record whether the Engine B (Copilot) reviewer actually scored the paper.
+    compile_review reads this to tell a real desk-reject apart from a reviewer outage."""
+    (run_dir / "reviewer_status.json").write_text(
+        json.dumps({"reviewer": "copilot", "status": status, "reason": reason},
+                   ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def run_copilot_review(run_dir: Path, contract: dict[str, Any], real_summary: str | None,
                        elite: bool, timeout_s: int = 600) -> list[dict[str, Any]]:
     """Engine B reviewer via Copilot (GPT-class, honest). Writes paper_review_report.md
@@ -619,13 +627,31 @@ def run_copilot_review(run_dir: Path, contract: dict[str, Any], real_summary: st
         out = proc.stdout or ""
     except subprocess.TimeoutExpired:
         (log_dir / "review_copilot.stderr.txt").write_text("copilot review timed out", encoding="utf-8")
+        _write_reviewer_status(run_dir, "unavailable", "timeout")
         return []
     (log_dir / "review_copilot.stdout.txt").write_text(out, encoding="utf-8")
-    if proc.stderr:
-        (log_dir / "review_copilot.stderr.txt").write_text(proc.stderr[-2000:], encoding="utf-8")
+    stderr = proc.stderr or ""
+    if stderr:
+        (log_dir / "review_copilot.stderr.txt").write_text(stderr[-2000:], encoding="utf-8")
+    block = compile_review._last_json_block(out) or {}
+    scores = block.get("scores_7dim") if isinstance(block.get("scores_7dim"), dict) else {}
+    # Distinguish "reviewer ran out of quota / died mid-stream" from "reviewer judged
+    # the paper". A 402 quota_exceeded (or any run that fails to emit all 7 dimensions)
+    # must NOT collapse into a generic content P0 — it is an external-reviewer outage
+    # the orchestrator should resolve out-of-band. See compile_review REVIEWER_UNAVAILABLE.
+    if not all(d in scores for d in compile_review.SEVEN_DIMS):
+        if "quota_exceeded" in stderr or "exceeded your monthly quota" in (stderr + out):
+            reason = "quota_exceeded"
+        elif proc.returncode != 0:
+            reason = f"copilot_exit_{proc.returncode}"
+        else:
+            reason = "incomplete_review"
+        _write_reviewer_status(run_dir, "unavailable", reason)
+        print(f"review_copilot: UNAVAILABLE reason={reason} exit={proc.returncode}", flush=True)
+        return []
+    _write_reviewer_status(run_dir, "ok", "")
     if "```" in out:
         (run_dir / "paper_review_report.md").write_text(out, encoding="utf-8")
-    block = compile_review._last_json_block(out) or {}
     tasks = [t for t in (block.get("tasks") or []) if isinstance(t, dict)]
     for t in tasks:
         t.setdefault("engine", "B")
