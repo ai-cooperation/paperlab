@@ -510,6 +510,162 @@ def doi_gate(run_dir: Path) -> dict[str, Any]:
     return audit
 
 
+# ---------------------------------------------------------------------------
+# WS2 phase2 consumption — deterministic references from a contract's
+# literature.verified_refs (b already gathered + CrossRef-verified them). We
+# build references.bib / metadata.json by construction (no model phase), and
+# only SPOT-CHECK a sample against CrossRef instead of the full ~23-min
+# re-verify. If the sample betrays b (real-existence rate below the floor) we
+# escalate to the full doi_gate (fail-closed). Same philosophy as the DOI /
+# render / table gates: never trust the producer's claim wholesale, but don't
+# redo verifiable work b already did honestly.
+# ---------------------------------------------------------------------------
+
+VERIFIED_REF_SAMPLE = int(os.environ.get("PAPER_VERIFIED_REF_SAMPLE", "8"))
+
+
+_LATEX_MAP = {
+    "\\": r"\textbackslash{}", "&": r"\&", "%": r"\%", "#": r"\#", "_": r"\_",
+    "$": r"\$", "~": r"\textasciitilde{}", "^": r"\textasciicircum{}",
+    "{": r"\{", "}": r"\}",
+}
+
+
+def _bib_escape(value: Any) -> str:
+    """Neutralise LaTeX specials in b-provided free text (defence in depth: the
+    canonical injection sanitize lives b-side, but a never trusts its input).
+    Single pass over the ORIGINAL characters so the braces/backslashes the
+    replacements introduce are never themselves re-escaped."""
+    s = re.sub(r"[\x00-\x1f\x7f]", " ", str(value))
+    return "".join(_LATEX_MAP.get(ch, ch) for ch in s).strip()
+
+
+def _safe_key(key: Any, idx: int) -> str:
+    k = re.sub(r"[^A-Za-z0-9_:.-]", "", str(key or ""))
+    return k or f"ref{idx}"
+
+
+def contract_verified_refs(contract: dict[str, Any]) -> list[dict[str, Any]]:
+    """The verified entries from a v2 contract's literature block (v1 -> [])."""
+    refs = ((contract.get("literature") or {}).get("verified_refs")) or []
+    if not isinstance(refs, list):
+        return []
+    return [r for r in refs if isinstance(r, dict) and r.get("verified")
+            and str(r.get("key") or "").strip()]
+
+
+def build_refs_from_verified(run_dir: Path, refs: list[dict[str, Any]]) -> int:
+    """Write references.bib + metadata.json + doi_verification_report.md straight
+    from b's verified_refs — correct-by-construction, no model phase needed."""
+    seen: set[str] = set()
+    entries: list[str] = []
+    meta: list[dict[str, Any]] = []
+    for i, r in enumerate(refs):
+        key = base = _safe_key(r.get("key"), i)
+        n = 1
+        while key in seen:
+            n += 1
+            key = f"{base}_{n}"
+        seen.add(key)
+        authors = r.get("authors") or []
+        if not isinstance(authors, list):
+            authors = [str(authors)]
+        author_field = " and ".join(_bib_escape(a) for a in authors if str(a).strip())
+        year = str(r.get("year") or "").strip()
+        doi = str(r.get("doi") or "").strip()
+        fields = [f"  title = {{{_bib_escape(r.get('title') or '')}}}"]
+        if author_field:
+            fields.append(f"  author = {{{author_field}}}")
+        if year:
+            fields.append(f"  year = {{{re.sub(r'[^0-9]', '', year) or year}}}")
+        if doi:
+            fields.append(f"  doi = {{{_bib_escape(doi)}}}")
+        entries.append("@article{" + key + ",\n" + ",\n".join(fields) + "\n}\n")
+        meta.append({"key": key, "doi": doi, "title": str(r.get("title") or ""),
+                     "authors": authors, "year": year, "status": "verified_by_b"})
+    (run_dir / "references.bib").write_text("\n".join(entries), encoding="utf-8")
+    (run_dir / "metadata.json").write_text(
+        json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+    n_doi = sum(1 for m in meta if m["doi"])
+    (run_dir / "doi_verification_report.md").write_text(
+        "# DOI Verification (b-provided)\n\n"
+        f"{len(meta)} references supplied pre-verified by the b worker "
+        f"(literature.verified_refs); {n_doi} carry a DOI. a spot-checks a "
+        "sample against CrossRef rather than re-verifying every entry "
+        "(see doi_audit.json).\n",
+        encoding="utf-8")
+    return len(meta)
+
+
+def _sample_indices(n: int, k: int) -> list[int]:
+    """Deterministic evenly-spaced sample of <=k distinct indices from range(n)."""
+    if n <= k:
+        return list(range(n))
+    return sorted({(i * n) // k for i in range(k)})
+
+
+def doi_gate_spotcheck(run_dir: Path, refs: list[dict[str, Any]],
+                       sample_n: int = VERIFIED_REF_SAMPLE) -> dict[str, Any]:
+    """Trust-but-verify b's CrossRef work: re-check only a deterministic sample.
+    Clean sample -> accept b. Failing sample -> escalate to the full doi_gate."""
+    determinable = sorted(
+        (r for r in refs if str(r.get("doi") or "").strip()
+         and not str(r.get("doi")).lower().startswith("10.48550")),
+        key=lambda r: str(r.get("key")),
+    )
+    sample = [determinable[i] for i in _sample_indices(len(determinable), max(1, sample_n))]
+    real = suspicious = undet = 0
+    suspicious_dois: list[str] = []
+    for r in sample:
+        doi = str(r.get("doi")).strip()
+        ok = doi_audit.check_crossref(doi)
+        time.sleep(0.12)  # polite
+        if ok is True:
+            real += 1
+        elif ok is False:
+            suspicious += 1
+            suspicious_dois.append(doi)
+        else:
+            undet += 1
+    checked = real + suspicious
+    rate = round(real / checked, 3) if checked else None
+    audit: dict[str, Any] = {
+        "run": run_dir.name, "mode": "spotcheck",
+        "total_dois_in_bib": sum(1 for r in refs if str(r.get("doi") or "").strip()),
+        "sampled": len(sample), "crossref_real": real, "suspicious_404": suspicious,
+        "undetermined": undet, "suspicious_dois": suspicious_dois,
+        "real_existence_rate": rate, "floor": DOI_REAL_RATE_FLOOR,
+    }
+    # rate is None only when the whole sample was network-undetermined: cannot
+    # judge -> trust b (network outage is not fabrication; the full gate agrees).
+    audit["passed"] = bool(rate is None or rate >= DOI_REAL_RATE_FLOOR)
+    if not audit["passed"]:
+        full = doi_gate(run_dir)  # b's sample lied -> do not trust the rest
+        full["escalated_from_spotcheck"] = audit
+        return full
+    suspicious_set = set(suspicious_dois)
+    meta_path = run_dir / "metadata.json"
+    if meta_path.is_file():
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            meta = []
+        for m in meta if isinstance(meta, list) else []:
+            doi = str(m.get("doi") or "").strip()
+            if not doi:
+                m["status"] = "no_doi"
+            elif doi in suspicious_set:
+                m["status"] = "crossref_404_suspicious"
+            elif doi.lower().startswith("10.48550"):
+                m["status"] = "arxiv_datacite"
+        meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+    (run_dir / "doi_audit.json").write_text(
+        json.dumps(audit, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"doi_gate(spotcheck): sampled={len(sample)} real_rate={rate} "
+          f"passed={audit['passed']}", flush=True)
+    return audit
+
+
 REVISION_ARTIFACTS = (
     "paper_draft_v0.qmd", "paper_draft_v0.pdf", "mvp_check_report.md", "paper_review_report.md",
     "elite_audit_report.md", "final_content_review_deterministic.json", "gate_report.json",
@@ -728,7 +884,25 @@ def main() -> int:
         return real_metrics_block(res) if res.get("status") == "completed" else None
 
     phases = [p for p in args.phases if p in PAPER_PHASES]  # "none"/unknown => reviews-only
+    verified_refs = contract_verified_refs(contract)
     for phase in phases:
+        if phase == "phase2" and verified_refs:
+            # b already gathered + verified the literature: build the bib
+            # deterministically and only spot-check, skipping the model phase
+            # and the full ~23-min CrossRef re-verify.
+            record("phase2_from_contract",
+                   refs=build_refs_from_verified(run_dir, verified_refs),
+                   source="literature.verified_refs")
+            gate = doi_gate_spotcheck(run_dir, verified_refs)
+            record("doi_gate", mode=gate.get("mode", "full"),
+                   **{k: gate.get(k) for k in ("real_existence_rate", "passed", "suspicious_404")})
+            if not gate["passed"]:
+                trace["final_status"] = "blocked_doi_gate"
+                _write_blocked_review(run_dir, contract, args,
+                    f"DOI gate (spot-check escalated) failed: real rate "
+                    f"{gate.get('real_existence_rate')} < {DOI_REAL_RATE_FLOOR}")
+                return 3
+            continue
         if phase == "phase7" and args.lane == "cpu-real":
             result = run_real_experiment(run_dir, args.real_limit, max(args.timeout, 14400))
             record("real_experiment", status=result.get("status"), simulated=result.get("simulated"))
