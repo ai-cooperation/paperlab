@@ -89,6 +89,34 @@ def _extract_keywords(fm: str, contract: dict[str, Any]) -> list[str]:
     return picked or DEFAULT_KEYWORDS
 
 
+def _normalize_tables(body: str) -> str:
+    """Give wide markdown tables explicit column widths so a long first-column row
+    label (e.g. "LogisticRegression") no longer overprints the next column. Pandoc
+    leaves an unwidthed pipe table as non-wrapping columns that overflow; an explicit
+    tbl-colwidths forces wrapping p{} columns with the label column weighted wider."""
+    lines = body.split("\n")
+    sep_re = re.compile(r"^\|?[\s:|-]*-[\s:|-]*\|[\s:|-]*$")
+    for i, ln in enumerate(lines):
+        m = re.search(r"\{#tbl-[^}]*\}", ln)
+        if not m or "tbl-colwidths" in ln:
+            continue
+        ncol = None
+        for j in range(i - 1, max(-1, i - 60), -1):
+            s = lines[j].strip()
+            if "|" in s and sep_re.match(s) and "-" in s:
+                ncol = len([c for c in s.strip("|").split("|") if c.strip() != "" or True])
+                break
+        if not ncol or ncol < 5:
+            continue  # only wide tables overflow the single column
+        weights = [2.4] + [1.0] * (ncol - 1)
+        tot = sum(weights)
+        widths = [round(w / tot * 100) for w in weights]
+        widths[-1] += 100 - sum(widths)
+        attr = m.group(0)[:-1] + f' tbl-colwidths="{widths}"}}'
+        lines[i] = ln[: m.start()] + attr + ln[m.end():]
+    return "\n".join(lines)
+
+
 def _strip_trailing_references(body: str) -> str:
     # Quarto regenerates the bibliography; a hand-written `# References` heading at the
     # very end would otherwise double up.
@@ -106,7 +134,8 @@ def normalize_frontmatter(run_dir: Path, contract: dict[str, Any], src_name: str
     title = _old_title(fm, contract)
     abstract, body = _extract_abstract(fm, body)
     keywords = _extract_keywords(fm, contract)
-    body = _strip_trailing_references(body).lstrip("\n")
+    body = _strip_trailing_references(body)
+    body = _normalize_tables(body).lstrip("\n")
 
     abstract = abstract or "Abstract pending."
     abs_yaml = "\n".join("  " + line for line in re.findall(r".{1,110}(?:\s|$)", abstract))
@@ -138,9 +167,16 @@ def normalize_frontmatter(run_dir: Path, contract: dict[str, Any], src_name: str
         "    pdf-engine: xelatex\n"
         "    journal:\n"
         f"      name: {journal}\n"
-        "      formatting: review\n"
+        "      formatting: preprint\n"
         "      model: 3p\n"
         "      cite-style: authoryear\n"
+        "    include-in-header:\n"
+        "      text: |\n"
+        "        \\usepackage{etoolbox}\n"
+        "        % Wide numeric tables must shrink to fit the single column without\n"
+        "        % long row labels colliding into the next column.\n"
+        "        \\AtBeginEnvironment{longtable}{\\footnotesize}\n"
+        "        \\AtBeginEnvironment{tabular}{\\footnotesize}\n"
         "csl: scientometrics.csl\n"
         "bibliography: references.bib\n"
         "number-sections: true\n"
