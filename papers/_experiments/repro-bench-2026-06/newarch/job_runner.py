@@ -373,10 +373,16 @@ def read_artifacts(run_dir: Path) -> tuple[dict[str, Any], dict[str, Any], dict[
 
 
 def doi_real_rate(refs: list[dict[str, Any]]) -> float | None:
-    if not refs:
+    """CrossRef-real share over determinable refs. Mirrors doi_audit semantics:
+    arXiv (DataCite) and no-DOI entries are excluded from the denominator —
+    they are not determinable via CrossRef, not evidence of fabrication."""
+    real_statuses = {"ok", "verified", "crossref_real"}
+    skip_statuses = {"arxiv_datacite", "no_doi"}
+    determinable = [r for r in refs if str(r.get("status") or "").lower() not in skip_statuses]
+    if not determinable:
         return None
-    verified = sum(1 for ref in refs if str(ref.get("status") or "").lower() in {"ok", "verified"})
-    return round(verified / len(refs), 4)
+    verified = sum(1 for r in determinable if str(r.get("status") or "").lower() in real_statuses)
+    return round(verified / len(determinable), 4)
 
 
 def extract_output(

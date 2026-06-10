@@ -1148,6 +1148,11 @@ def main() -> int:
                                 build_revision_prompt(contract, args.lane, problems, rev_real),
                                 args.model, provider, args.timeout)
                 record(f"revision_r{round_idx}", exit=rc)
+            # Self-heal machine-owned tables: the model's revision may have touched
+            # a GENERATED block (e.g. "fixing" an en-dash). inject() is idempotent —
+            # it replaces any stale block with a fresh regeneration, so model edits
+            # inside machine regions are healed rather than merely flagged P0.
+            record(f"reinject_tables_r{round_idx}", n=tables.inject(run_dir, contract_obj))
             render_pdf(run_dir)
         except Exception as exc:  # noqa: BLE001 - any failure must roll back, not corrupt the run
             record(f"revision_r{round_idx}_error", error=str(exc)[:300])
@@ -1161,6 +1166,14 @@ def main() -> int:
             break
         tasks = gather_tasks()
         record(f"gather_tasks_r{round_idx}", p0=p0(tasks), n=len(tasks))
+
+    # Final self-heal pass: if anything edited a GENERATED block after the last
+    # inject (revision text pass, phase9 fixups), restore it and re-render so the
+    # PDF matches the healed qmd. verify() then only fires on true tampering.
+    healed = tables.inject(run_dir, contract_obj)
+    if healed:
+        record("reinject_tables_final", n=healed)
+        record("render_pdf_after_heal", ok=render_pdf(run_dir))
 
     # Render-quality gate: inspect the actual PDF (the layer the content reviewer
     # never sees) so a broken render cannot pass with a high content score.

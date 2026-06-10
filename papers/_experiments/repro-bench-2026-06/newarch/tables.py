@@ -210,9 +210,11 @@ def inject(run_dir: Path, contract: dict[str, Any] | None = None) -> int:
             r"<!-- GENERATED:" + re.escape(tid) + r" .*?<!-- /GENERATED:" + re.escape(tid) + r" -->",
             re.DOTALL)
         ph = re.compile(r"<!--\s*TABLE:" + re.escape(tid) + r"\s*-->")
-        if existing.search(text):
-            text = existing.sub(lambda _m: block, text, count=1)
-            n += 1
+        m = existing.search(text)
+        if m:
+            if m.group(0) != block:  # only count a real change (heals model edits;
+                text = existing.sub(lambda _m: block, text, count=1)  # idempotent otherwise)
+                n += 1
         elif ph.search(text):
             text = ph.sub(lambda _m: block, text, count=1)
             n += 1
