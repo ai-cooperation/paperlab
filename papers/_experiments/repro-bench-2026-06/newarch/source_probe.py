@@ -110,8 +110,12 @@ def probe(contract: dict[str, Any], run_dir: Path | None = None) -> dict[str, An
             lock = data_availability_gate.probe_hupd(run_dir or Path("."), sample_rows=160) \
                 if run_dir else _lock("HUPD/hupd", "dataset", "available", {"note": "HUPD registered"})
         elif type_ in ("literature", "meta-analysis", "meta_analysis"):
-            lock = probe_openalex(name or str(contract.get("topic") or ""),
-                                  int(ds.get("min_records") or DEFAULT_MIN_RECORDS))
+            # Placeholder names ("literature-only" etc.) are NOT a query — fall
+            # back to the topic so the corpus probe measures something real.
+            query = name if name.lower() not in {"", "literature-only", "literature",
+                                                 "meta-analysis", "meta_analysis"} \
+                else str(contract.get("topic") or "")
+            lock = probe_openalex(query, int(ds.get("min_records") or DEFAULT_MIN_RECORDS))
             lock["type"] = type_
         elif url:
             lock = probe_url(url)

@@ -48,8 +48,10 @@ RATIO_RE = re.compile(
     r"\s*(?:[-–—]|to|,)\s*" + _NUM,
     re.IGNORECASE)
 SMD_RE = re.compile(
-    r"\b(Cohen'?s\s*d|SMD|standardi[sz]ed mean difference|effect size)\b"
-    r"[\s=:,]*(-?\d+(?:\.\d+)?)", re.IGNORECASE)
+    r"\b(Cohen'?s\s*d|SMD|MD|standardi[sz]ed mean difference|mean difference|effect size)\b"
+    r"[\s=:,]*(-?\d+(?:\.\d+)?)"
+    r"(?:[\s,;(]{0,4}95\s*%\s*(?:CI|confidence interval)[\s=:,]*(-?\d+(?:\.\d+)?)"
+    r"\s*(?:[-–—]|to|,)\s*(-?\d+(?:\.\d+)?))?", re.IGNORECASE)
 N_RE = re.compile(r"\b[nN]\s*=\s*(\d{2,7})\b")
 MEASURE_CANON = {"odds ratio": "OR", "risk ratio": "RR", "relative risk": "RR",
                  "hazard ratio": "HR", "aor": "OR", "arr": "RR", "ahr": "HR"}
@@ -122,23 +124,41 @@ def extract_effects(work: dict[str, Any]) -> list[dict[str, Any]]:
                     "evidence": _sentence_of(abstract, m.start())})
     if not out:
         for m in SMD_RE.finditer(abstract):
-            out.append({"measure": "SMD", "effect": float(m.group(2)),
-                        "ci_low": None, "ci_high": None, "n": n,
+            raw = m.group(1).lower()
+            measure = "MD" if raw in ("md", "mean difference") else "SMD"
+            point = float(m.group(2))
+            lo = float(m.group(3)) if m.group(3) is not None else None
+            hi = float(m.group(4)) if m.group(4) is not None else None
+            if lo is not None and hi is not None and not (lo <= point <= hi):
+                lo = hi = None  # malformed CI -> keep the point, never pool it
+            out.append({"measure": measure, "effect": point,
+                        "ci_low": lo, "ci_high": hi, "n": n,
                         "title": (work.get("title") or "")[:160],
                         "year": work.get("publication_year"), "doi": work.get("doi"),
                         "evidence": _sentence_of(abstract, m.start())})
     return out[:3]  # at most a few effects per study (avoid table-mining one abstract)
 
 
-def pool_random_effects(effects: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """DerSimonian-Laird random-effects pooling of one ratio-measure group on the
-    log scale (SE derived from the 95% CI). Requires >=2 studies with CIs."""
-    rows = [e for e in effects if e.get("ci_low") and e.get("ci_high")
-            and e["ci_low"] > 0 and e["ci_high"] > e["ci_low"]]
+RATIO_MEASURES = {"OR", "RR", "HR"}
+
+
+def pool_random_effects(measure: str, effects: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """DerSimonian-Laird random-effects pooling of one measure group. Ratio
+    measures (OR/RR/HR) pool on the log scale; SMD/MD pool on the raw scale.
+    SE is derived from each study's 95% CI; >=2 studies with CIs required."""
+    log_scale = measure in RATIO_MEASURES
+    rows = [e for e in effects if e.get("ci_low") is not None and e.get("ci_high") is not None
+            and e["ci_high"] > e["ci_low"] and (not log_scale or e["ci_low"] > 0)]
     if len(rows) < 2:
         return None
-    y = [math.log(e["effect"]) for e in rows]
-    se = [(math.log(e["ci_high"]) - math.log(e["ci_low"])) / (2 * 1.959964) for e in rows]
+    if log_scale:
+        y = [math.log(e["effect"]) for e in rows]
+        se = [(math.log(e["ci_high"]) - math.log(e["ci_low"])) / (2 * 1.959964) for e in rows]
+    else:
+        y = [float(e["effect"]) for e in rows]
+        se = [(e["ci_high"] - e["ci_low"]) / (2 * 1.959964) for e in rows]
+    if any(s <= 0 for s in se):
+        return None
     w = [1 / (s * s) for s in se]
     fixed = sum(wi * yi for wi, yi in zip(w, y)) / sum(w)
     q = sum(wi * (yi - fixed) ** 2 for wi, yi in zip(w, y))
@@ -149,11 +169,14 @@ def pool_random_effects(effects: list[dict[str, Any]]) -> dict[str, Any] | None:
     pooled = sum(wi * yi for wi, yi in zip(w_re, y)) / sum(w_re)
     se_pooled = math.sqrt(1 / sum(w_re))
     i2 = max(0.0, (q - dfree) / q) * 100 if q > 0 else 0.0
+    lo, hi = pooled - 1.959964 * se_pooled, pooled + 1.959964 * se_pooled
+    if log_scale:
+        pooled, lo, hi = math.exp(pooled), math.exp(lo), math.exp(hi)
     return {
-        "k": len(rows), "method": "DerSimonian-Laird random effects (log scale)",
-        "pooled_effect": round(math.exp(pooled), 3),
-        "ci_low": round(math.exp(pooled - 1.959964 * se_pooled), 3),
-        "ci_high": round(math.exp(pooled + 1.959964 * se_pooled), 3),
+        "k": len(rows),
+        "method": f"DerSimonian-Laird random effects ({'log' if log_scale else 'raw'} scale)",
+        "pooled_effect": round(pooled, 3),
+        "ci_low": round(lo, 3), "ci_high": round(hi, 3),
         "i2_percent": round(i2, 1), "tau2": round(tau2, 4), "q": round(q, 2),
     }
 
@@ -195,7 +218,7 @@ def run(topic: str, out_dir: Path, max_works: int = 400) -> dict[str, Any]:
     for e in effects:
         by_measure.setdefault(e["measure"], []).append(e)
     pooled = {m: p for m, rows in by_measure.items()
-              if (p := pool_random_effects(rows)) is not None}
+              if (p := pool_random_effects(m, rows)) is not None}
 
     return finish({
         "status": "completed", "simulated": False, "source": "OpenAlex",

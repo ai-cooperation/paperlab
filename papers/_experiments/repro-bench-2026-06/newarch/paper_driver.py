@@ -200,8 +200,16 @@ def meta_metrics_block(result: dict[str, Any]) -> str:
               if e.get("ci_low") is not None else "")
         lines.append(f"- {e.get('measure')} {e.get('effect')}{ci} | n={e.get('n')} | "
                      f"{e.get('title')} ({e.get('year')}) doi:{e.get('doi')}")
-    lines += ["", "Methodological note (state in Limitations, verbatim meaning): "
-              + str(m.get("note") or "")]
+    lines += [
+        "",
+        "ANALYSES PERFORMED — write Methods/Results to match EXACTLY this and nothing more:",
+        "DerSimonian-Laird random-effects pooling per effect measure (with I^2/tau^2) on the",
+        "extracted abstract-level effects. NO subgroup analysis, NO meta-regression, NO",
+        "funnel plot / Egger test, and NO full-text PRISMA screening were performed — even if",
+        "the proposal planned them. Do NOT claim them; list them under Limitations/Future Work.",
+        "",
+        "Methodological note (state in Limitations, verbatim meaning): " + str(m.get("note") or ""),
+    ]
     return "\n".join(lines)
 
 
