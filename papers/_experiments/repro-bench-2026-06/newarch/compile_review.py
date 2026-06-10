@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import floor_score
+import tables
 
 SEVEN_DIMS = (
     "novelty", "methodological_rigor", "evidence_validity", "literature_grounding",
@@ -112,6 +113,9 @@ def compile_reviews(run_dir: Path, content_threshold: float = 6.0, elite_require
         except (json.JSONDecodeError, AttributeError):
             rq = []
         problems.extend(i for i in rq if isinstance(i, dict))
+
+    # Machine-owned GENERATED tables must still match real_results (tamper guard).
+    problems.extend(tables.verify(run_dir))
 
     review = _read_block(run_dir, "paper_review_report.md") or {}
     raw_scores = review.get("scores_7dim") if isinstance(review.get("scores_7dim"), dict) else {}

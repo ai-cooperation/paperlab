@@ -41,6 +41,7 @@ import consistency_gate
 import doi_audit
 import render_springer
 import revision_tasks
+import tables
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 HOME = Path.home()
@@ -239,6 +240,10 @@ Abstract, Introduction, Related Work, Methodology, Results, Discussion, Conclusi
 Hard requirements: frontmatter includes colorlinks: true, link-citations: true, citecolor: blue;
 author Cooperation.TW / Paper Lab / aicooperation.tw@gmail.com; at least 35 distinct in-text
 citations; every bib entry cited; all figures cited via @fig-xx and tables via @tbl-xx.
+RESULTS TABLES ARE MACHINE-GENERATED — do NOT hand-write the numeric results tables. Where the main
+results table belongs, write exactly the single line `<!-- TABLE:tbl-main -->`; where the training-size
+ablation table belongs, write exactly `<!-- TABLE:tbl-ablation -->`. Reference them in prose as
+@tbl-main and @tbl-ablation. The pipeline fills these with verified numbers from real_results.json.
 If the run is cpu-real and the hardware is CPU-only, state in Limitations that neural transformer
 (BERT) comparisons are excluded for lack of GPU.
 Append one line to progress.md only if paper_draft_v0.qmd exists. Stop after Phase 8. Do not render.
@@ -754,6 +759,14 @@ def main() -> int:
         record("skip_review", reason="paper_draft_v0.qmd absent; skipping render + review")
         record("done")
         return 0
+
+    # Deterministic results tables: replace `<!-- TABLE:tbl-* -->` placeholders with
+    # numbers generated straight from real_results.json (correct-by-construction).
+    try:
+        contract_obj = json.loads((run_dir / "research_contract.json").read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        contract_obj = {}
+    record("inject_tables", n=tables.inject(run_dir, contract_obj))
 
     # Fix 1: deterministic journal-format render (replaces the model's ad-hoc render).
     record("render_pdf", ok=render_pdf(run_dir))
