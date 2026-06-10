@@ -142,6 +142,12 @@ def normalize_frontmatter(run_dir: Path, contract: dict[str, Any], src_name: str
     kw_yaml = "\n".join(f"  - {k}" for k in keywords)
     journal = str(contract.get("target_journal") or "Scientometrics").strip() or "Scientometrics"
 
+    # Chinese-output papers: without a CJK font xelatex silently DROPS every CJK
+    # glyph (a 6,244-char zh paper rendered to a PDF with 0 CJK chars). Detect
+    # CJK in the content and wire Noto Serif CJK TC via pandoc's CJKmainfont.
+    has_cjk = bool(re.search(r"[一-鿿]", body + title + abstract))
+    cjk_yaml = 'CJKmainfont: "Noto Serif CJK TC"\n' if has_cjk else ""
+
     title_esc = title.replace('"', r"\"")
     new_fm = (
         "---\n"
@@ -184,6 +190,7 @@ def normalize_frontmatter(run_dir: Path, contract: dict[str, Any], src_name: str
         "        \\AtBeginEnvironment{thebibliography}{\\singlespacing}\n"
         "csl: scientometrics.csl\n"
         "bibliography: references.bib\n"
+        f"{cjk_yaml}"
         "number-sections: true\n"
         "link-citations: true\n"
         "---\n\n"

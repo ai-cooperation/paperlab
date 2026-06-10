@@ -68,7 +68,12 @@ def _qmd_prose_words(run_dir: Path) -> int:
             text = parts[2]
     # strip fenced code blocks
     text = re.sub(r"```.*?```", " ", text, flags=re.DOTALL)
-    return len(text.split())
+    # CJK-aware: whitespace splitting undercounts Chinese by ~6x (a 6,000-char
+    # zh paper counted 966 "words" and false-failed the 3,000 floor). Count CJK
+    # chars separately at ~2 chars per word (conservative) + latin words.
+    cjk = len(re.findall(r"[\u4e00-\u9fff\u3400-\u4dbf]", text))
+    latin_words = len(re.sub(r"[\u4e00-\u9fff\u3400-\u4dbf]", " ", text).split())
+    return latin_words + cjk // 2
 
 
 def _has_placeholder(run_dir: Path) -> bool:

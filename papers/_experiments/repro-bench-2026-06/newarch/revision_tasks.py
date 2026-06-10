@@ -105,6 +105,14 @@ def render_quality_check(run_dir: Path) -> list[dict[str, Any]]:
     if ("abstract:" in qtext or "# Abstract" in qtext) and txt and "abstract" not in txt[:3000].lower():
         issues.append({"id": "RQ_ABSTRACT", "severity": "P0", "location": "render", "type": "render_quality",
                        "description": "Abstract present in source but missing from the rendered PDF."})
+    # CJK glyph loss: xelatex without a CJK font silently drops every Chinese
+    # character — the PDF "renders" but the body is gone (caught live: 6,244 CJK
+    # chars in the qmd, 0 in the PDF).
+    qmd_cjk = len(re.findall(r"[一-鿿]", qtext))
+    if qmd_cjk > 500 and txt and len(re.findall(r"[一-鿿]", txt)) < qmd_cjk * 0.2:
+        issues.append({"id": "RQ_CJK", "severity": "P0", "location": "render", "type": "render_quality",
+                       "description": f"QMD has {qmd_cjk} CJK chars but the rendered PDF lost them "
+                                      "(missing CJK font in the render chain)."})
     # Line-number prefix corruption (e.g. "85|...") — an agentic edit artifact that
     # also breaks figure/heading parsing.
     if len(re.findall(r"(?m)^\s*\d{1,4}\s*\|", qtext)) >= 5:
