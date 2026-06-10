@@ -435,6 +435,7 @@ def load_fallback_review_tasks(run_dir: Path) -> tuple[list[dict[str, Any]], int
     except (json.JSONDecodeError, AttributeError, OSError):
         return [], 0
     text = qmd.read_text(encoding="utf-8", errors="ignore")
+    text_norm = " ".join(text.split())
     kept: list[dict[str, Any]] = []
     dropped = 0
     for t in raw if isinstance(raw, list) else []:
@@ -445,10 +446,18 @@ def load_fallback_review_tasks(run_dir: Path) -> tuple[list[dict[str, Any]], int
         if (t.get("severity") not in {"P0", "P1"}
                 or t.get("type") not in {"value_swap", "block_rewrite"}
                 or len(target.strip()) < 8
-                or target not in text                       # the anti-hallucination gate
                 or "GENERATED:" in target):
             dropped += 1
             continue
+        if target not in text:
+            # Whitespace-collapsed match still PROVES the quoted text exists
+            # (not a hallucination) — but an exact replace can't apply, so the
+            # task is demoted to an instruction-driven rewrite.
+            if " ".join(target.split()) in text_norm:
+                t = {**t, "type": "block_rewrite"}
+            else:
+                dropped += 1                                # the anti-hallucination gate
+                continue
         kept.append(t)
         if len(kept) >= FALLBACK_TASK_CAP:
             break
@@ -1256,27 +1265,49 @@ def main() -> int:
     cenv = copilot_env()
     use_copilot = copilot_available(cenv)
 
+    fallback_active = not use_copilot
+
+    def _copilot_review_unusable() -> bool:
+        # run_copilot_review marks quota/availability failures (402 etc.) in
+        # reviewer_status.json; an "available" CLI that cannot actually score
+        # must hand over to the skilled fallback, not silently end the loop.
+        rspath = run_dir / "reviewer_status.json"
+        if rspath.is_file():
+            try:
+                if json.loads(rspath.read_text(encoding="utf-8")).get("status") == "unavailable":
+                    return True
+            except (json.JSONDecodeError, OSError):
+                pass
+        return not (run_dir / "paper_review_report.md").is_file()
+
+    def run_skilled_fallback() -> list[dict[str, Any]]:
+        # Engine B': skilled big-pickle reviewer subagents. Reports + scores come
+        # from the review skills; the tasks pass converts findings into
+        # verbatim-anchored revision tasks, and the mechanical filter drops
+        # anything quoting text that does not exist (the known free-model
+        # reviewer hallucination mode).
+        for kind in ["review_mvp", "review_7dim", "review_tasks"] + (["review_elite"] if elite else []):
+            run_hermes(run_dir, kind, review_prompt(kind, contract, args.lane),
+                       args.model, provider, args.timeout)
+        fb_tasks, fb_dropped = load_fallback_review_tasks(run_dir)
+        record("fallback_review_tasks", kept=len(fb_tasks), dropped_hallucinated=fb_dropped)
+        (run_dir / "reviewer_status.json").write_text(json.dumps({
+            "status": "fallback_scored", "source": "big-pickle-skilled",
+            "note": "copilot unavailable/quota-dead; skilled free-model reviewer with "
+                    "verbatim-anchor task filter and floor cross-checked scores",
+        }, indent=2), encoding="utf-8")
+        return fb_tasks
+
     def gather_tasks() -> list[dict[str, Any]]:
+        nonlocal fallback_active
         tasks = list(consistency_gate.run(run_dir).get("tasks", []))
-        if use_copilot:
+        if use_copilot and not fallback_active:
             tasks += run_copilot_review(run_dir, contract, rev_real, elite)
-        else:
-            # Copilot-outage Engine B': skilled big-pickle reviewer subagents.
-            # Reports + scores come from the review skills; the tasks pass then
-            # converts findings into verbatim-anchored revision tasks, and the
-            # mechanical filter drops anything quoting text that does not exist
-            # (the known free-model reviewer hallucination mode).
-            for kind in ["review_mvp", "review_7dim", "review_tasks"] + (["review_elite"] if elite else []):
-                run_hermes(run_dir, kind, review_prompt(kind, contract, args.lane),
-                           args.model, provider, args.timeout)
-            fb_tasks, fb_dropped = load_fallback_review_tasks(run_dir)
-            record("fallback_review_tasks", kept=len(fb_tasks), dropped_hallucinated=fb_dropped)
-            tasks += fb_tasks
-            (run_dir / "reviewer_status.json").write_text(json.dumps({
-                "status": "fallback_scored", "source": "big-pickle-skilled",
-                "note": "copilot unavailable; skilled free-model reviewer with verbatim-anchor "
-                        "task filter and floor cross-checked scores",
-            }, indent=2), encoding="utf-8")
+            if _copilot_review_unusable():
+                fallback_active = True  # quota-dead copilot -> skilled fallback takes over
+                record("copilot_unusable_fallback", reason="copilot present but produced no usable review")
+        if fallback_active:
+            tasks += run_skilled_fallback()
         return tasks
 
     def p0(tasks: list[dict[str, Any]]) -> int:
@@ -1288,7 +1319,7 @@ def main() -> int:
         # (typically 3, set by the router) until the task list dries up.
         if p0(tasks) > 0:
             return True
-        return (not use_copilot) and any(t.get("severity") == "P1" for t in tasks)
+        return fallback_active and any(t.get("severity") == "P1" for t in tasks)
 
     tasks = gather_tasks()
     record("gather_tasks", p0=p0(tasks), n=len(tasks))
