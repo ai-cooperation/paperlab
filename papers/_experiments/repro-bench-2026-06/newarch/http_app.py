@@ -12,6 +12,7 @@ from typing import Any, Optional
 from fastapi import FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 
+import capabilities
 import job_runner
 import router
 
@@ -155,6 +156,16 @@ def create_app(jobs_dir: Path = DEFAULT_HTTP_JOBS_DIR, start_worker: bool = True
     def health() -> dict[str, Any]:
         return {"status": "ok", "jobs_dir": str(resolved_jobs_dir), "runner_version": job_runner.RUNNER_VERSION}
 
+    @app.get("/capabilities")
+    def capabilities_endpoint() -> dict[str, Any]:
+        # b negotiates against this: submit a v2 contract only when schema_hash +
+        # contract_version + recipe_id match what a advertises here.
+        return capabilities.capabilities()
+
+    @app.get("/schema/contract_v2.schema.json")
+    def contract_schema() -> Response:
+        return Response(content=capabilities.schema_text(), media_type="application/json")
+
     @app.post("/jobs/dry-run")
     async def dry_run(request: Request) -> dict[str, Any]:
         payload = await request_json_object(request)
@@ -176,6 +187,14 @@ def create_app(jobs_dir: Path = DEFAULT_HTTP_JOBS_DIR, start_worker: bool = True
             contract = normalize_contract(payload)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        # v2 executability gate: a real-experiment contract must resolve against an a-side
+        # recipe BEFORE the job is accepted (schema validity != executability).
+        if contract.get("contract_version") == 2:
+            v = capabilities.validate_experiment_contract(contract)
+            if not v["ok"]:
+                raise HTTPException(status_code=422,
+                                    detail={"error": "experiment not executable", "errors": v["errors"]})
 
         key_path = idempotency_path(resolved_jobs_dir, idempotency_key.strip())
         existing = read_json(key_path)

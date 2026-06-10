@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://paper-a.cooperation.tw/schema/contract_v2.schema.json",
+  "title": "Paperlab Research Contract v2",
+  "description": "The a↔b interface. b produces & verifies the verifiable parts; a executes them. v1 fields remain accepted (a runs the model-driven path when v2 blocks are absent).",
+  "type": "object",
+  "required": ["job_id", "topic"],
+  "properties": {
+    "contract_version": { "const": 2 },
+    "job_id": { "type": "string", "minLength": 3 },
+    "project_id": { "type": "string" },
+    "source": { "type": "string" },
+    "level": { "type": "string", "enum": ["master", "phd", "journal", "mvp", "low"] },
+    "tier": { "type": "string" },
+    "topic": { "type": "string", "minLength": 3 },
+    "research_question": { "type": "string" },
+    "contribution": { "type": "string" },
+    "contribution_type": { "type": "string" },
+    "target_journal": { "type": "string" },
+    "schema_hash": { "type": "string", "description": "hash of the schema this contract was built against; a logs + checks it" },
+
+    "framing": {
+      "type": "object",
+      "properties": {
+        "gap": { "type": "string" },
+        "claims": { "type": "array", "items": { "type": "string" }, "description": "assertions a must map to result rows" },
+        "positioning": { "type": "string" }
+      }
+    },
+
+    "literature": {
+      "type": "object",
+      "properties": {
+        "min_count": { "type": "integer", "minimum": 1 },
+        "verified_refs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["key", "verified"],
+            "properties": {
+              "key": { "type": "string" },
+              "doi": { "type": "string" },
+              "title": { "type": "string" },
+              "authors": { "type": "array", "items": { "type": "string" } },
+              "year": { "type": ["string", "integer"] },
+              "abstract_ref": { "type": "string", "description": "key/hash for the abstract stored out-of-band (D1/R2); inline abstracts discouraged (payload size)" },
+              "verified": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    },
+
+    "experiment": {
+      "type": "object",
+      "description": "REQUIRED for the real-experiment lane (validated against the a-side recipe registry).",
+      "properties": {
+        "recipe_id": { "type": "string", "description": "must be a recipe a advertises in /capabilities" },
+        "dataset": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "url": { "type": "string" },
+            "probe_required": { "type": "boolean" },
+            "split_spec": { "type": "object" }
+          }
+        },
+        "tasks": { "type": "array", "items": { "type": "object", "required": ["name"], "properties": {
+          "name": { "type": "string" }, "type": { "type": "string" }, "n_classes": { "type": "integer" } } } },
+        "models": { "type": "array", "items": { "type": "string" } },
+        "baselines": { "type": "array", "items": { "type": "string" } },
+        "metrics": { "type": "array", "items": { "type": "string" } },
+        "ablations": { "type": "array", "items": { "type": "object" } },
+        "eval_protocol": {
+          "type": "object",
+          "properties": {
+            "cv_folds": { "type": "integer" },
+            "bootstrap_iters": { "type": "integer" },
+            "sig_test": { "type": "string" }
+          }
+        }
+      }
+    },
+
+    "artifacts": {
+      "type": "object",
+      "properties": {
+        "tables": { "type": "array", "items": { "type": "object", "required": ["id"], "properties": {
+          "id": { "type": "string" }, "caption": { "type": "string" },
+          "columns": { "type": "array", "items": { "type": "string" } },
+          "source": { "type": "string" } } } },
+        "figures": { "type": "array", "items": { "type": "object", "required": ["id"], "properties": {
+          "id": { "type": "string" }, "caption": { "type": "string" },
+          "type": { "type": "string" }, "source": { "type": "string" } } } }
+      }
+    }
+  }
+}
