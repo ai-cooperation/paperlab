@@ -28,6 +28,8 @@ RUNNER_VERSION = "2026-06-06-a"
 OUTPUT_KEYS = (
     "job_id",
     "status",
+    "review_status",
+    "score_source",
     "run_dir",
     "level",
     "content_score",
@@ -384,24 +386,27 @@ def extract_output(
     except (TypeError, ValueError):
         score_float = None
     no_p0 = review.get("p0_count", 0) == 0 if isinstance(review.get("p0_count"), int) else (gate.get("no_p0") is not False)
-    # An external-reviewer outage (e.g. Copilot quota_exceeded) yields a valid paper +
-    # PDF but no score. Surface that as a distinct, recoverable "review_pending" state
-    # rather than "failed", so the deliverable is retained and b/orchestrator can
-    # trigger an out-of-band re-review instead of treating it as a content rejection.
-    reviewer_unavailable = bool(review.get("reviewer_unavailable"))
-    if reviewer_unavailable and pdf_path:
-        status_value = "review_pending"
-        job_blockers.append(
-            "Engine B reviewer unavailable (e.g. Copilot quota) — paper produced; "
-            "out-of-band re-review required before scoring."
-        )
-    elif score_float is not None and pdf_path:
+    # The public status enum stays submitted/running/done/blocked/failed; the review
+    # nuance rides in `review_status` (scored | floor_only | model_review_pending).
+    # When the model reviewer is down, the deterministic FLOOR still produces a score, so
+    # the job completes `done` with review_status=floor_only (delivered + provisionally
+    # scored, NOT certified — meets_threshold stays False until a real reviewer scores).
+    score_source = str(review.get("score_source") or "model_reviewer")
+    review_status = str(review.get("review_status") or ("scored" if score_float is not None else "model_review_pending"))
+    if score_float is not None and pdf_path:
         status_value = "done"
     else:
         status_value = "failed"
+    if review_status == "floor_only":
+        job_blockers.append(
+            "Scored by deterministic floor (model reviewer unavailable); delivered but "
+            "NOT certified — real reviewer required to confirm it meets the bar."
+        )
     output = {
         "job_id": job_id,
         "status": status_value,
+        "review_status": review_status,
+        "score_source": score_source,
         "run_dir": str(run_dir),
         **threshold_fields(routing_decision, score_float, no_p0),
         "content_score": score_float,

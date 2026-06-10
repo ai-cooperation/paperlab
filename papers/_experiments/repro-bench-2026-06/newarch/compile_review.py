@@ -23,6 +23,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import floor_score
+
 SEVEN_DIMS = (
     "novelty", "methodological_rigor", "evidence_validity", "literature_grounding",
     "result_interpretation", "limitation_honesty", "writing_coherence",
@@ -124,10 +126,32 @@ def compile_reviews(run_dir: Path, content_threshold: float = 6.0, elite_require
             pass
 
     reviewer_unavailable = False
+    score_source = "model_reviewer"
+    review_status = "scored"
+    floor: dict[str, Any] = {}
     if len(scores) == len(SEVEN_DIMS):
         mean_7dim = round(sum(scores.values()) / len(SEVEN_DIMS), 2)
+        # Cross-check: compute the deterministic floor and flag large divergence on a
+        # measurable dim (a signal the model reviewer hallucinated a score).
+        floor = floor_score.floor_scores(run_dir)
+        floor_div = {
+            d: round(scores[d] - floor["scores_7dim"][d], 2)
+            for d in floor_score.FLOOR_DIMS
+            if isinstance(floor["scores_7dim"].get(d), (int, float)) and d in scores
+            and abs(scores[d] - floor["scores_7dim"][d]) > 2.5
+        }
+        if floor_div:
+            problems.append({
+                "id": "SCORE_DIVERGENCE", "severity": "P1", "location": "review",
+                "type": "model_floor_divergence",
+                "description": f"model score diverges >2.5 from deterministic floor on {floor_div} "
+                               "— possible reviewer hallucination; verify.",
+            })
     else:
-        mean_7dim = None  # fail closed: do NOT invent a score
+        # Model reviewer produced no usable 7-dim score. Fall back to the deterministic
+        # FLOOR (model-free, conservative). The floor delivers a `done` paper WITH a
+        # provisional score, but does NOT certify peer-review pass: meets_threshold stays
+        # False for any lane (see below) — a real reviewer is still required to certify.
         rstatus: dict[str, Any] = {}
         rpath = run_dir / "reviewer_status.json"
         if rpath.is_file():
@@ -135,25 +159,21 @@ def compile_reviews(run_dir: Path, content_threshold: float = 6.0, elite_require
                 rstatus = json.loads(rpath.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
                 rstatus = {}
-        if rstatus.get("status") == "unavailable":
-            # The external reviewer (e.g. Copilot quota_exceeded) could not score the
-            # paper. This is an outage, NOT a desk-reject: the manuscript + PDF were
-            # produced and are valid; the orchestrator must re-review out-of-band. We
-            # keep meets_threshold False (no invented score) but raise a DISTINCT,
-            # non-P0 problem so the job is not mislabelled as a content failure.
-            reviewer_unavailable = True
-            problems.append({
-                "id": "REVIEWER_UNAVAILABLE", "severity": "REVIEW_PENDING",
-                "location": "reviewer_status.json", "type": "external_reviewer_unavailable",
-                "description": f"Engine B reviewer unavailable (reason={rstatus.get('reason') or 'unknown'}); "
-                               "paper produced but unscored — out-of-band re-review required.",
-            })
-        else:
-            problems.append({
-                "id": "REVIEW_INCOMPLETE", "severity": "P0", "location": "paper_review_report.md",
-                "type": "missing_seven_dimension_scores",
-                "description": f"paper-review-skill did not emit all 7 dimensions (got {sorted(scores)}).",
-            })
+        reviewer_unavailable = rstatus.get("status") == "unavailable"
+        floor = floor_score.floor_scores(run_dir)
+        scores = {d: floor["scores_7dim"][d] for d in SEVEN_DIMS
+                  if isinstance(floor["scores_7dim"].get(d), (int, float))}
+        mean_7dim = floor["mean_6_floor"]
+        score_source = "deterministic_floor"
+        review_status = "floor_only"
+        reason = rstatus.get("reason") or ("incomplete_review" if not reviewer_unavailable else "unknown")
+        problems.append({
+            "id": "REVIEWER_FLOOR", "severity": "INFO", "location": "reviewer_status.json",
+            "type": "deterministic_floor_score",
+            "description": f"Model reviewer unavailable (reason={reason}); scored by deterministic floor "
+                           f"(mean_6={floor['mean_6_floor']}, gates={floor['hard_gates']['all_pass']}). "
+                           "Delivered as a done paper but NOT certified — real reviewer still required.",
+        })
 
     # desk_reject_probability may come from the elite audit OR the copilot review block.
     desk_reject = None
@@ -192,6 +212,13 @@ def compile_reviews(run_dir: Path, content_threshold: float = 6.0, elite_require
     p0_count = sum(1 for p in problems if p.get("severity") == "P0")
     p1_count = sum(1 for p in problems if p.get("severity") == "P1")
 
+    # A deterministic-floor score delivers a `done` paper but NEVER certifies peer-review
+    # pass — meets_threshold requires a real model reviewer. Floor only certifies that the
+    # hard gates held; certification waits for a model score.
+    if score_source == "deterministic_floor":
+        meets_threshold = False
+    else:
+        meets_threshold = bool(mean_7dim is not None and p0_count == 0 and mean_7dim >= content_threshold)
     final_review = {
         "mean_7dim": mean_7dim,
         "scores_7dim": scores,
@@ -201,7 +228,11 @@ def compile_reviews(run_dir: Path, content_threshold: float = 6.0, elite_require
         "elite": {"desk_reject_probability": desk_reject},
         "content_threshold": content_threshold,
         "reviewer_unavailable": reviewer_unavailable,
-        "meets_threshold": bool(mean_7dim is not None and p0_count == 0 and mean_7dim >= content_threshold),
+        "score_source": score_source,
+        "review_status": review_status,
+        "floor_cross_check": floor.get("mean_6_floor") if isinstance(floor, dict) else None,
+        "hard_gates_pass": floor.get("hard_gates", {}).get("all_pass") if isinstance(floor, dict) else None,
+        "meets_threshold": meets_threshold,
     }
     (run_dir / "final_content_review_deterministic.json").write_text(
         json.dumps(final_review, indent=2, ensure_ascii=False), encoding="utf-8")
