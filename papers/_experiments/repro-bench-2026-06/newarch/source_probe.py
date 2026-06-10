@@ -109,9 +109,10 @@ def probe(contract: dict[str, Any], run_dir: Path | None = None) -> dict[str, An
         if "hupd" in name.lower() or "harvard uspto" in name.lower():
             lock = data_availability_gate.probe_hupd(run_dir or Path("."), sample_rows=160) \
                 if run_dir else _lock("HUPD/hupd", "dataset", "available", {"note": "HUPD registered"})
-        elif type_ == "literature":
+        elif type_ in ("literature", "meta-analysis", "meta_analysis"):
             lock = probe_openalex(name or str(contract.get("topic") or ""),
                                   int(ds.get("min_records") or DEFAULT_MIN_RECORDS))
+            lock["type"] = type_
         elif url:
             lock = probe_url(url)
             lock["source"] = name or url

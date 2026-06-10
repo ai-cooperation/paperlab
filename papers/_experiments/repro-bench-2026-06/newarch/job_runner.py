@@ -203,7 +203,7 @@ def probe_data_source(contract: dict[str, Any], run_dir: Path) -> dict[str, Any]
     if not isinstance(data_source, dict):
         return blocked_lock(run_dir, "data_source must be an object")
     ds_type = str(data_source.get("type") or "").lower()
-    if ds_type == "literature":
+    if ds_type in ("literature", "meta-analysis", "meta_analysis"):
         return source_probe.probe(contract, run_dir)
     if data_source.get("probe_required") is not True:
         return blocked_lock(run_dir, "data_source.probe_required must be true; job service is fail-closed")
@@ -283,7 +283,7 @@ def derive_lane(routing_decision: dict[str, Any], contract: dict[str, Any] | Non
     A literature data source is REAL data (the OpenAlex corpus the gate just
     confirmed) — the scientometric lane collects + analyses it, never ^S^."""
     ds_type = str(((contract or {}).get("data_source") or {}).get("type") or "").lower()
-    if ds_type == "literature":
+    if ds_type in ("literature", "meta-analysis", "meta_analysis"):
         return "cpu-real"
     if routing_decision.get("needs_real_experiment_lane"):
         return "cpu-real"

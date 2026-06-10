@@ -158,14 +158,56 @@ def _pubs_per_year_table(rr: dict[str, Any]) -> str | None:
     return "\n".join(lines) + "\n\n" + caption
 
 
+def _meta_pooled_table(rr: dict[str, Any]) -> str | None:
+    m = rr.get("meta")
+    if not isinstance(m, dict):
+        return None
+    pooled = m.get("pooled") or {}
+    prisma = m.get("prisma") or {}
+    header = "| Measure | k | Pooled (95% CI) | I² (%) | τ² |\n|---|---|---|---|---|"
+    lines = [header]
+    for measure, p in sorted(pooled.items()):
+        lines.append(f"| {measure} | {p.get('k')} | {_f(p.get('pooled_effect'))} "
+                     f"[{_f(p.get('ci_low'))}, {_f(p.get('ci_high'))}] "
+                     f"| {p.get('i2_percent')} | {p.get('tau2')} |")
+    if len(lines) == 1:
+        return None
+    caption = (f": Random-effects pooled estimates per effect measure (DerSimonian-Laird, "
+               f"log scale). Abstract-level extraction from {prisma.get('scanned')} screened "
+               f"OpenAlex records ({prisma.get('studies_with_effects')} studies with "
+               f"extractable effects). {{#tbl-main tbl-colwidths=\"[18,10,34,18,20]\"}}")
+    return "\n".join(lines) + "\n\n" + caption
+
+
+def _meta_studies_table(rr: dict[str, Any]) -> str | None:
+    m = rr.get("meta")
+    if not isinstance(m, dict) or not m.get("effects"):
+        return None
+    header = "| Study (year) | Measure | Effect (95% CI) | n |\n|---|---|---|---|"
+    lines = [header]
+    for e in (m.get("effects") or [])[:20]:
+        ci = (f" [{_f(e.get('ci_low'))}, {_f(e.get('ci_high'))}]"
+              if e.get("ci_low") is not None else "")
+        title = str(e.get("title") or "—")[:60]
+        lines.append(f"| {title} ({e.get('year')}) | {e.get('measure')} "
+                     f"| {_f(e.get('effect'))}{ci} | {e.get('n') or '—'} |")
+    caption = (": Per-study quantitative effects mechanically extracted from abstracts "
+               "(verbatim evidence retained in the analysis record). "
+               "{#tbl-studies tbl-colwidths=\"[44,14,28,14]\"}")
+    return "\n".join(lines) + "\n\n" + caption
+
+
 # contribution-type -> ordered list of (table_id, builder)
 TEMPLATES = {
     "classical_ml_benchmark": [("tbl-main", _main_results_table), ("tbl-ablation", _ablation_table)],
     "scientometric": [("tbl-main", _scientometric_overview_table), ("tbl-trend", _pubs_per_year_table)],
+    "meta_analysis": [("tbl-main", _meta_pooled_table), ("tbl-studies", _meta_studies_table)],
 }
 
 
 def _template_for(contract: dict[str, Any], rr: dict[str, Any]) -> str:
+    if isinstance(rr.get("meta"), dict) or rr.get("lane") == "meta_analysis":
+        return "meta_analysis"
     if isinstance(rr.get("analysis"), dict) or rr.get("lane") == "scientometric":
         return "scientometric"
     ct = str(contract.get("contribution_type") or "").lower()

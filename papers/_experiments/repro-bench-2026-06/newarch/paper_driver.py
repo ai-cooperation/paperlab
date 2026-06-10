@@ -182,9 +182,34 @@ def analysis_metrics_block(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def meta_metrics_block(result: dict[str, Any]) -> str:
+    """Meta-analysis lane: pooled estimates + per-study effects as the ONLY
+    admissible numbers (each effect carries its verbatim evidence sentence)."""
+    m = result.get("meta") or {}
+    lines = [
+        "REAL META-ANALYSIS DATA (OpenAlex abstracts, mechanical extraction) — the ONLY",
+        "admissible numbers. Transcribe exact values; do NOT invent or re-pool anything.",
+        "",
+        "PRISMA-style counts (verbatim): " + json.dumps(m.get("prisma") or {}),
+        "Pooled estimates per measure (verbatim): " + json.dumps(m.get("pooled") or {}),
+        "",
+        "Per-study extracted effects (verbatim; cite by title/year/doi):",
+    ]
+    for e in (m.get("effects") or [])[:25]:
+        ci = (f" [{e.get('ci_low')}, {e.get('ci_high')}]"
+              if e.get("ci_low") is not None else "")
+        lines.append(f"- {e.get('measure')} {e.get('effect')}{ci} | n={e.get('n')} | "
+                     f"{e.get('title')} ({e.get('year')}) doi:{e.get('doi')}")
+    lines += ["", "Methodological note (state in Limitations, verbatim meaning): "
+              + str(m.get("note") or "")]
+    return "\n".join(lines)
+
+
 def metrics_block(result: dict[str, Any]) -> str:
     """Dispatch the verbatim-numbers block by result shape (ML benchmark vs
-    scientometric analysis)."""
+    scientometric analysis vs meta-analysis)."""
+    if isinstance(result.get("meta"), dict):
+        return meta_metrics_block(result)
     if isinstance(result.get("analysis"), dict):
         return analysis_metrics_block(result)
     return real_metrics_block(result)
@@ -305,9 +330,12 @@ Stop after Phase 9.
         # The machine-generated table set differs by lane (tables.py templates):
         # ML benchmark -> tbl-main + tbl-ablation; scientometric -> tbl-main + tbl-trend.
         ds_type = str((contract.get("data_source") or {}).get("type") or "").lower()
-        tbl2, tbl2_desc = (("tbl-trend", "the publications-per-year trend table")
-                           if ds_type == "literature"
-                           else ("tbl-ablation", "the training-size ablation table"))
+        if ds_type in ("meta-analysis", "meta_analysis"):
+            tbl2, tbl2_desc = ("tbl-studies", "the per-study extracted-effects table")
+        elif ds_type == "literature":
+            tbl2, tbl2_desc = ("tbl-trend", "the publications-per-year trend table")
+        else:
+            tbl2, tbl2_desc = ("tbl-ablation", "the training-size ablation table")
         body = body.format(tables_directive=(
             "RESULTS TABLES ARE MACHINE-GENERATED — do NOT hand-write the numeric results tables. "
             "Where the main results table belongs, write exactly the single line "
@@ -423,19 +451,34 @@ def run_real_experiment(run_dir: Path, limit: int, timeout_s: int) -> dict[str, 
     return result
 
 
+def _literature_query(contract: dict[str, Any]) -> str:
+    topic = str(contract.get("topic") or "").strip()
+    ds = contract.get("data_source") or {}
+    query = str(ds.get("name") or "").strip()
+    if query.lower() in {"", "literature-only", "literature", "meta-analysis", "meta_analysis"}:
+        query = topic
+    return query or topic
+
+
 def run_scientometric_analysis(run_dir: Path, contract: dict[str, Any]) -> dict[str, Any]:
     """Literature-lane real-data step: collect + analyse the topic's OpenAlex corpus
     (openalex_analysis.py). Fail-closed like run_real_experiment — a blocked
     collection must never silently degrade into invented numbers."""
     import openalex_analysis
-    topic = str(contract.get("topic") or "").strip()
-    ds = contract.get("data_source") or {}
-    query = str(ds.get("name") or "").strip()
-    if query.lower() in {"", "literature-only", "literature"}:
-        query = topic
-    result = openalex_analysis.run(query or topic, run_dir)
+    result = openalex_analysis.run(_literature_query(contract), run_dir)
     if result.get("status") != "completed":
         raise RuntimeError(f"scientometric collection failed closed: {result.get('reason')}")
+    return result
+
+
+def run_meta_analysis_lane(run_dir: Path, contract: dict[str, Any]) -> dict[str, Any]:
+    """Meta-analysis lane: extract + pool quantitative effects from real abstracts
+    (meta_analysis.py). Fail-closed: too few extractable studies blocks the job
+    with an actionable reason instead of fabricating an answer."""
+    import meta_analysis
+    result = meta_analysis.run(_literature_query(contract), run_dir)
+    if result.get("status") != "completed":
+        raise RuntimeError(f"meta-analysis failed closed: {result.get('reason')}")
     return result
 
 
@@ -1050,7 +1093,12 @@ def main() -> int:
             # collect + analyse the OpenAlex corpus (universal, any field); the
             # registered dataset lane (HUPD) runs the classical-ML experiment.
             ds_type = str((contract.get("data_source") or {}).get("type") or "").lower()
-            if ds_type == "literature":
+            if ds_type in ("meta-analysis", "meta_analysis"):
+                result = run_meta_analysis_lane(run_dir, contract)
+                record("meta_analysis", status=result.get("status"),
+                       studies=((result.get("meta") or {}).get("prisma") or {}).get("studies_with_effects"),
+                       simulated=result.get("simulated"))
+            elif ds_type == "literature":
                 result = run_scientometric_analysis(run_dir, contract)
                 record("scientometric_analysis", status=result.get("status"),
                        rows=result.get("rows"), simulated=result.get("simulated"))
