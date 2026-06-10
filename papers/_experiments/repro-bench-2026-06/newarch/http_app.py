@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse
 import capabilities
 import job_runner
 import router
+import source_probe
 
 
 DEFAULT_HTTP_JOBS_DIR = Path(os.environ.get("PAPER_JOBS_DIR", str(job_runner.DEFAULT_JOBS_DIR)))
@@ -229,15 +230,15 @@ def create_app(jobs_dir: Path = DEFAULT_HTTP_JOBS_DIR, start_worker: bool = True
 
     @app.post("/jobs/probe-data-source")
     async def probe_data_source(request: Request) -> dict[str, Any]:
+        # Grill Step-4 confirmation (PAPER_MCP_GRILL_DESIGN.md): generalised probe
+        # of ANY public source (HUPD / dataset|api URL / literature corpus). Takes
+        # the raw partial grill payload (no full-contract normalization) and only
+        # CONFIRMS reachability — it does not collect data or run a job.
         payload = await request_json_object(request)
-        try:
-            contract = normalize_contract(payload)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp) / "probe"
             run_dir.mkdir(parents=True, exist_ok=True)
-            return job_runner.probe_data_source(contract, run_dir)
+            return source_probe.probe(payload, run_dir)
 
     @app.get("/jobs/{job_id}/status")
     def get_status(job_id: str) -> dict[str, Any]:
