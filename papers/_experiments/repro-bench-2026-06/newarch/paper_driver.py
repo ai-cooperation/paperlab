@@ -76,6 +76,7 @@ EXPECTED: dict[str, list[str]] = {
     "review_mvp": ["mvp_check_report.md"],
     "review_7dim": ["paper_review_report.md"],
     "review_elite": ["elite_audit_report.md"],
+    "review_tasks": ["review_tasks_fallback.json"],
     "revision": ["paper_draft_v0.qmd"],
 }
 
@@ -370,6 +371,7 @@ def review_prompt(kind: str, contract: dict[str, Any], lane: str) -> str:
         "review_mvp": HERMES_INPUT / "mvp-gatekeeper.SKILL.md",
         "review_7dim": HERMES_INPUT / "paper-review-skill.SKILL.md",
         "review_elite": HERMES_INPUT / "elite-reviewer-audit.SKILL.md",
+        "review_tasks": HERMES_INPUT / "paper-review-skill.SKILL.md",
     }[kind]
     target_file = EXPECTED[kind][0]
     json_contract = (
@@ -397,8 +399,60 @@ skill: evaluate the 12 dimensions, run the Gap four-question pressure test, and 
 desk-reject probability. Write elite_audit_report.md. {json_contract}
 The json object must be: {{"desk_reject_probability": float}} between 0.0 and 1.0.
 """,
+        "review_tasks": f"""You already wrote mvp_check_report.md and paper_review_report.md.
+Convert their findings into CONCRETE revision tasks against paper_draft_v0.qmd.
+Write ONLY the file review_tasks_fallback.json (valid JSON, no prose, no markdown fences):
+{{"tasks": [{{"id": str, "severity": "P0"|"P1", "type": "value_swap"|"block_rewrite",
+"target_section": str, "target_content": str, "replacement_content": str,
+"description": str}}]}}
+HARD RULES — tasks violating them are mechanically discarded:
+- target_content MUST be an EXACT verbatim quote copied from paper_draft_v0.qmd
+  (open the file and copy the characters; do not paraphrase or re-type from memory).
+- Do NOT touch anything between <!-- GENERATED:... --> markers, the YAML frontmatter,
+  or citation keys.
+- value_swap only for small exact substitutions; block_rewrite for sentence/paragraph
+  level fixes (replacement_content then holds INSTRUCTIONS for the rewrite).
+- At most 10 tasks; only findings that materially improve review scores.
+""",
     }
     return base_requirements(contract, lane).split("Rules:")[0] + bodies[kind]
+
+
+FALLBACK_TASK_CAP = 10
+
+
+def load_fallback_review_tasks(run_dir: Path) -> tuple[list[dict[str, Any]], int]:
+    """Load big-pickle's review tasks and mechanically drop hallucinations: a task
+    whose target_content is not a VERBATIM substring of the manuscript references
+    text that does not exist — the known free-model reviewer failure mode. Returns
+    (kept_tasks, dropped_count)."""
+    path = run_dir / "review_tasks_fallback.json"
+    qmd = run_dir / "paper_draft_v0.qmd"
+    if not path.is_file() or not qmd.is_file():
+        return [], 0
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8")).get("tasks", [])
+    except (json.JSONDecodeError, AttributeError, OSError):
+        return [], 0
+    text = qmd.read_text(encoding="utf-8", errors="ignore")
+    kept: list[dict[str, Any]] = []
+    dropped = 0
+    for t in raw if isinstance(raw, list) else []:
+        if not isinstance(t, dict):
+            dropped += 1
+            continue
+        target = str(t.get("target_content") or "")
+        if (t.get("severity") not in {"P0", "P1"}
+                or t.get("type") not in {"value_swap", "block_rewrite"}
+                or len(target.strip()) < 8
+                or target not in text                       # the anti-hallucination gate
+                or "GENERATED:" in target):
+            dropped += 1
+            continue
+        kept.append(t)
+        if len(kept) >= FALLBACK_TASK_CAP:
+            break
+    return kept, dropped
 
 
 def verify(run_dir: Path, key: str) -> tuple[bool, list[str]]:
@@ -1175,18 +1229,39 @@ def main() -> int:
         if use_copilot:
             tasks += run_copilot_review(run_dir, contract, rev_real, elite)
         else:
-            for kind in ["review_mvp", "review_7dim"] + (["review_elite"] if elite else []):
+            # Copilot-outage Engine B': skilled big-pickle reviewer subagents.
+            # Reports + scores come from the review skills; the tasks pass then
+            # converts findings into verbatim-anchored revision tasks, and the
+            # mechanical filter drops anything quoting text that does not exist
+            # (the known free-model reviewer hallucination mode).
+            for kind in ["review_mvp", "review_7dim", "review_tasks"] + (["review_elite"] if elite else []):
                 run_hermes(run_dir, kind, review_prompt(kind, contract, args.lane),
                            args.model, provider, args.timeout)
+            fb_tasks, fb_dropped = load_fallback_review_tasks(run_dir)
+            record("fallback_review_tasks", kept=len(fb_tasks), dropped_hallucinated=fb_dropped)
+            tasks += fb_tasks
+            (run_dir / "reviewer_status.json").write_text(json.dumps({
+                "status": "fallback_scored", "source": "big-pickle-skilled",
+                "note": "copilot unavailable; skilled free-model reviewer with verbatim-anchor "
+                        "task filter and floor cross-checked scores",
+            }, indent=2), encoding="utf-8")
         return tasks
 
     def p0(tasks: list[dict[str, Any]]) -> int:
         return sum(1 for t in tasks if t.get("severity") == "P0")
 
+    def needs_round(tasks: list[dict[str, Any]]) -> bool:
+        # Copilot rounds are spent on P0s only (credits). The free skilled
+        # reviewer also iterates on P1s — master tier runs quality rounds
+        # (typically 3, set by the router) until the task list dries up.
+        if p0(tasks) > 0:
+            return True
+        return (not use_copilot) and any(t.get("severity") == "P1" for t in tasks)
+
     tasks = gather_tasks()
     record("gather_tasks", p0=p0(tasks), n=len(tasks))
     round_idx = 0
-    while p0(tasks) > 0 and round_idx < args.max_revision_rounds:
+    while needs_round(tasks) and round_idx < args.max_revision_rounds:
         round_idx += 1
         archive_round(run_dir, round_idx)
         before_cites = revision_tasks.cite_keys(

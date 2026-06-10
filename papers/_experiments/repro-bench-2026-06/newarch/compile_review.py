@@ -134,14 +134,27 @@ def compile_reviews(run_dir: Path, content_threshold: float = 6.0, elite_require
         except (KeyError, TypeError, ValueError):
             pass
 
+    # Who produced the review? The copilot path and the skilled big-pickle
+    # fallback both write paper_review_report.md; reviewer_status.json marks
+    # the fallback so its scores face a HARD floor cross-check (the free model
+    # is a known score hallucinator — divergent scores are rejected, not flagged).
+    rstatus_early: dict[str, Any] = {}
+    rspath = run_dir / "reviewer_status.json"
+    if rspath.is_file():
+        try:
+            rstatus_early = json.loads(rspath.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            rstatus_early = {}
+    fallback_reviewer = rstatus_early.get("source") == "big-pickle-skilled"
+
     reviewer_unavailable = False
     score_source = "model_reviewer"
     review_status = "scored"
     floor: dict[str, Any] = {}
     if len(scores) == len(SEVEN_DIMS):
         mean_7dim = round(sum(scores.values()) / len(SEVEN_DIMS), 2)
-        # Cross-check: compute the deterministic floor and flag large divergence on a
-        # measurable dim (a signal the model reviewer hallucinated a score).
+        # Cross-check: compute the deterministic floor and compare measurable dims
+        # (a large gap signals the model reviewer hallucinated a score).
         floor = floor_score.floor_scores(run_dir)
         floor_div = {
             d: round(scores[d] - floor["scores_7dim"][d], 2)
@@ -149,14 +162,27 @@ def compile_reviews(run_dir: Path, content_threshold: float = 6.0, elite_require
             if isinstance(floor["scores_7dim"].get(d), (int, float)) and d in scores
             and abs(scores[d] - floor["scores_7dim"][d]) > 2.5
         }
-        if floor_div:
+        if floor_div and fallback_reviewer:
+            # Fallback reviewer failing the cross-check loses scoring rights
+            # entirely — fall through to the deterministic floor.
+            problems.append({
+                "id": "FALLBACK_SCORE_REJECTED", "severity": "P1", "location": "review",
+                "type": "model_floor_divergence",
+                "description": f"fallback reviewer score diverges >2.5 from floor on {floor_div} "
+                               "— scores rejected, deterministic floor used instead.",
+            })
+            scores = {}
+        elif fallback_reviewer:
+            score_source = "model_fallback_bigpickle"
+            review_status = "scored_fallback"
+        elif floor_div:
             problems.append({
                 "id": "SCORE_DIVERGENCE", "severity": "P1", "location": "review",
                 "type": "model_floor_divergence",
                 "description": f"model score diverges >2.5 from deterministic floor on {floor_div} "
                                "— possible reviewer hallucination; verify.",
             })
-    else:
+    if len(scores) != len(SEVEN_DIMS):
         # Model reviewer produced no usable 7-dim score. Fall back to the deterministic
         # FLOOR (model-free, conservative). The floor delivers a `done` paper WITH a
         # provisional score, but does NOT certify peer-review pass: meets_threshold stays
@@ -225,6 +251,10 @@ def compile_reviews(run_dir: Path, content_threshold: float = 6.0, elite_require
     # pass — meets_threshold requires a real model reviewer. Floor only certifies that the
     # hard gates held; certification waits for a model score.
     if score_source == "deterministic_floor":
+        meets_threshold = False
+    elif score_source == "model_fallback_bigpickle" and elite_required:
+        # The skilled fallback may certify MASTER-tier papers (cross-checked
+        # against the floor); phd/journal certification waits for copilot.
         meets_threshold = False
     else:
         meets_threshold = bool(mean_7dim is not None and p0_count == 0 and mean_7dim >= content_threshold)

@@ -327,6 +327,8 @@ def run_pipeline(job_dir: Path, run_dir: Path, routing_decision: dict[str, Any])
                 review_depth,
                 "--content-threshold",
                 str(content_threshold),
+                "--max-revision-rounds",
+                str(routing_decision.get("max_revision_rounds") or 2),
                 "--real-limit",
                 "2000",
             ]
