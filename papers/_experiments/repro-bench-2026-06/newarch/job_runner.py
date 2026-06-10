@@ -20,6 +20,7 @@ import urllib.request
 
 import data_availability_gate
 import router
+import source_probe
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -190,18 +191,31 @@ def normalized_source_name(data_source: dict[str, Any]) -> str:
 
 
 def probe_data_source(contract: dict[str, Any], run_dir: Path) -> dict[str, Any]:
+    """Run-time data gate, conditional on data_source.type (still fail-closed):
+    - literature  -> OpenAlex corpus confirm (universal: any topic with a real
+                     corpus passes; the scientometric lane collects + analyses it)
+    - dataset HUPD -> full schema probe + the classical-ML experiment lane
+    - dataset other -> blocked with an actionable reason (generic dataset
+                     EXECUTION lane not implemented yet; the grill-time probe
+                     endpoint can confirm reachability, but a cannot run it)
+    """
     data_source = contract.get("data_source")
     if not isinstance(data_source, dict):
         return blocked_lock(run_dir, "data_source must be an object")
+    ds_type = str(data_source.get("type") or "").lower()
+    if ds_type == "literature":
+        return source_probe.probe(contract, run_dir)
     if data_source.get("probe_required") is not True:
         return blocked_lock(run_dir, "data_source.probe_required must be true; job service is fail-closed")
-    if data_source.get("type") != "dataset":
+    if ds_type != "dataset":
         return blocked_lock(run_dir, f"unsupported data_source.type={data_source.get('type')!r}")
     name = normalized_source_name(data_source)
     if "hupd" not in name and "harvard uspto patent dataset" not in name:
         return blocked_lock(
             run_dir,
-            f"data_source {data_source.get('name')!r} is not probe-verified available by this runner",
+            f"data_source {data_source.get('name')!r} has no execution lane on this runner yet "
+            "(registered dataset lanes: HUPD). Use the literature lane (type=literature) for "
+            "any-topic scientometric analysis, or a registered dataset.",
         )
     return data_availability_gate.probe_hupd(run_dir, sample_rows=160)
 
@@ -263,9 +277,14 @@ def blocked_output(job_id: str, run_dir: Path, lock: dict[str, Any], routing_dec
     }
 
 
-def derive_lane(routing_decision: dict[str, Any]) -> str:
+def derive_lane(routing_decision: dict[str, Any], contract: dict[str, Any] | None = None) -> str:
     """paper_driver lane: cpu-real whenever real data is available (the data gate
-    has already passed by the time run_pipeline runs), else mvp/simulated."""
+    has already passed by the time run_pipeline runs), else mvp/simulated.
+    A literature data source is REAL data (the OpenAlex corpus the gate just
+    confirmed) — the scientometric lane collects + analyses it, never ^S^."""
+    ds_type = str(((contract or {}).get("data_source") or {}).get("type") or "").lower()
+    if ds_type == "literature":
+        return "cpu-real"
     if routing_decision.get("needs_real_experiment_lane"):
         return "cpu-real"
     if "real" in str(routing_decision.get("lane") or "").lower():
@@ -284,7 +303,8 @@ def run_pipeline(job_dir: Path, run_dir: Path, routing_decision: dict[str, Any])
     fallback = routing_decision.get("fallback_policy", {})
     max_attempts = int(fallback.get("max_attempts_per_model") or 1)
     timeout = int(routing_decision.get("timeout_seconds") or 21600)
-    lane = derive_lane(routing_decision)
+    contract = read_json(job_dir / "contract.json")
+    lane = derive_lane(routing_decision, contract if isinstance(contract, dict) else None)
     review_depth = str(routing_decision.get("review_depth") or "7dim")
     content_threshold = routing_decision.get("content_threshold") or 6.0
     if str(routing_decision.get("driver") or "hermes") != "hermes":

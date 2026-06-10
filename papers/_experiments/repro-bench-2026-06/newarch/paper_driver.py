@@ -151,6 +151,37 @@ Rules:
 """
 
 
+def analysis_metrics_block(result: dict[str, Any]) -> str:
+    """Scientometric-lane counterpart of real_metrics_block: render the OpenAlex
+    analysis as the ONLY admissible numbers (verbatim transcription, no invention)."""
+    a = result.get("analysis") or {}
+    cit = a.get("citations") or {}
+    lines = [
+        "REAL SCIENTOMETRIC DATA (OpenAlex) — these are the ONLY admissible numbers for",
+        "tables/figures/prose. Transcribe exact values; do NOT invent or extrapolate.",
+        "",
+        f"Topic: {a.get('topic')} | corpus total: {a.get('openalex_total_count')} works | "
+        f"analysed sample: {a.get('sample_size')} | year range: {a.get('year_range')}",
+        f"Citations over sample: total={cit.get('total')} mean={cit.get('mean')} "
+        f"median={cit.get('median')} max={cit.get('max')}",
+        "",
+        "Publications per year (verbatim): " + json.dumps(a.get("publications_per_year") or {}),
+        "Top venues (verbatim): " + json.dumps(a.get("top_venues") or [])[:700],
+        "Top authors (verbatim): " + json.dumps(a.get("top_authors") or [])[:700],
+        "Top concepts (verbatim): " + json.dumps(a.get("top_concepts") or [])[:700],
+        "Most-cited works (verbatim): " + json.dumps(a.get("most_cited") or [])[:900],
+    ]
+    return "\n".join(lines)
+
+
+def metrics_block(result: dict[str, Any]) -> str:
+    """Dispatch the verbatim-numbers block by result shape (ML benchmark vs
+    scientometric analysis)."""
+    if isinstance(result.get("analysis"), dict):
+        return analysis_metrics_block(result)
+    return real_metrics_block(result)
+
+
 def real_metrics_block(result: dict[str, Any]) -> str:
     """Render the real experiment metrics as an unambiguous table the writer must
     transcribe verbatim (prevents the model inventing plausible-but-fake numbers)."""
@@ -244,10 +275,7 @@ Abstract, Introduction, Related Work, Methodology, Results, Discussion, Conclusi
 Hard requirements: frontmatter includes colorlinks: true, link-citations: true, citecolor: blue;
 author Cooperation.TW / Paper Lab / aicooperation.tw@gmail.com; at least 35 distinct in-text
 citations; every bib entry cited; all figures cited via @fig-xx and tables via @tbl-xx.
-RESULTS TABLES ARE MACHINE-GENERATED — do NOT hand-write the numeric results tables. Where the main
-results table belongs, write exactly the single line `<!-- TABLE:tbl-main -->`; where the training-size
-ablation table belongs, write exactly `<!-- TABLE:tbl-ablation -->`. Reference them in prose as
-@tbl-main and @tbl-ablation. The pipeline fills these with verified numbers from real_results.json.
+{tables_directive}
 If the run is cpu-real and the hardware is CPU-only, state in Limitations that neural transformer
 (BERT) comparisons are excluded for lack of GPU.
 Append one line to progress.md only if paper_draft_v0.qmd exists. Stop after Phase 8. Do not render.
@@ -265,6 +293,20 @@ Stop after Phase 9.
 """,
     }
     body = bodies[phase]
+    if phase == "phase8":
+        # The machine-generated table set differs by lane (tables.py templates):
+        # ML benchmark -> tbl-main + tbl-ablation; scientometric -> tbl-main + tbl-trend.
+        ds_type = str((contract.get("data_source") or {}).get("type") or "").lower()
+        tbl2, tbl2_desc = (("tbl-trend", "the publications-per-year trend table")
+                           if ds_type == "literature"
+                           else ("tbl-ablation", "the training-size ablation table"))
+        body = body.format(tables_directive=(
+            "RESULTS TABLES ARE MACHINE-GENERATED — do NOT hand-write the numeric results tables. "
+            "Where the main results table belongs, write exactly the single line "
+            "`<!-- TABLE:tbl-main -->`; where " + tbl2_desc + " belongs, write exactly "
+            f"`<!-- TABLE:{tbl2} -->`. Reference them in prose as @tbl-main and @{tbl2}. "
+            "The pipeline fills these with verified numbers from real_results.json."
+        ))
     if phase == "phase7":
         body += (
             "\n\nThe architecture/method/pipeline figure MUST be authored as TikZ, NOT matplotlib boxes: "
@@ -370,6 +412,22 @@ def run_real_experiment(run_dir: Path, limit: int, timeout_s: int) -> dict[str, 
     if proc.returncode != 0 or result.get("status") != "completed":
         reason = result.get("reason") or proc.stderr[-500:] or proc.stdout[-500:]
         raise RuntimeError(f"real experiment failed closed: {reason}")
+    return result
+
+
+def run_scientometric_analysis(run_dir: Path, contract: dict[str, Any]) -> dict[str, Any]:
+    """Literature-lane real-data step: collect + analyse the topic's OpenAlex corpus
+    (openalex_analysis.py). Fail-closed like run_real_experiment — a blocked
+    collection must never silently degrade into invented numbers."""
+    import openalex_analysis
+    topic = str(contract.get("topic") or "").strip()
+    ds = contract.get("data_source") or {}
+    query = str(ds.get("name") or "").strip()
+    if query.lower() in {"", "literature-only", "literature"}:
+        query = topic
+    result = openalex_analysis.run(query or topic, run_dir)
+    if result.get("status") != "completed":
+        raise RuntimeError(f"scientometric collection failed closed: {result.get('reason')}")
     return result
 
 
@@ -958,7 +1016,7 @@ def main() -> int:
             res = json.loads(rp.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             return None
-        return real_metrics_block(res) if res.get("status") == "completed" else None
+        return metrics_block(res) if res.get("status") == "completed" else None
 
     phases = [p for p in args.phases if p in PAPER_PHASES]  # "none"/unknown => reviews-only
     doi_candidates = contract_doi_candidates(contract)
@@ -980,19 +1038,28 @@ def main() -> int:
                 return 3
             continue
         if phase == "phase7" and args.lane == "cpu-real":
-            result = run_real_experiment(run_dir, args.real_limit, max(args.timeout, 14400))
-            record("real_experiment", status=result.get("status"), simulated=result.get("simulated"))
-            # v2 contracts pin an experiment plan; the actual results must satisfy
-            # it (status/simulated/expected keys/tasks) or the run is blocked.
-            errs = validate_experiment_result(contract, result)
-            if errs is not None:
-                record("experiment_validation", ok=not errs, errors=errs)
-                if errs:
-                    trace["final_status"] = "blocked_experiment_validation"
-                    _write_blocked_review(run_dir, contract, args,
-                        "experiment results violate the resolved plan: " + "; ".join(errs))
-                    return 3
-            real_summary = real_metrics_block(result)
+            # Real-data step, dispatched by data_source.type: literature topics
+            # collect + analyse the OpenAlex corpus (universal, any field); the
+            # registered dataset lane (HUPD) runs the classical-ML experiment.
+            ds_type = str((contract.get("data_source") or {}).get("type") or "").lower()
+            if ds_type == "literature":
+                result = run_scientometric_analysis(run_dir, contract)
+                record("scientometric_analysis", status=result.get("status"),
+                       rows=result.get("rows"), simulated=result.get("simulated"))
+            else:
+                result = run_real_experiment(run_dir, args.real_limit, max(args.timeout, 14400))
+                record("real_experiment", status=result.get("status"), simulated=result.get("simulated"))
+                # v2 contracts pin an experiment plan; the actual results must satisfy
+                # it (status/simulated/expected keys/tasks) or the run is blocked.
+                errs = validate_experiment_result(contract, result)
+                if errs is not None:
+                    record("experiment_validation", ok=not errs, errors=errs)
+                    if errs:
+                        trace["final_status"] = "blocked_experiment_validation"
+                        _write_blocked_review(run_dir, contract, args,
+                            "experiment results violate the resolved plan: " + "; ".join(errs))
+                        return 3
+            real_summary = metrics_block(result)
         if phase in {"phase7", "phase8"} and args.lane == "cpu-real" and real_summary is None:
             real_summary = load_real_summary()
         code = run_hermes(run_dir, phase, paper_prompt(phase, contract, args.lane, real_summary), args.model, provider, args.timeout)

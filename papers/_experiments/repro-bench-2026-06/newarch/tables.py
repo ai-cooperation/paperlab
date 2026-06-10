@@ -118,17 +118,60 @@ def _ablation_table(rr: dict[str, Any]) -> str | None:
     return "\n".join(lines) + "\n\n" + caption
 
 
+def _scientometric_overview_table(rr: dict[str, Any]) -> str | None:
+    a = rr.get("analysis")
+    if not isinstance(a, dict):
+        return None
+    cit = a.get("citations") or {}
+    yr = a.get("year_range") or ["—", "—"]
+    header = "| Indicator | Value |\n|---|---|"
+    lines = [
+        header,
+        f"| OpenAlex corpus size (topic total) | {a.get('openalex_total_count', '—')} |",
+        f"| Analysed sample | {a.get('sample_size', '—')} |",
+        f"| Year range | {yr[0]}–{yr[1]} |",
+        f"| Total citations (sample) | {cit.get('total', '—')} |",
+        f"| Mean citations | {cit.get('mean', '—')} |",
+        f"| Median citations | {cit.get('median', '—')} |",
+        f"| Max citations | {cit.get('max', '—')} |",
+    ]
+    for v in (a.get("top_venues") or [])[:5]:
+        lines.append(f"| Top venue: {str(v.get('name'))[:60]} | {v.get('count')} works |")
+    caption = (f": Scientometric overview of the topic corpus (OpenAlex; sample "
+               f"n={a.get('sample_size')}). All values derived from collected records. "
+               "{#tbl-main tbl-colwidths=\"[62,38]\"}")
+    return "\n".join(lines) + "\n\n" + caption
+
+
+def _pubs_per_year_table(rr: dict[str, Any]) -> str | None:
+    a = rr.get("analysis")
+    if not isinstance(a, dict):
+        return None
+    per_year = a.get("publications_per_year") or {}
+    if not per_year:
+        return None
+    years = sorted(per_year, key=int)[-15:]  # most recent 15 years keeps the table short
+    header = "| Year | Publications |\n|---|---|"
+    lines = [header] + [f"| {y} | {per_year[y]} |" for y in years]
+    caption = (": Publications per year for the analysed sample (most recent years; "
+               "OpenAlex). {#tbl-trend tbl-colwidths=\"[40,60]\"}")
+    return "\n".join(lines) + "\n\n" + caption
+
+
 # contribution-type -> ordered list of (table_id, builder)
 TEMPLATES = {
     "classical_ml_benchmark": [("tbl-main", _main_results_table), ("tbl-ablation", _ablation_table)],
+    "scientometric": [("tbl-main", _scientometric_overview_table), ("tbl-trend", _pubs_per_year_table)],
 }
 
 
 def _template_for(contract: dict[str, Any], rr: dict[str, Any]) -> str:
+    if isinstance(rr.get("analysis"), dict) or rr.get("lane") == "scientometric":
+        return "scientometric"
     ct = str(contract.get("contribution_type") or "").lower()
     if "benchmark" in ct or "reproducib" in ct or isinstance(rr.get("benchmark"), list):
         return "classical_ml_benchmark"
-    return "classical_ml_benchmark"  # only template implemented; extend per type
+    return "classical_ml_benchmark"  # default; extend per type
 
 
 def generate(run_dir: Path, contract: dict[str, Any] | None = None) -> dict[str, str]:
