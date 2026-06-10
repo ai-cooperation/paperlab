@@ -132,6 +132,13 @@ def base_requirements(contract: dict[str, Any], lane: str) -> str:
             "doi-verifier.SKILL.md",
         )
     )
+    lang = str(contract.get("output_language") or "en").lower()
+    lang_rule = (
+        "- Write ALL paper prose in Traditional Chinese (繁體中文). Keep citation keys, "
+        "table/figure ids, code, and metric names in English."
+        if lang == "zh" else
+        "- Write ALL paper prose in academic English."
+    )
     return f"""Read only the skill/context files needed for this bounded phase:
 {skills}
 
@@ -145,6 +152,7 @@ Research contract (governing — do not change topic):
 Rules:
 - Output directory is the current working directory. Write ALL outputs only here.
 {data_rule}
+{lang_rule}
 - Use existing files in this directory as checkpoints. Do not redo completed phases
   unless required to repair consistency.
 - Ask no questions. No emoji.

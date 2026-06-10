@@ -676,6 +676,23 @@ def sync_project_repo(
     }
 
 
+def notify_admin(message: str) -> dict[str, Any]:
+    """Best-effort Telegram ping to the admin (GPU approvals etc.). Configured via
+    PAPER_TG_BOT_TOKEN / PAPER_TG_CHAT_ID env on ac-2012; silent failure never
+    blocks the job flow (the blocked state itself is the durable signal)."""
+    token = os.environ.get("PAPER_TG_BOT_TOKEN", "").strip()
+    chat_id = os.environ.get("PAPER_TG_CHAT_ID", "").strip()
+    if not token or not chat_id:
+        return {"status": "not_configured"}
+    try:
+        data = urllib.parse.urlencode({"chat_id": chat_id, "text": message}).encode("ascii")
+        req = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage", data=data)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return {"status": "sent" if resp.status == 200 else f"http_{resp.status}"}
+    except Exception as exc:  # noqa: BLE001 - notification must never break the job
+        return {"status": "failed", "error": str(exc)[:200]}
+
+
 def notify_completion(contract: dict[str, Any], output: dict[str, Any]) -> dict[str, Any]:
     email = str(contract.get("notify_email") or "").strip()
     if not email:
@@ -728,6 +745,26 @@ def run_job(job_id: str, jobs_dir: Path = DEFAULT_JOBS_DIR) -> dict[str, Any]:
     write_json(run_dir / "research_contract.json", contract)
     write_contract_markdown(run_dir, contract)
     update_state(job_dir, "running", "worker started", run_dir=str(run_dir), routing_decision=routing_decision)
+
+    # GPU lane never auto-runs (tier policy): park the job, tell the member to
+    # expect contact, and notify the admin. Manual approval restarts it later.
+    if routing_decision.get("needs_manual_approval"):
+        reason = ("GPU lane requires manual approval — the job is parked, not running. "
+                  "Paper Lab will contact you to schedule the GPU run.")
+        output = {
+            "job_id": job_id, "status": "blocked", "run_dir": str(run_dir),
+            "gates": {"manual_approval": {"status": "pending", "reason": reason}},
+            "content_score": None, "meets_threshold": False, "pdf_path": None,
+            "real_vs_simulated": {"real_status": "not_run", "simulated": False},
+            "blockers": [reason],
+        }
+        write_json(job_dir / "output.json", output)
+        notification = notify_completion(contract, output)
+        notify_admin(f"GPU approval needed: job {job_id} "
+                     f"(topic: {str(contract.get('topic'))[:80]}, tier: {contract.get('tier')})")
+        update_state(job_dir, "blocked", reason, output=output, notification=notification)
+        return output
+
     repo_sync = sync_project_repo(contract, "skeleton", job_dir, run_dir)
     update_state(job_dir, "running", "repo skeleton sync attempted", repo_sync=repo_sync)
 

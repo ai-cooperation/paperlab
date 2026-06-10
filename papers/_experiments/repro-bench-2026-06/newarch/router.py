@@ -32,6 +32,20 @@ JOURNAL_Q_THRESHOLDS = {
     "q4": 6.5,
 }
 
+# Tier policy (user-defined): guests have no MCP access (enforced b-side).
+# member (tier=free)  -> master level only, CPU only, content threshold 7.5
+# vip                 -> up to phd, threshold 8.0; GPU possible but ONLY after
+#                        manual approval (job blocks + notifies; never auto-runs)
+TIER_MAX_LEVEL = {"free": {"master"}, "vip": {"master", "phd", "journal"}}
+LEVEL_THRESHOLDS = {"master": 7.5, "phd": 8.0}
+OUTPUT_LANGUAGES = {"zh", "en"}
+
+
+def requested_compute(contract: dict[str, Any]) -> str:
+    method = contract.get("method")
+    compute = (method or {}).get("compute") if isinstance(method, dict) else None
+    return str(compute or "cpu").lower()
+
 
 def validate_contract(contract: dict[str, Any]) -> None:
     missing = [key for key in REQUIRED_CONTRACT_KEYS if key not in contract]
@@ -56,6 +70,17 @@ def validate_contract(contract: dict[str, Any]) -> None:
             raise ValueError(f"unsupported model_policy: {contract.get('model_policy')}")
         if contract.get("tier") == "free" and contract.get("model_policy") in {"vip", "paid"}:
             raise ValueError("free tier cannot request vip model_policy")
+    tier = str(contract.get("tier"))
+    level = str(contract.get("level"))
+    if level not in TIER_MAX_LEVEL.get(tier, set()):
+        raise ValueError(
+            f"level '{level}' requires a higher membership tier "
+            f"(tier '{tier}' allows: {sorted(TIER_MAX_LEVEL.get(tier, set()))})")
+    if requested_compute(contract) == "gpu" and tier != "vip":
+        raise ValueError("GPU compute requires vip tier (and manual approval)")
+    lang = contract.get("output_language")
+    if lang is not None and str(lang).lower() not in OUTPUT_LANGUAGES:
+        raise ValueError(f"unsupported output_language: {lang!r} (zh | en)")
 
 
 def journal_quartile(contract: dict[str, Any]) -> str | None:
@@ -91,7 +116,7 @@ def level_policy(contract: dict[str, Any]) -> dict[str, Any]:
     tier = str(contract["tier"])
     if level == "master":
         return {
-            "content_threshold": 6.0,
+            "content_threshold": LEVEL_THRESHOLDS["master"],
             "review_depth": "7dim",
             "model_policy": "free",
             "needs_real_experiment_lane": False,
@@ -100,7 +125,7 @@ def level_policy(contract: dict[str, Any]) -> dict[str, Any]:
         }
     if level == "phd":
         return {
-            "content_threshold": 7.0,
+            "content_threshold": LEVEL_THRESHOLDS["phd"],
             "review_depth": "7dim+elite",
             "model_policy": "paid",
             "needs_real_experiment_lane": True,
@@ -121,12 +146,19 @@ def level_policy(contract: dict[str, Any]) -> dict[str, Any]:
 
 def base_decision(contract: dict[str, Any]) -> dict[str, Any]:
     policy = level_policy(contract)
-    return {
+    decision = {
         "source": contract["source"],
         "tier": contract["tier"],
         "level": contract["level"],
+        "output_language": str(contract.get("output_language") or "en").lower(),
         **policy,
     }
+    if requested_compute(contract) == "gpu":
+        # GPU never auto-runs: validate_contract already ensured tier=vip; the
+        # job runner blocks the job and notifies — manual approval required.
+        decision["needs_gpu"] = True
+        decision["needs_manual_approval"] = True
+    return decision
 
 
 def route_contract(contract: dict[str, Any]) -> dict[str, Any]:

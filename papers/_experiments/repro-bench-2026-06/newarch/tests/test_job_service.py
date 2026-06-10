@@ -36,20 +36,20 @@ class RouterTest(unittest.TestCase):
         self.assertEqual(decision["driver"], "hermes")
         self.assertEqual(decision["lane"], "mvp/CPU-real")
         self.assertEqual(decision["level"], "master")
-        self.assertEqual(decision["content_threshold"], 6.0)
+        self.assertEqual(decision["content_threshold"], 7.5)  # member tier policy
         self.assertEqual(decision["review_depth"], "7dim")
         self.assertFalse(decision["needs_real_experiment_lane"])
         self.assertFalse(decision["fallback_policy"]["paid_fallback"])
 
-    def test_paper_mcp_vip_routes_to_agy_codex(self) -> None:
+    def test_paper_mcp_vip_phd_routes_with_phd_threshold(self) -> None:
         contract = hupd_contract()
         contract["level"] = "phd"
         contract["tier"] = "vip"
         contract["model_policy"] = "vip"
         decision = router.route_contract(contract)
-        self.assertEqual(decision["model_chain"], ["agy", "codex"])
+        self.assertEqual(decision["model_chain"], ["big-pickle"])  # Route A: all lanes hermes+big-pickle
         self.assertEqual(decision["level"], "phd")
-        self.assertEqual(decision["content_threshold"], 7.0)
+        self.assertEqual(decision["content_threshold"], 8.0)  # vip tier policy
         self.assertEqual(decision["review_depth"], "7dim+elite")
         self.assertTrue(decision["needs_real_experiment_lane"])
         self.assertTrue(decision["fallback_policy"]["paid_fallback"])
@@ -57,6 +57,33 @@ class RouterTest(unittest.TestCase):
     def test_free_tier_cannot_request_vip_policy(self) -> None:
         contract = hupd_contract()
         contract["model_policy"] = "vip"
+        with self.assertRaises(ValueError):
+            router.route_contract(contract)
+
+    def test_free_tier_capped_to_master_level(self) -> None:
+        contract = hupd_contract()
+        contract["level"] = "phd"  # tier stays free
+        with self.assertRaises(ValueError):
+            router.route_contract(contract)
+
+    def test_gpu_requires_vip(self) -> None:
+        contract = hupd_contract()
+        contract["method"] = {"compute": "gpu"}
+        with self.assertRaises(ValueError):
+            router.route_contract(contract)
+
+    def test_vip_gpu_flags_manual_approval(self) -> None:
+        contract = hupd_contract()
+        contract.update(level="phd", tier="vip", model_policy="vip", method={"compute": "gpu"})
+        decision = router.route_contract(contract)
+        self.assertTrue(decision["needs_gpu"])
+        self.assertTrue(decision["needs_manual_approval"])
+
+    def test_output_language_validated_and_propagated(self) -> None:
+        contract = hupd_contract()
+        contract["output_language"] = "zh"
+        self.assertEqual(router.route_contract(contract)["output_language"], "zh")
+        contract["output_language"] = "fr"
         with self.assertRaises(ValueError):
             router.route_contract(contract)
 
@@ -75,7 +102,7 @@ class RouterTest(unittest.TestCase):
         decision = router.route_contract(contract)
         self.assertEqual(decision["content_threshold"], 8.0)
         self.assertEqual(decision["review_depth"], "full-3-layer")
-        self.assertEqual(decision["model_chain"], ["agy", "codex"])
+        self.assertEqual(decision["model_chain"], ["big-pickle"])  # Route A: hermes+big-pickle
         self.assertTrue(decision["needs_real_experiment_lane"])
 
 
@@ -124,7 +151,7 @@ class JobRunnerTest(unittest.TestCase):
                 output = job_runner.run_job("blocked", Path(tmp) / "jobs")
 
             self.assertEqual(output["status"], "blocked")
-            self.assertIn("probe-verified", output["blockers"][0])
+            self.assertIn("no execution lane", output["blockers"][0])
             self.assertGreaterEqual(sync_repo.call_count, 2)
             self.assertEqual(sync_repo.call_args_list[0].args[1], "skeleton")
             self.assertEqual(sync_repo.call_args_list[-1].args[1], "blocked")
