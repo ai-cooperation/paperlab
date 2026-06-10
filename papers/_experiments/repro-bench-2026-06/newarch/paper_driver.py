@@ -36,6 +36,10 @@ import time
 from pathlib import Path
 from typing import Any
 
+import hashlib
+import platform
+
+import capabilities
 import compile_review
 import consistency_gate
 import doi_audit
@@ -666,6 +670,83 @@ def doi_gate_spotcheck(run_dir: Path, refs: list[dict[str, Any]],
     return audit
 
 
+# ---------------------------------------------------------------------------
+# WS0 leftovers — post-run integrity: (1) verify the real results actually
+# satisfy the contract's resolved experiment plan; (2) emit a provenance record
+# so a run is reproducible/auditable (code commit, deps, seed, data, hashes).
+# ---------------------------------------------------------------------------
+
+
+def validate_experiment_result(contract: dict[str, Any], result: dict[str, Any]) -> list[str] | None:
+    """Post-experiment gate: do the real results satisfy the resolved plan?
+    Returns None for v1 / no-experiment contracts (nothing to validate against),
+    else the (possibly empty) list of violations from capabilities."""
+    plan = capabilities.validate_experiment_contract(contract)
+    resolved = plan.get("resolved_plan")
+    if not resolved:
+        return None
+    return capabilities.validate_real_results(result, resolved)
+
+
+def _git_commit(path: Path) -> str | None:
+    try:
+        r = subprocess.run(["git", "-C", str(path), "rev-parse", "HEAD"],
+                           capture_output=True, text=True, timeout=10)
+        return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
+    except Exception:  # noqa: BLE001 - provenance is best-effort, never fatal
+        return None
+
+
+def _sha256_file(p: Path) -> str | None:
+    if not p.is_file():
+        return None
+    h = hashlib.sha256()
+    with p.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 16), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _dep_versions() -> dict[str, str | None]:
+    out: dict[str, str | None] = {"python": platform.python_version()}
+    for mod in ("numpy", "scipy", "sklearn", "pyarrow", "pandas"):
+        try:
+            out[mod] = getattr(__import__(mod), "__version__", None)
+        except Exception:  # noqa: BLE001 - missing optional dep is just unknown
+            out[mod] = None
+    return out
+
+
+def write_provenance(run_dir: Path, contract: dict[str, Any]) -> dict[str, Any]:
+    """Reproducibility record for the run: experiment-code commit, dependency
+    versions, RNG seed, data source, and content hashes of the result + schema."""
+    rr_path = run_dir / "real_experiments" / "real_results.json"
+    real: dict[str, Any] = {}
+    if rr_path.is_file():
+        try:
+            real = json.loads(rr_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            real = {}
+    prov = {
+        "schema_version": "provenance-2026-06-10",
+        "job_id": contract.get("job_id"),
+        "generated_at": now(),
+        "experiment_code_commit": _git_commit(SCRIPT_DIR),
+        "contract_schema_hash": contract.get("schema_hash"),
+        "a_schema_hash": capabilities.schema_hash(),
+        "deps": _dep_versions(),
+        "seed": real.get("random_state"),
+        "data_source": real.get("source"),
+        "data_rows": real.get("rows"),
+        "real_results_status": real.get("status"),
+        "real_results_simulated": real.get("simulated"),
+        "real_results_sha256": _sha256_file(rr_path),
+    }
+    (run_dir / "provenance.json").write_text(
+        json.dumps(prov, indent=2, ensure_ascii=False), encoding="utf-8")
+    return prov
+
+
 REVISION_ARTIFACTS = (
     "paper_draft_v0.qmd", "paper_draft_v0.pdf", "mvp_check_report.md", "paper_review_report.md",
     "elite_audit_report.md", "final_content_review_deterministic.json", "gate_report.json",
@@ -906,6 +987,16 @@ def main() -> int:
         if phase == "phase7" and args.lane == "cpu-real":
             result = run_real_experiment(run_dir, args.real_limit, max(args.timeout, 14400))
             record("real_experiment", status=result.get("status"), simulated=result.get("simulated"))
+            # v2 contracts pin an experiment plan; the actual results must satisfy
+            # it (status/simulated/expected keys/tasks) or the run is blocked.
+            errs = validate_experiment_result(contract, result)
+            if errs is not None:
+                record("experiment_validation", ok=not errs, errors=errs)
+                if errs:
+                    trace["final_status"] = "blocked_experiment_validation"
+                    _write_blocked_review(run_dir, contract, args,
+                        "experiment results violate the resolved plan: " + "; ".join(errs))
+                    return 3
             real_summary = real_metrics_block(result)
         if phase in {"phase7", "phase8"} and args.lane == "cpu-real" and real_summary is None:
             real_summary = load_real_summary()
@@ -1012,6 +1103,10 @@ def main() -> int:
     # so paper_review_report.md + consistency_tasks.json reflect the latest draft.
     summary = compile_review.compile_reviews(run_dir, content_threshold=args.content_threshold, elite_required=elite)
     record("compile_review", mean_7dim=summary.get("mean_7dim"), p0=summary.get("p0_count"))
+
+    prov = write_provenance(run_dir, contract)
+    record("provenance", commit=prov.get("experiment_code_commit"),
+           results_sha256=prov.get("real_results_sha256"), seed=prov.get("seed"))
 
     trace["final_status"] = "completed"
     trace["final_deterministic_score"] = summary.get("mean_7dim")
