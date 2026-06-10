@@ -9,30 +9,31 @@ from unittest import mock
 import paper_driver as pd
 
 
-def _contract(refs: list[dict]) -> dict:
-    return {"contract_version": 2, "job_id": "j", "topic": "t",
-            "literature": {"verified_refs": refs}}
+def _contract(lit: dict) -> dict:
+    return {"contract_version": 2, "job_id": "j", "topic": "t", "literature": lit}
 
 
-class VerifiedRefsExtractTest(unittest.TestCase):
-    def test_v1_contract_has_no_verified_refs(self) -> None:
-        self.assertEqual(pd.contract_verified_refs({"topic": "t"}), [])
+class DoiCandidatesTest(unittest.TestCase):
+    def test_v1_contract_has_no_candidates(self) -> None:
+        self.assertEqual(pd.contract_doi_candidates({"topic": "t"}), [])
 
-    def test_only_verified_with_key_kept(self) -> None:
-        refs = [
-            {"key": "a", "verified": True},
-            {"key": "b", "verified": False},   # not verified
-            {"key": "", "verified": True},      # no key
-            {"verified": True},                  # no key field
-        ]
-        out = pd.contract_verified_refs(_contract(refs))
-        self.assertEqual([r["key"] for r in out], ["a"])
+    def test_accepts_verified_refs_and_doi_list_strings(self) -> None:
+        c = _contract({
+            "verified_refs": [{"key": "a", "doi": "10.1/a", "verified": False}],
+            "doi_list": ["10.2/b", {"key": "c", "doi": "10.3/c"}],
+        })
+        out = pd.contract_doi_candidates(c)
+        self.assertEqual([x["doi"] for x in out], ["10.1/a", "10.2/b", "10.3/c"])
+
+    def test_dedups_by_doi_and_ignores_dois_without_value(self) -> None:
+        c = _contract({"doi_list": ["10.1/x", "10.1/X", {"doi": ""}, "  "]})
+        out = pd.contract_doi_candidates(c)
+        self.assertEqual([x["doi"] for x in out], ["10.1/x"])
 
 
 class BibEscapeTest(unittest.TestCase):
     def test_latex_specials_neutralised(self) -> None:
         out = pd._bib_escape(r"A & B \write18{x} 50% #1 a_b {y}")
-        # No raw command sequence survives, and every special is backslash-escaped.
         self.assertNotIn(r"\write18", out)
         self.assertEqual(out.count("&"), out.count(r"\&"))   # no bare &
         self.assertEqual(out.count("%"), out.count(r"\%"))   # no bare %
@@ -43,83 +44,75 @@ class BibEscapeTest(unittest.TestCase):
         self.assertNotIn("\x00", pd._bib_escape("a\x00b"))
 
 
-class SampleIndicesTest(unittest.TestCase):
-    def test_small_population_returns_all(self) -> None:
-        self.assertEqual(pd._sample_indices(3, 8), [0, 1, 2])
-
-    def test_even_spacing_and_distinct(self) -> None:
-        idx = pd._sample_indices(100, 8)
-        self.assertEqual(len(idx), len(set(idx)))
-        self.assertTrue(all(0 <= i < 100 for i in idx))
-        self.assertEqual(idx, sorted(idx))
+def _meta(title: str, authors: list[str], year: str, journal: str = "J") -> tuple[str, dict]:
+    return ("ok", {"title": title, "authors": authors, "year": year, "journal": journal})
 
 
-class BuildRefsTest(unittest.TestCase):
+class BuildRefsVerifyCompleteTest(unittest.TestCase):
     def setUp(self) -> None:
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.run_dir = Path(tmp.name)
 
-    def test_builds_bib_metadata_report(self) -> None:
-        refs = [
-            {"key": "smith2020", "title": "Title One", "authors": ["Smith, J.", "Lee, K."],
-             "year": "2020", "doi": "10.1/x", "verified": True},
-            {"key": "smith2020", "title": "Dup key", "authors": "Solo", "year": 2021,
-             "doi": "10.2/y", "verified": True},  # duplicate key -> deduped
-        ]
-        n = pd.build_refs_from_verified(self.run_dir, refs)
-        self.assertEqual(n, 2)
+    def test_completes_metadata_and_verifies(self) -> None:
+        cands = [{"key": "smith", "doi": "10.1/a"}, {"key": None, "doi": "10.2/b"}]
+        results = {
+            "10.1/a": _meta("Real Title", ["Smith, John"], "2020"),
+            "10.2/b": _meta("Second", ["Lee, K", "Wang, M"], "2021"),
+        }
+        with mock.patch.object(pd.doi_audit, "fetch_crossref_meta",
+                               side_effect=lambda d, **k: results[d]), \
+             mock.patch.object(pd.time, "sleep"):
+            audit = pd.build_refs_from_doi_list(self.run_dir, cands)
+        self.assertTrue(audit["passed"])
+        self.assertEqual(audit["crossref_real"], 2)
+        self.assertEqual(audit["real_existence_rate"], 1.0)
         bib = (self.run_dir / "references.bib").read_text()
-        self.assertIn("@article{smith2020,", bib)
-        self.assertIn("@article{smith2020_2,", bib)
-        self.assertIn("author = {Smith, J. and Lee, K.}", bib)
+        self.assertIn("title = {Real Title}", bib)          # completed from CrossRef
+        self.assertIn("author = {Smith, John}", bib)
+        self.assertIn("journal = {J}", bib)
         meta = json.loads((self.run_dir / "metadata.json").read_text())
-        self.assertEqual({m["key"] for m in meta}, {"smith2020", "smith2020_2"})
-        self.assertTrue(all(m["status"] == "verified_by_b" for m in meta))
-        self.assertTrue((self.run_dir / "doi_verification_report.md").is_file())
+        self.assertTrue(all(m["status"] == "crossref_real" for m in meta))
+        # citekey synthesized when contract omitted it
+        self.assertIn("lee2021", {m["key"] for m in meta})
 
+    def test_fabricated_doi_dropped_and_can_fail_floor(self) -> None:
+        cands = [{"key": "good", "doi": "10.1/a"}, {"key": "fake", "doi": "10.9/zzz"}]
+        results = {"10.1/a": _meta("Good", ["A"], "2020"), "10.9/zzz": ("404", None)}
+        with mock.patch.object(pd.doi_audit, "fetch_crossref_meta",
+                               side_effect=lambda d, **k: results[d]), \
+             mock.patch.object(pd.time, "sleep"):
+            audit = pd.build_refs_from_doi_list(self.run_dir, cands)
+        self.assertEqual(audit["kept"], 1)                  # fake dropped
+        self.assertEqual(audit["suspicious_404"], 1)
+        self.assertEqual(audit["real_existence_rate"], 0.5)
+        self.assertFalse(audit["passed"])                   # 0.5 < 0.80 floor
+        self.assertIn("10.9/zzz", audit["suspicious_dois"])
+        bib = (self.run_dir / "references.bib").read_text()
+        self.assertNotIn("10.9/zzz", bib)
 
-class SpotCheckTest(unittest.TestCase):
-    def setUp(self) -> None:
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        self.run_dir = Path(tmp.name)
-        self.refs = [
-            {"key": f"r{i}", "title": f"T{i}", "doi": f"10.1/{i}", "verified": True}
-            for i in range(20)
-        ]
-        pd.build_refs_from_verified(self.run_dir, self.refs)
+    def test_arxiv_404_kept_not_counted_as_fabrication(self) -> None:
+        cands = [{"key": "v", "doi": "10.48550/arXiv.1706.03762"},
+                 {"key": "r", "doi": "10.1/real"}]
+        results = {"10.48550/arXiv.1706.03762": ("404", None),
+                   "10.1/real": _meta("R", ["X"], "2019")}
+        with mock.patch.object(pd.doi_audit, "fetch_crossref_meta",
+                               side_effect=lambda d, **k: results[d]), \
+             mock.patch.object(pd.time, "sleep"):
+            audit = pd.build_refs_from_doi_list(self.run_dir, cands)
+        self.assertEqual(audit["arxiv_on_datacite"], 1)
+        self.assertEqual(audit["kept"], 2)                  # arXiv kept
+        self.assertEqual(audit["real_existence_rate"], 1.0)  # arXiv not in denominator
+        self.assertTrue(audit["passed"])
 
-    def test_clean_sample_accepts_b_without_full_audit(self) -> None:
-        with mock.patch.object(pd.doi_audit, "check_crossref", return_value=True) as cc, \
-             mock.patch.object(pd.time, "sleep"), \
-             mock.patch.object(pd, "doi_gate") as full:
-            res = pd.doi_gate_spotcheck(self.run_dir, self.refs, sample_n=5)
-        self.assertTrue(res["passed"])
-        self.assertEqual(res["mode"], "spotcheck")
-        self.assertEqual(cc.call_count, 5)        # only the sample
-        full.assert_not_called()                   # no full re-verify
-        audit = json.loads((self.run_dir / "doi_audit.json").read_text())
-        self.assertEqual(audit["sampled"], 5)
-
-    def test_failing_sample_escalates_to_full_gate(self) -> None:
-        with mock.patch.object(pd.doi_audit, "check_crossref", return_value=False), \
-             mock.patch.object(pd.time, "sleep"), \
-             mock.patch.object(pd, "doi_gate",
-                               return_value={"passed": False, "real_existence_rate": 0.0}) as full:
-            res = pd.doi_gate_spotcheck(self.run_dir, self.refs, sample_n=5)
-        full.assert_called_once()
-        self.assertFalse(res["passed"])
-        self.assertIn("escalated_from_spotcheck", res)
-
-    def test_network_undetermined_sample_trusts_b(self) -> None:
-        with mock.patch.object(pd.doi_audit, "check_crossref", return_value=None), \
-             mock.patch.object(pd.time, "sleep"), \
-             mock.patch.object(pd, "doi_gate") as full:
-            res = pd.doi_gate_spotcheck(self.run_dir, self.refs, sample_n=5)
-        self.assertTrue(res["passed"])
-        self.assertIsNone(res["real_existence_rate"])
-        full.assert_not_called()
+    def test_all_undetermined_does_not_fail_closed(self) -> None:
+        cands = [{"key": "a", "doi": "10.1/a"}]
+        with mock.patch.object(pd.doi_audit, "fetch_crossref_meta",
+                               return_value=("undet", None)), \
+             mock.patch.object(pd.time, "sleep"):
+            audit = pd.build_refs_from_doi_list(self.run_dir, cands)
+        self.assertIsNone(audit["real_existence_rate"])
+        self.assertTrue(audit["passed"])                    # absence of evidence != fabrication
 
 
 if __name__ == "__main__":

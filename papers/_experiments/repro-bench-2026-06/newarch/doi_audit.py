@@ -47,6 +47,46 @@ def check_crossref(doi: str, timeout: int = 8) -> bool | None:
         return None
 
 
+def fetch_crossref_meta(doi: str, timeout: int = 8) -> tuple[str, dict | None]:
+    """Single-source verify + COMPLETE. Returns (status, meta):
+    ("ok", {title, authors:[str], year, journal}) | ("404", None) | ("undet", None).
+    a-side uses this to verify a chat-provided DOI AND fill canonical metadata in
+    one CrossRef call — no triple-source verification, no producer trust."""
+    url = CROSSREF + urllib.parse.quote(doi, safe="") + f"?mailto={MAILTO}"
+    req = urllib.request.Request(url, headers={"User-Agent": f"paperbench/1.0 (mailto:{MAILTO})"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            if r.status != 200:
+                return ("undet", None)
+            msg = (json.loads(r.read().decode("utf-8", "ignore")) or {}).get("message") or {}
+    except urllib.error.HTTPError:
+        return ("404", None)
+    except Exception:
+        return ("undet", None)
+    titles = msg.get("title") or []
+    authors = []
+    for a in msg.get("author") or []:
+        if not isinstance(a, dict):
+            continue
+        if a.get("family"):
+            authors.append(", ".join(p for p in (a.get("family"), a.get("given")) if p))
+        elif a.get("name"):
+            authors.append(str(a["name"]))
+    year = ""
+    for k in ("issued", "published-print", "published-online", "published"):
+        parts = ((msg.get(k) or {}).get("date-parts") or [[]])
+        if parts and parts[0] and parts[0][0]:
+            year = str(parts[0][0])
+            break
+    containers = msg.get("container-title") or []
+    return ("ok", {
+        "title": titles[0] if titles else "",
+        "authors": authors,
+        "year": year,
+        "journal": containers[0] if containers else "",
+    })
+
+
 def audit_run(run_dir: Path) -> dict:
     run_dir = run_dir.resolve()
     bib = run_dir / "references.bib"
