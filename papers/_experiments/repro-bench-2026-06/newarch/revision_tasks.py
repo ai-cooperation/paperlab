@@ -114,9 +114,15 @@ def render_quality_check(run_dir: Path) -> list[dict[str, Any]]:
     if n_fig_refs > 0 and not re.search(rb"/Subtype\s*/Image", data):
         issues.append({"id": "RQ_FIGURES", "severity": "P0", "location": "render", "type": "render_quality",
                        "description": f"{n_fig_refs} figures referenced but none embedded in the PDF."})
-    if re.search(r"@[A-Za-z]", qtext) and not re.search(rb"/Subtype\s*/Link", data):
+    # Citations must be FUNCTIONAL, not necessarily hyperlinked. A real LaTeX/CSL
+    # journal render (elsarticle + scientometrics.csl) emits plain "(Author, Year)"
+    # text + a References list with NO /Link annotations — that is correct journal
+    # style, not a defect. Only flag when citations are neither hyperlinked NOR backed
+    # by a bibliography (i.e. they genuinely point nowhere).
+    has_biblio = bool(txt and re.search(r"(?im)^\s*references\s*$", txt))
+    if re.search(r"@[A-Za-z]", qtext) and not re.search(rb"/Subtype\s*/Link", data) and not has_biblio:
         issues.append({"id": "RQ_CITELINKS", "severity": "P1", "location": "render", "type": "render_quality",
-                       "description": "Citations are not hyperlinked in the PDF."})
+                       "description": "Citations are neither hyperlinked nor backed by a References section in the PDF."})
     if txt and re.search(r"\[@[A-Za-z]", txt):
         issues.append({"id": "RQ_RAWCITE", "severity": "P1", "location": "render", "type": "render_quality",
                        "description": "Unresolved [@key] citations appear in the rendered PDF."})

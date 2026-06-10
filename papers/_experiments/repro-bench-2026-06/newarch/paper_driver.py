@@ -39,6 +39,7 @@ from typing import Any
 import compile_review
 import consistency_gate
 import doi_audit
+import render_springer
 import revision_tasks
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -436,14 +437,26 @@ def compile_tikz_figures(run_dir: Path) -> list[str]:
 
 
 def render_pdf(run_dir: Path) -> bool:
-    """Deterministic Springer-style render (Fix 1) — replaces the weak model's
-    ad-hoc reportlab. Produces paper_draft_v0.pdf from paper_draft_v0.qmd."""
+    """Deterministic journal-format render. Primary path: a REAL Springer/elsarticle
+    PDF via Quarto + xelatex (render_springer) — the same stack as the Paper Lab
+    Scientometrics papers. Falls back to the reportlab renderer when Quarto is
+    unavailable or the LaTeX compile fails, so the pipeline always yields a PDF."""
     qmd = run_dir / "paper_draft_v0.qmd"
     pdf = run_dir / "paper_draft_v0.pdf"
     if not qmd.is_file():
         return False
     log_dir = run_dir / "_phase_logs"
     log_dir.mkdir(parents=True, exist_ok=True)
+    contract: dict[str, Any] = {}
+    cpath = run_dir / "research_contract.json"
+    if cpath.is_file():
+        try:
+            contract = json.loads(cpath.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            contract = {}
+    if render_springer.render(run_dir, contract):
+        return True
+    # Fallback: reportlab plain render (no Quarto/LaTeX needed).
     proc = subprocess.run(
         [sys.executable, str(SCRIPT_DIR / "render_qmd_reportlab.py"), str(qmd), str(pdf)],
         cwd=run_dir, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300,
@@ -554,6 +567,11 @@ Write the revised paper_draft_v0.qmd. Append one line to progress.md. Stop after
 
 
 COPILOT_BIN = os.environ.get("PAPER_COPILOT_BIN", "copilot")
+# Pin the cheapest valid agentic-CLI model. All CLI models bill to the same
+# `premium_interactions` quota (chat/completions are unlimited but unreachable from
+# this CLI); the default `auto` picks a high-multiplier model (~9.5 credits/review),
+# while claude-haiku-4.5 is far cheaper — many more reviews per monthly free-tier cap.
+COPILOT_MODEL = os.environ.get("PAPER_COPILOT_MODEL", "claude-haiku-4.5")
 
 
 def copilot_env() -> dict[str, str]:
@@ -622,7 +640,7 @@ def run_copilot_review(run_dir: Path, contract: dict[str, Any], real_summary: st
     log_dir.mkdir(parents=True, exist_ok=True)
     (log_dir / "review_copilot.prompt.txt").write_text(prompt, encoding="utf-8")
     try:
-        proc = subprocess.run([COPILOT_BIN, "-p", prompt], cwd=run_dir, env=copilot_env(),
+        proc = subprocess.run([COPILOT_BIN, "-p", prompt, "--model", COPILOT_MODEL], cwd=run_dir, env=copilot_env(),
                               text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout_s)
         out = proc.stdout or ""
     except subprocess.TimeoutExpired:
