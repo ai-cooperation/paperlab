@@ -1003,7 +1003,12 @@ paper_draft_v0.qmd.
 === HARD RULES (do not regress) ===
 - Keep the manuscript FULL-LENGTH and detailed (>3000 words). Do NOT truncate, summarise, or output a
   skeleton. Preserve all sections and all @-citations and @fig-/@tbl- references.
+- CITATION KEYS ARE IMMUTABLE: every `[@key]` / `@key` citation must keep its EXACT key string
+  (they bind to references.bib). Never rename, re-spell, translate, or delete a citation key;
+  never invent a new key. If a sentence with a citation is rewritten, carry its citation keys
+  over unchanged. A single changed key fails validation and the whole revision is rolled back.
 - Keep the YAML frontmatter intact (title, author, bibliography, colorlinks/link-citations/citecolor).
+- Do not touch anything between <!-- GENERATED:... --> and <!-- /GENERATED:... --> markers.
 - Every table value must come from the real results; do not invent numbers.
 Write the revised paper_draft_v0.qmd. Append one line to progress.md. Stop after revising.
 """
@@ -1321,18 +1326,37 @@ def main() -> int:
             return True
         return fallback_active and any(t.get("severity") == "P1" for t in tasks)
 
+    # Resilient revision loop: a regressing round is rolled back but does NOT end
+    # the loop. Degradation ladder per failure: (1) retry without block_rewrite
+    # (the model rewrite is the usual cite-key breaker; value_swaps are exact),
+    # (2) ban this round's tasks (content-keyed — review re-emits fresh ids) and
+    # continue with whatever remains. The rounds budget bounds everything.
+    banned: set[str] = set()
+    skip_rewrites = False
+
+    def _task_fingerprint(t: dict[str, Any]) -> str:
+        return f"{t.get('type')}|{str(t.get('target_content') or t.get('description') or '')[:120]}"
+
+    def active_of(ts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        out = [t for t in ts if _task_fingerprint(t) not in banned]
+        if skip_rewrites:
+            out = [t for t in out if t.get("type") != "block_rewrite"]
+        return out
+
     tasks = gather_tasks()
     record("gather_tasks", p0=p0(tasks), n=len(tasks))
+    active = active_of(tasks)
     round_idx = 0
-    while needs_round(tasks) and round_idx < args.max_revision_rounds:
+    while needs_round(active) and round_idx < args.max_revision_rounds:
         round_idx += 1
         archive_round(run_dir, round_idx)
         before_cites = revision_tasks.cite_keys(
             (run_dir / "paper_draft_v0.qmd").read_text(encoding="utf-8", errors="ignore"))
+        block_tasks = [t for t in active if t.get("type") == "block_rewrite"]
+        failed_reason = None
         try:
-            swap = revision_tasks.apply_value_swaps(run_dir, tasks)
+            swap = revision_tasks.apply_value_swaps(run_dir, active)
             record(f"value_swaps_r{round_idx}", applied=swap["applied"], unresolved=swap["unresolved"])
-            block_tasks = [t for t in tasks if t.get("type") == "block_rewrite"]
             if block_tasks:
                 problems = [{
                     "severity": t["severity"], "location": t.get("target_section", ""),
@@ -1349,17 +1373,29 @@ def main() -> int:
             record(f"reinject_tables_r{round_idx}", n=tables.inject(run_dir, contract_obj))
             render_pdf(run_dir)
         except Exception as exc:  # noqa: BLE001 - any failure must roll back, not corrupt the run
-            record(f"revision_r{round_idx}_error", error=str(exc)[:300])
+            failed_reason = f"exception: {str(exc)[:200]}"
+        if failed_reason is None:
+            ok, metrics = revision_tasks.validation_gate(run_dir, before_cites=before_cites)
+            record(f"validation_r{round_idx}", ok=ok, **metrics)
+            if not ok:
+                failed_reason = "validation regression"
+        if failed_reason:
             rollback_round(run_dir, round_idx)
-            break
-        ok, metrics = revision_tasks.validation_gate(run_dir, before_cites=before_cites)
-        record(f"validation_r{round_idx}", ok=ok, **metrics)
-        if not ok:
-            rollback_round(run_dir, round_idx)
-            record(f"rollback_r{round_idx}", reason="validation failed; restored last good version")
-            break
+            if block_tasks and not skip_rewrites:
+                skip_rewrites = True  # rung 1: same tasks, exact swaps only
+                record(f"rollback_r{round_idx}", reason=failed_reason,
+                       next_action="retry without block_rewrite (value_swap-only round)")
+            else:
+                banned |= {_task_fingerprint(t) for t in active}
+                record(f"rollback_r{round_idx}", reason=failed_reason,
+                       next_action=f"banned {len(active)} toxic tasks; continuing with the rest")
+            active = active_of(tasks)
+            continue
+        # Successful round: model rewrites get another chance next round; bans stay.
+        skip_rewrites = False
         tasks = gather_tasks()
         record(f"gather_tasks_r{round_idx}", p0=p0(tasks), n=len(tasks))
+        active = active_of(tasks)
 
     # Final self-heal pass: if anything edited a GENERATED block after the last
     # inject (revision text pass, phase9 fixups), restore it and re-render so the
