@@ -220,6 +220,17 @@ def run(topic: str, out_dir: Path, max_works: int = 400) -> dict[str, Any]:
     pooled = {m: p for m, rows in by_measure.items()
               if (p := pool_random_effects(m, rows)) is not None}
 
+    # Background literature for the paper's bibliography: the most-cited works of
+    # the scanned corpus (real DOIs; a verifies + completes them downstream). A
+    # meta-analysis must cite far more than its included studies.
+    effect_dois = {str(e.get("doi") or "").lower() for e in effects}
+    background = sorted(
+        (w for w in works if w.get("doi") and str(w["doi"]).lower() not in effect_dois),
+        key=lambda w: -(w.get("cited_by_count") or 0))[:30]
+    background_works = [{"title": (w.get("title") or "")[:160], "doi": w.get("doi"),
+                         "year": w.get("publication_year"),
+                         "cited_by": w.get("cited_by_count")} for w in background]
+
     return finish({
         "status": "completed", "simulated": False, "source": "OpenAlex",
         "source_type": "literature", "lane": "meta_analysis",
@@ -230,6 +241,7 @@ def run(topic: str, out_dir: Path, max_works: int = 400) -> dict[str, Any]:
                        "with_abstract": screened, "studies_with_effects": len(studies),
                        "effects_extracted": len(effects)},
             "effects": effects,
+            "background_works": background_works,
             "by_measure_counts": {m: len(v) for m, v in by_measure.items()},
             "pooled": pooled,
             "note": ("abstract-level extraction (no full text); pattern-based screening; "

@@ -96,6 +96,7 @@ def analyze(topic: str, works: list[dict[str, Any]], total_count: int) -> dict[s
                           "year": w.get("publication_year"), "doi": w.get("doi")})
 
     top_cited.sort(key=lambda x: -x["cited_by"])
+    background_works = [t for t in top_cited if t.get("doi")][:30]
     year_keys = sorted(int(y) for y in years)
     # Trend: compound annual growth across the covered span (real counts only).
     cagr = None
@@ -122,6 +123,7 @@ def analyze(topic: str, works: list[dict[str, Any]], total_count: int) -> dict[s
         "top_authors": _top(authors, 10),
         "top_concepts": _top(concepts, 15),
         "most_cited": top_cited[:10],
+        "background_works": background_works,
     }
 
 

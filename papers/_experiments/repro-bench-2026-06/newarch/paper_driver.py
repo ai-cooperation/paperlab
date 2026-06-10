@@ -544,6 +544,34 @@ def run_meta_analysis_lane(run_dir: Path, contract: dict[str, Any]) -> dict[str,
     return result
 
 
+def expand_references_from_analysis(run_dir: Path, contract: dict[str, Any],
+                                    result: dict[str, Any]) -> int:
+    """Literature-lane bibliography, by construction: a 4-seed grill list cannot
+    carry a paper (a meta-analysis MUST cite every included study; reviewers
+    expect 30-60 refs). Merge the contract's DOI list with the analysis's own
+    real papers — included-study DOIs + the corpus's most-cited background — and
+    rebuild references.bib through the same single-CrossRef verify+complete path
+    (fabricated/404 entries still drop; everything kept is real and on-topic)."""
+    candidates = list(contract_doi_candidates(contract))
+    seen = {c["doi"].lower() for c in candidates}
+
+    def _add(doi: Any, key: Any = None) -> None:
+        d = str(doi or "").strip().replace("https://doi.org/", "")
+        if d and d.lower() not in seen:
+            seen.add(d.lower())
+            candidates.append({"key": key, "doi": d})
+
+    meta = result.get("meta") or {}
+    for e in meta.get("effects") or []:        # included studies — must be citable
+        _add(e.get("doi"))
+    analysis = result.get("analysis") or {}
+    for w in (meta.get("background_works") or analysis.get("background_works")
+              or analysis.get("most_cited") or []):
+        _add(w.get("doi"))
+    audit = build_refs_from_doi_list(run_dir, candidates)
+    return int(audit.get("kept") or 0)
+
+
 TIKZ_TEMPLATE = r"""\documentclass[border=10pt]{standalone}
 \usepackage{tikz}
 \usepackage[scaled]{helvet}\renewcommand\familydefault{\sfdefault}
@@ -1160,10 +1188,14 @@ def main() -> int:
                 record("meta_analysis", status=result.get("status"),
                        studies=((result.get("meta") or {}).get("prisma") or {}).get("studies_with_effects"),
                        simulated=result.get("simulated"))
+                record("expand_references",
+                       kept=expand_references_from_analysis(run_dir, contract, result))
             elif ds_type == "literature":
                 result = run_scientometric_analysis(run_dir, contract)
                 record("scientometric_analysis", status=result.get("status"),
                        rows=result.get("rows"), simulated=result.get("simulated"))
+                record("expand_references",
+                       kept=expand_references_from_analysis(run_dir, contract, result))
             else:
                 result = run_real_experiment(run_dir, args.real_limit, max(args.timeout, 14400))
                 record("real_experiment", status=result.get("status"), simulated=result.get("simulated"))
