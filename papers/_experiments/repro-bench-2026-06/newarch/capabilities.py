@@ -51,6 +51,18 @@ def capabilities() -> dict[str, Any]:
         "renderer": "elsevier-pdf/xelatex",
         "result_schema_version": RESULT_SCHEMA_VERSION,
         "reviewer_chain": ["copilot", "codex", "big-pickle-skilled", "deterministic_floor"],
+        # What the AUTOMATED engine can actually deliver, so b's grill only
+        # promises within these bounds (a Bayesian latent-class MA the engine
+        # cannot run must be flagged "needs human", not written into the title).
+        "synthesis": {
+            "types": ["intervention", "prevalence", "correlation", "diagnostic"],
+            "pooling_methods": ["DerSimonian-Laird random-effects"],
+            "sensitivity_analyses": ["Egger's test", "leave-one-out", "subgroup-by-outcome"],
+            "data_level": "abstract-level (OpenAlex; no full text)",
+            "not_supported": ["Bayesian / latent-class models", "network meta-analysis",
+                              "individual-patient-data MA", "meta-regression on trial moderators",
+                              "RoB 2 / GRADE", "full-text PRISMA screening"],
+        },
     }
 
 
