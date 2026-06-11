@@ -50,7 +50,7 @@ def capabilities() -> dict[str, Any]:
         "max_payload_bytes": MAX_PAYLOAD_BYTES,
         "renderer": "elsevier-pdf/xelatex",
         "result_schema_version": RESULT_SCHEMA_VERSION,
-        "reviewer_chain": ["copilot", "big-pickle-skilled", "deterministic_floor"],
+        "reviewer_chain": ["copilot", "codex", "big-pickle-skilled", "deterministic_floor"],
     }
 
 

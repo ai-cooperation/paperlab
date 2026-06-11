@@ -177,7 +177,7 @@ def route_contract(contract: dict[str, Any]) -> dict[str, Any]:
             # Reviewer chain: copilot when its quota is live; otherwise the skilled
             # big-pickle reviewer (verbatim-anchored tasks + floor-cross-checked
             # scores) iterates quality rounds — master converges in ~3.
-            "reviewer_chain": ["copilot", "big-pickle-skilled", "deterministic_floor"],
+            "reviewer_chain": ["copilot", "codex", "big-pickle-skilled", "deterministic_floor"],
             "max_revision_rounds": 3,
             "hooks": ["data_availability_gate", "paper_gate", "deterministic_content_review"],
             "timeout_seconds": 21600,
@@ -193,7 +193,7 @@ def route_contract(contract: dict[str, Any]) -> dict[str, Any]:
             "lane": "phd/real-experiment",
             # phd certification is copilot-only (the skilled fallback may revise
             # but never certify an elite-required paper).
-            "reviewer_chain": ["copilot", "deterministic_floor"],
+            "reviewer_chain": ["copilot", "codex", "deterministic_floor"],
             "max_revision_rounds": 2,
             # Route A: all lanes run on the Hermes phasefix driver + the free
             # big-pickle model (opencode Zen, no login/key). The hard DOI
@@ -214,7 +214,7 @@ def route_contract(contract: dict[str, Any]) -> dict[str, Any]:
         return {
             **decision,
             "lane": "journal/real-experiment" if decision["needs_real_experiment_lane"] else "journal/literature",
-            "reviewer_chain": ["copilot", "deterministic_floor"],
+            "reviewer_chain": ["copilot", "codex", "deterministic_floor"],
             "max_revision_rounds": 2,
             "model_chain": ["big-pickle"],
             "driver": "hermes",

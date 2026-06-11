@@ -1131,6 +1131,63 @@ def run_copilot_review(run_dir: Path, contract: dict[str, Any], real_summary: st
     return tasks
 
 
+CODEX_BIN = os.environ.get("PAPER_CODEX_BIN", "codex")
+
+
+def codex_available() -> bool:
+    return shutil.which(CODEX_BIN) is not None and (Path.home() / ".codex" / "auth.json").is_file()
+
+
+def run_codex_review(run_dir: Path, contract: dict[str, Any], real_summary: str | None,
+                     elite: bool, timeout_s: int = 900) -> list[dict[str, Any]]:
+    """Engine B reviewer via Codex CLI (gpt-5.5 — the most honest reviewer in the
+    harness benchmark). Same output contract as the Copilot path: prints a fenced
+    JSON block with scores_7dim + tasks; we persist paper_review_report.md and
+    return the revision tasks. Substitutes Copilot while its quota is dead."""
+    prompt = build_copilot_review_prompt(contract, real_summary, elite)
+    log_dir = run_dir / "_phase_logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    (log_dir / "review_codex.prompt.txt").write_text(prompt, encoding="utf-8")
+    try:
+        proc = subprocess.run(
+            [CODEX_BIN, "exec", "--skip-git-repo-check", "--sandbox", "read-only", prompt],
+            cwd=run_dir, stdin=subprocess.DEVNULL, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout_s)
+        out = proc.stdout or ""
+    except subprocess.TimeoutExpired:
+        (log_dir / "review_codex.stderr.txt").write_text("codex review timed out", encoding="utf-8")
+        _write_reviewer_status(run_dir, "unavailable", "timeout")
+        return []
+    (log_dir / "review_codex.stdout.txt").write_text(out, encoding="utf-8")
+    stderr = proc.stderr or ""
+    if stderr:
+        (log_dir / "review_codex.stderr.txt").write_text(stderr[-2000:], encoding="utf-8")
+    block = compile_review._last_json_block(out) or {}
+    scores = block.get("scores_7dim") if isinstance(block.get("scores_7dim"), dict) else {}
+    if not all(d in scores for d in compile_review.SEVEN_DIMS):
+        combined = stderr + out
+        if "hit your usage limit" in combined or "usage limit" in combined:
+            reason = "quota_exceeded"
+        elif proc.returncode != 0:
+            reason = f"codex_exit_{proc.returncode}"
+        else:
+            reason = "incomplete_review"
+        _write_reviewer_status(run_dir, "unavailable", reason)
+        print(f"review_codex: UNAVAILABLE reason={reason} exit={proc.returncode}", flush=True)
+        return []
+    _write_reviewer_status(run_dir, "ok", "")
+    if "```" in out:
+        (run_dir / "paper_review_report.md").write_text(out, encoding="utf-8")
+    tasks = [t for t in (block.get("tasks") or []) if isinstance(t, dict)]
+    for t in tasks:
+        t.setdefault("engine", "B")
+        t.setdefault("type", "value_swap")
+    (run_dir / "copilot_tasks.json").write_text(
+        json.dumps({"tasks": tasks}, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"review_codex: exit={proc.returncode} tasks={len(tasks)} p0={sum(1 for t in tasks if t.get('severity')=='P0')}", flush=True)
+    return tasks
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--run-dir", required=True)
@@ -1270,12 +1327,21 @@ def main() -> int:
     cenv = copilot_env()
     use_copilot = copilot_available(cenv)
 
-    fallback_active = not use_copilot
+    # Reviewer cascade (full model reviewers, in trust order). Each entry is
+    # tried once per gather; a quota-dead/unusable reviewer is popped and the
+    # next takes over. When the cascade empties, the skilled big-pickle
+    # fallback (verbatim-anchored tasks + floor-cross-checked scores) runs.
+    reviewer_cascade: list[tuple[str, Any]] = []
+    if use_copilot:
+        reviewer_cascade.append(("copilot", run_copilot_review))
+    if codex_available():
+        reviewer_cascade.append(("codex", run_codex_review))
+    fallback_active = not reviewer_cascade
 
-    def _copilot_review_unusable() -> bool:
-        # run_copilot_review marks quota/availability failures (402 etc.) in
+    def _model_review_unusable() -> bool:
+        # Reviewers mark quota/availability failures (402 etc.) in
         # reviewer_status.json; an "available" CLI that cannot actually score
-        # must hand over to the skilled fallback, not silently end the loop.
+        # must hand over to the next reviewer, not silently end the loop.
         rspath = run_dir / "reviewer_status.json"
         if rspath.is_file():
             try:
@@ -1306,11 +1372,18 @@ def main() -> int:
     def gather_tasks() -> list[dict[str, Any]]:
         nonlocal fallback_active
         tasks = list(consistency_gate.run(run_dir).get("tasks", []))
-        if use_copilot and not fallback_active:
-            tasks += run_copilot_review(run_dir, contract, rev_real, elite)
-            if _copilot_review_unusable():
-                fallback_active = True  # quota-dead copilot -> skilled fallback takes over
-                record("copilot_unusable_fallback", reason="copilot present but produced no usable review")
+        while reviewer_cascade and not fallback_active:
+            name, review_fn = reviewer_cascade[0]
+            got = review_fn(run_dir, contract, rev_real, elite)
+            if not _model_review_unusable():
+                tasks += got
+                return tasks
+            reviewer_cascade.pop(0)
+            nxt = reviewer_cascade[0][0] if reviewer_cascade else "skilled-fallback"
+            record(f"{name}_unusable_handover", next=nxt,
+                   reason=f"{name} present but produced no usable review")
+            if not reviewer_cascade:
+                fallback_active = True
         if fallback_active:
             tasks += run_skilled_fallback()
         return tasks
