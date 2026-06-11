@@ -149,6 +149,19 @@ def pool_random_effects(measure: str, effects: list[dict[str, Any]]) -> dict[str
     log_scale = measure in RATIO_MEASURES
     rows = [e for e in effects if e.get("ci_low") is not None and e.get("ci_high") is not None
             and e["ci_high"] > e["ci_low"] and (not log_scale or e["ci_low"] > 0)]
+    # A pool of effects from a single study is a study summary, not a
+    # meta-analysis (r5 reviewer finding). Require >=2 DISTINCT studies; when a
+    # study contributes several effects keep only its first (avoids treating
+    # within-study effects as independent evidence).
+    seen_studies: set[str] = set()
+    deduped: list[dict[str, Any]] = []
+    for e in rows:
+        study = str(e.get("doi") or e.get("title") or "")
+        if study in seen_studies:
+            continue
+        seen_studies.add(study)
+        deduped.append(e)
+    rows = deduped
     if len(rows) < 2:
         return None
     if log_scale:

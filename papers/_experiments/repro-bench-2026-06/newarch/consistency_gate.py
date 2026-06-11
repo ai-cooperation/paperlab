@@ -165,6 +165,14 @@ def check_bootstrap(qmd: str, gt: dict[str, Any]) -> list[dict[str, Any]]:
 
 def run(run_dir: Path) -> dict[str, Any]:
     real, qmd = _load(run_dir)
+    # These checks compare manuscript claims against the HUPD classical-ML
+    # benchmark ground truth (split years, classifier counts, bootstrap). On
+    # the literature lanes (scientometric / meta_analysis) there is no such
+    # ground truth and the rules misfire (an r5 paper was P0-flagged for a
+    # "temporal split" it never claimed) -- skip them; those lanes are guarded
+    # by their own machine-generated tables + metrics-block transcription.
+    if str(real.get("lane") or "") in ("scientometric", "meta_analysis"):
+        return {"p0_tasks": 0, "p1_tasks": 0, "tasks": []}
     gt = ground_truth(real)
     raw: list[dict[str, Any]] = []
     for fn in (check_temporal, check_class_count, check_classifier_count, check_bootstrap):
