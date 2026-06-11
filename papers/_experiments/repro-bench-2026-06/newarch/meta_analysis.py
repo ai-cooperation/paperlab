@@ -33,28 +33,13 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+import synthesis
+
 MAILTO = "aicooperation.tw@gmail.com"
 OPENALEX_WORKS = "https://api.openalex.org/works"
 UA = f"paperbench/1.0 (mailto:{MAILTO})"
 PER_PAGE = 200
 MIN_STUDIES_TO_COMPLETE = 3  # fewer extractable studies -> blocked (fail-closed)
-
-# Strict effect patterns. Group layout: measure, point, ci_low, ci_high.
-_NUM = r"(\d+(?:\.\d+)?)"
-RATIO_RE = re.compile(
-    r"\b(OR|aOR|RR|aRR|HR|aHR|odds ratio|risk ratio|relative risk|hazard ratio)\b"
-    r"[\s=:,]*" + _NUM +
-    r"[\s,;(]{0,4}(?:95\s*%\s*(?:CI|confidence interval))[\s=:,]*" + _NUM +
-    r"\s*(?:[-–—]|to|,)\s*" + _NUM,
-    re.IGNORECASE)
-SMD_RE = re.compile(
-    r"\b(Cohen'?s\s*d|SMD|MD|standardi[sz]ed mean difference|mean difference|effect size)\b"
-    r"[\s=:,]*(-?\d+(?:\.\d+)?)"
-    r"(?:[\s,;(]{0,4}95\s*%\s*(?:CI|confidence interval)[\s=:,]*(-?\d+(?:\.\d+)?)"
-    r"\s*(?:[-–—]|to|,)\s*(-?\d+(?:\.\d+)?))?", re.IGNORECASE)
-N_RE = re.compile(r"\b[nN]\s*=\s*(\d{2,7})\b")
-MEASURE_CANON = {"odds ratio": "OR", "risk ratio": "RR", "relative risk": "RR",
-                 "hazard ratio": "HR", "aor": "OR", "arr": "RR", "ahr": "HR"}
 
 
 def _get(url: str, timeout: int = 30) -> dict[str, Any]:
@@ -73,7 +58,7 @@ def reconstruct_abstract(inv: dict[str, list[int]] | None) -> str:
     return " ".join(pos[i] for i in sorted(pos))
 
 
-def collect(topic: str, max_works: int = 400, timeout: int = 30) -> tuple[list[dict[str, Any]], int]:
+def collect(topic: str, max_works: int = 1200, timeout: int = 30) -> tuple[list[dict[str, Any]], int]:
     """Articles with abstracts for the topic. Returns (works, total_count)."""
     select = "title,doi,publication_year,cited_by_count,abstract_inverted_index"
     flt = "type:article,has_abstract:true"
@@ -98,103 +83,8 @@ def collect(topic: str, max_works: int = 400, timeout: int = 30) -> tuple[list[d
     return works, total
 
 
-def _sentence_of(text: str, span_start: int) -> str:
-    left = max(text.rfind(". ", 0, span_start), 0)
-    right = text.find(". ", span_start)
-    return text[left:right if right != -1 else len(text)].strip(" .")[:300]
-
-
-def extract_effects(work: dict[str, Any]) -> list[dict[str, Any]]:
-    """Mechanical extraction; each effect carries its verbatim evidence sentence."""
-    abstract = reconstruct_abstract(work.get("abstract_inverted_index"))
-    if not abstract:
-        return []
-    n_match = N_RE.search(abstract)
-    n = int(n_match.group(1)) if n_match else None
-    out: list[dict[str, Any]] = []
-    for m in RATIO_RE.finditer(abstract):
-        raw = m.group(1).lower()
-        measure = MEASURE_CANON.get(raw, raw.upper())
-        point, lo, hi = (float(m.group(i)) for i in (2, 3, 4))
-        if not (0 < lo <= point <= hi) or lo <= 0:
-            continue  # malformed/implausible -> never admit
-        out.append({"measure": measure, "effect": point, "ci_low": lo, "ci_high": hi,
-                    "n": n, "title": (work.get("title") or "")[:160],
-                    "year": work.get("publication_year"), "doi": work.get("doi"),
-                    "evidence": _sentence_of(abstract, m.start())})
-    if not out:
-        for m in SMD_RE.finditer(abstract):
-            raw = m.group(1).lower()
-            measure = "MD" if raw in ("md", "mean difference") else "SMD"
-            point = float(m.group(2))
-            lo = float(m.group(3)) if m.group(3) is not None else None
-            hi = float(m.group(4)) if m.group(4) is not None else None
-            if lo is not None and hi is not None and not (lo <= point <= hi):
-                lo = hi = None  # malformed CI -> keep the point, never pool it
-            out.append({"measure": measure, "effect": point,
-                        "ci_low": lo, "ci_high": hi, "n": n,
-                        "title": (work.get("title") or "")[:160],
-                        "year": work.get("publication_year"), "doi": work.get("doi"),
-                        "evidence": _sentence_of(abstract, m.start())})
-    return out[:3]  # at most a few effects per study (avoid table-mining one abstract)
-
-
-RATIO_MEASURES = {"OR", "RR", "HR"}
-
-
-def pool_random_effects(measure: str, effects: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """DerSimonian-Laird random-effects pooling of one measure group. Ratio
-    measures (OR/RR/HR) pool on the log scale; SMD/MD pool on the raw scale.
-    SE is derived from each study's 95% CI; >=2 studies with CIs required."""
-    log_scale = measure in RATIO_MEASURES
-    rows = [e for e in effects if e.get("ci_low") is not None and e.get("ci_high") is not None
-            and e["ci_high"] > e["ci_low"] and (not log_scale or e["ci_low"] > 0)]
-    # A pool of effects from a single study is a study summary, not a
-    # meta-analysis (r5 reviewer finding). Require >=2 DISTINCT studies; when a
-    # study contributes several effects keep only its first (avoids treating
-    # within-study effects as independent evidence).
-    seen_studies: set[str] = set()
-    deduped: list[dict[str, Any]] = []
-    for e in rows:
-        study = str(e.get("doi") or e.get("title") or "")
-        if study in seen_studies:
-            continue
-        seen_studies.add(study)
-        deduped.append(e)
-    rows = deduped
-    if len(rows) < 2:
-        return None
-    if log_scale:
-        y = [math.log(e["effect"]) for e in rows]
-        se = [(math.log(e["ci_high"]) - math.log(e["ci_low"])) / (2 * 1.959964) for e in rows]
-    else:
-        y = [float(e["effect"]) for e in rows]
-        se = [(e["ci_high"] - e["ci_low"]) / (2 * 1.959964) for e in rows]
-    if any(s <= 0 for s in se):
-        return None
-    w = [1 / (s * s) for s in se]
-    fixed = sum(wi * yi for wi, yi in zip(w, y)) / sum(w)
-    q = sum(wi * (yi - fixed) ** 2 for wi, yi in zip(w, y))
-    dfree = len(rows) - 1
-    c = sum(w) - sum(wi * wi for wi in w) / sum(w)
-    tau2 = max(0.0, (q - dfree) / c) if c > 0 else 0.0
-    w_re = [1 / (s * s + tau2) for s in se]
-    pooled = sum(wi * yi for wi, yi in zip(w_re, y)) / sum(w_re)
-    se_pooled = math.sqrt(1 / sum(w_re))
-    i2 = max(0.0, (q - dfree) / q) * 100 if q > 0 else 0.0
-    lo, hi = pooled - 1.959964 * se_pooled, pooled + 1.959964 * se_pooled
-    if log_scale:
-        pooled, lo, hi = math.exp(pooled), math.exp(lo), math.exp(hi)
-    return {
-        "k": len(rows),
-        "method": f"DerSimonian-Laird random effects ({'log' if log_scale else 'raw'} scale)",
-        "pooled_effect": round(pooled, 3),
-        "ci_low": round(lo, 3), "ci_high": round(hi, 3),
-        "i2_percent": round(i2, 1), "tau2": round(tau2, 4), "q": round(q, 2),
-    }
-
-
-def run(topic: str, out_dir: Path, max_works: int = 400) -> dict[str, Any]:
+def run(topic: str, out_dir: Path, max_works: int = 1200,
+        syn_type: str = "intervention", picos_spec: dict[str, Any] | None = None) -> dict[str, Any]:
     started = time.time()
     out_dir = out_dir.expanduser().resolve()
     (out_dir / "real_experiments").mkdir(parents=True, exist_ok=True)
@@ -210,32 +100,62 @@ def run(topic: str, out_dir: Path, max_works: int = 400) -> dict[str, Any]:
         return finish({"status": "blocked", "simulated": False, "source": "OpenAlex",
                        "reason": f"collection failed: {exc}", "topic": topic})
 
+    stype = str(syn_type or "intervention").lower()
+    if stype not in synthesis.SYNTHESIS_TYPES:
+        stype = "intervention"
+    picos = picos_spec or {}
+
     effects: list[dict[str, Any]] = []
-    screened = 0
+    screened = excluded = 0
     for w in works:
-        if w.get("abstract_inverted_index"):
-            screened += 1
-        effects.extend(extract_effects(w))
+        abstract = reconstruct_abstract(w.get("abstract_inverted_index"))
+        if not abstract:
+            continue
+        screened += 1
+        ok, _reason = synthesis.screen_picos((w.get("title") or "") + " " + abstract, picos)
+        if not ok:
+            excluded += 1
+            continue
+        effects.extend(synthesis.extract(stype, abstract, w))
     studies = {(e["doi"] or e["title"]) for e in effects}
 
     if len(studies) < MIN_STUDIES_TO_COMPLETE:
         return finish({"status": "blocked", "simulated": False, "source": "OpenAlex",
-                       "reason": f"only {len(studies)} studies with extractable quantitative "
-                                 f"effects (need >= {MIN_STUDIES_TO_COMPLETE}); abstract-level "
-                                 "meta-analysis not viable for this topic",
-                       "topic": topic,
+                       "reason": f"only {len(studies)} eligible studies with extractable "
+                                 f"{stype} effects (need >= {MIN_STUDIES_TO_COMPLETE}); not "
+                                 "viable for this topic/type at the abstract level",
+                       "topic": topic, "synthesis_type": stype,
                        "prisma": {"identified": total, "scanned": len(works),
-                                  "with_abstract": screened, "studies_with_effects": len(studies)}})
+                                  "with_abstract": screened, "excluded_picos": excluded,
+                                  "studies_with_effects": len(studies)}})
 
-    by_measure: dict[str, list[dict[str, Any]]] = {}
+    # Pool each scale-homogeneous group (e.g. intervention yields log_ratio + raw;
+    # prevalence/correlation a single scale). Pooling de-dupes to one effect/study.
+    by_scale: dict[str, list[dict[str, Any]]] = {}
     for e in effects:
-        by_measure.setdefault(e["measure"], []).append(e)
-    pooled = {m: p for m, rows in by_measure.items()
-              if (p := pool_random_effects(m, rows)) is not None}
+        by_scale.setdefault(e.get("scale", "raw"), []).append(e)
+    pooled = {scale: p for scale, rows in by_scale.items()
+              if (p := synthesis.pool(rows, scale)) is not None}
+    for p in pooled.values():           # strip internal arrays from the delivered record
+        p.pop("_ys", None); p.pop("_ses", None); p.pop("_studies", None)
 
-    # Background literature for the paper's bibliography: the most-cited works of
-    # the scanned corpus (real DOIs; a verifies + completes them downstream). A
-    # meta-analysis must cite far more than its included studies.
+    # Sensitivity + small-study analyses on the primary (largest) pool — turns the
+    # reviewer's "precluded" list into delivered analyses, deterministically.
+    sensitivity: dict[str, Any] = {}
+    if by_scale:
+        primary = max(by_scale, key=lambda s: len(by_scale[s]))
+        prim_pool = synthesis.pool(by_scale[primary], primary)
+        if prim_pool:
+            eg = synthesis.egger_test(prim_pool)
+            if eg:
+                sensitivity["egger"] = eg
+            loo = synthesis.leave_one_out(by_scale[primary], primary)
+            if loo:
+                sensitivity["leave_one_out"] = loo
+            sg = synthesis.subgroup(by_scale[primary], primary, "outcome_domain")
+            if len(sg) >= 2:
+                sensitivity["subgroup_by_outcome"] = sg
+
     effect_dois = {str(e.get("doi") or "").lower() for e in effects}
     background = sorted(
         (w for w in works if w.get("doi") and str(w["doi"]).lower() not in effect_dois),
@@ -246,17 +166,19 @@ def run(topic: str, out_dir: Path, max_works: int = 400) -> dict[str, Any]:
 
     return finish({
         "status": "completed", "simulated": False, "source": "OpenAlex",
-        "source_type": "literature", "lane": "meta_analysis",
+        "source_type": "literature", "lane": "meta_analysis", "synthesis_type": stype,
         "rows": len(works),
         "meta": {
-            "topic": topic,
+            "topic": topic, "synthesis_type": stype,
             "prisma": {"identified": total, "scanned": len(works),
-                       "with_abstract": screened, "studies_with_effects": len(studies),
-                       "effects_extracted": len(effects)},
+                       "with_abstract": screened, "excluded_picos": excluded,
+                       "studies_with_effects": len(studies), "effects_extracted": len(effects)},
+            "picos": picos,
             "effects": effects,
             "background_works": background_works,
-            "by_measure_counts": {m: len(v) for m, v in by_measure.items()},
+            "by_measure_counts": {s: len(v) for s, v in by_scale.items()},
             "pooled": pooled,
+            "sensitivity": sensitivity,
             "note": ("abstract-level extraction (no full text); pattern-based screening; "
                      "rapid evidence synthesis, not a full PRISMA systematic review"),
         },
