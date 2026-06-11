@@ -1132,10 +1132,32 @@ def run_copilot_review(run_dir: Path, contract: dict[str, Any], real_summary: st
 
 
 CODEX_BIN = os.environ.get("PAPER_CODEX_BIN", "codex")
+CODEX_AUTH_DIR = Path(os.environ.get("PAPER_CODEX_AUTH_DIR", str(Path.home() / ".codex")))
 
 
 def codex_available() -> bool:
-    return shutil.which(CODEX_BIN) is not None and (Path.home() / ".codex" / "auth.json").is_file()
+    return shutil.which(CODEX_BIN) is not None and (CODEX_AUTH_DIR / "auth.json").is_file()
+
+
+def _rotate_codex_auth(log_dir: Path) -> bool:
+    """Multi-account quota rotation: auth profiles live as auth.json.<name> next
+    to the active auth.json. When the active account hits its usage limit, swap
+    in the first profile whose content differs and let the caller retry. Returns
+    False when no alternate account is available (single-account setups)."""
+    active = CODEX_AUTH_DIR / "auth.json"
+    current = active.read_bytes() if active.is_file() else b""
+    for profile in sorted(CODEX_AUTH_DIR.glob("auth.json.*")):
+        try:
+            if profile.read_bytes() != current:
+                shutil.copy2(profile, active)
+                active.chmod(0o600)
+                (log_dir / "codex_auth_rotation.txt").write_text(
+                    f"rotated active codex auth to {profile.name}", encoding="utf-8")
+                print(f"codex auth rotated -> {profile.name}", flush=True)
+                return True
+        except OSError:
+            continue
+    return False
 
 
 def run_codex_review(run_dir: Path, contract: dict[str, Any], real_summary: str | None,
@@ -1143,37 +1165,47 @@ def run_codex_review(run_dir: Path, contract: dict[str, Any], real_summary: str 
     """Engine B reviewer via Codex CLI (gpt-5.5 — the most honest reviewer in the
     harness benchmark). Same output contract as the Copilot path: prints a fenced
     JSON block with scores_7dim + tasks; we persist paper_review_report.md and
-    return the revision tasks. Substitutes Copilot while its quota is dead."""
+    return the revision tasks. Substitutes Copilot while its quota is dead.
+    On a usage-limit failure the auth rotates to the next account profile
+    (auth.json.<n>) and the review retries — once per available profile."""
     prompt = build_copilot_review_prompt(contract, real_summary, elite)
     log_dir = run_dir / "_phase_logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     (log_dir / "review_codex.prompt.txt").write_text(prompt, encoding="utf-8")
-    try:
-        proc = subprocess.run(
-            [CODEX_BIN, "exec", "--skip-git-repo-check", "--sandbox", "read-only", prompt],
-            cwd=run_dir, stdin=subprocess.DEVNULL, text=True,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout_s)
-        out = proc.stdout or ""
-    except subprocess.TimeoutExpired:
-        (log_dir / "review_codex.stderr.txt").write_text("codex review timed out", encoding="utf-8")
-        _write_reviewer_status(run_dir, "unavailable", "timeout")
-        return []
-    (log_dir / "review_codex.stdout.txt").write_text(out, encoding="utf-8")
-    stderr = proc.stderr or ""
-    if stderr:
-        (log_dir / "review_codex.stderr.txt").write_text(stderr[-2000:], encoding="utf-8")
-    block = compile_review._last_json_block(out) or {}
-    scores = block.get("scores_7dim") if isinstance(block.get("scores_7dim"), dict) else {}
-    if not all(d in scores for d in compile_review.SEVEN_DIMS):
+    max_attempts = 1 + len(list(CODEX_AUTH_DIR.glob("auth.json.*")))
+    proc = None
+    out = stderr = ""
+    reason = "incomplete_review"
+    for attempt in range(1, max_attempts + 1):
+        try:
+            proc = subprocess.run(
+                [CODEX_BIN, "exec", "--skip-git-repo-check", "--sandbox", "read-only", prompt],
+                cwd=run_dir, stdin=subprocess.DEVNULL, text=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout_s)
+            out = proc.stdout or ""
+        except subprocess.TimeoutExpired:
+            (log_dir / "review_codex.stderr.txt").write_text("codex review timed out", encoding="utf-8")
+            _write_reviewer_status(run_dir, "unavailable", "timeout")
+            return []
+        (log_dir / "review_codex.stdout.txt").write_text(out, encoding="utf-8")
+        stderr = proc.stderr or ""
+        if stderr:
+            (log_dir / "review_codex.stderr.txt").write_text(stderr[-2000:], encoding="utf-8")
         combined = stderr + out
         if "hit your usage limit" in combined or "usage limit" in combined:
             reason = "quota_exceeded"
-        elif proc.returncode != 0:
-            reason = f"codex_exit_{proc.returncode}"
-        else:
-            reason = "incomplete_review"
+            if attempt < max_attempts and _rotate_codex_auth(log_dir):
+                continue  # next account takes over
+            break
+        break  # success or a non-quota failure: no rotation retry
+    block = compile_review._last_json_block(out) or {}
+    scores = block.get("scores_7dim") if isinstance(block.get("scores_7dim"), dict) else {}
+    if not all(d in scores for d in compile_review.SEVEN_DIMS):
+        if reason != "quota_exceeded":
+            reason = f"codex_exit_{proc.returncode}" if proc is not None and proc.returncode != 0 \
+                else "incomplete_review"
         _write_reviewer_status(run_dir, "unavailable", reason)
-        print(f"review_codex: UNAVAILABLE reason={reason} exit={proc.returncode}", flush=True)
+        print(f"review_codex: UNAVAILABLE reason={reason}", flush=True)
         return []
     _write_reviewer_status(run_dir, "ok", "")
     if "```" in out:
