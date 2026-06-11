@@ -51,14 +51,28 @@ def capabilities() -> dict[str, Any]:
         "renderer": "elsevier-pdf/xelatex",
         "result_schema_version": RESULT_SCHEMA_VERSION,
         "reviewer_chain": ["copilot", "codex", "big-pickle-skilled", "deterministic_floor"],
-        # What the AUTOMATED engine can actually deliver, so b's grill only
-        # promises within these bounds (a Bayesian latent-class MA the engine
-        # cannot run must be flagged "needs human", not written into the title).
+        # Tier ladder: the FREE automated lane vs the CUSTOMIZED paid lane.
+        # b's grill promises only within `automated`; anything in `customized`
+        # is routed to a paid, human-in-the-loop consult — the SAME tier as GPU
+        # experiments and Q1/Q2 targeting (more data + more compute + human
+        # expertise). It is "needs the custom tier", not "impossible".
         "synthesis": {
-            "types": ["intervention", "prevalence", "correlation", "diagnostic"],
-            "pooling_methods": ["DerSimonian-Laird random-effects"],
-            "sensitivity_analyses": ["Egger's test", "leave-one-out", "subgroup-by-outcome"],
-            "data_level": "abstract-level (OpenAlex; no full text)",
+            "automated": {  # free / member, CPU, fully automated to PDF
+                "types": ["intervention", "prevalence", "correlation", "diagnostic"],
+                "pooling_methods": ["DerSimonian-Laird random-effects"],
+                "sensitivity_analyses": ["Egger's test", "leave-one-out", "subgroup-by-outcome"],
+                "data_level": "abstract-level (OpenAlex; no full text)",
+            },
+            "customized": {  # paid + human-in-the-loop; route to a custom consult
+                "delivery": "custom_consult — paid, human-assisted; same tier as GPU / Q1-Q2",
+                "needs_more_compute": ["Bayesian hierarchical pooling", "meta-regression"],
+                "needs_more_data": ["full-text PRISMA screening", "individual-patient-data MA",
+                                    "network meta-analysis",
+                                    "Bayesian latent-class (cutoff/measurement correction)"],
+                "needs_human_expertise": ["RoB 2 risk-of-bias assessment",
+                                          "GRADE certainty rating", "Q1/Q2 venue targeting"],
+            },
+            # back-compat: flat list b's older guidance still reads
             "not_supported": ["Bayesian / latent-class models", "network meta-analysis",
                               "individual-patient-data MA", "meta-regression on trial moderators",
                               "RoB 2 / GRADE", "full-text PRISMA screening"],
