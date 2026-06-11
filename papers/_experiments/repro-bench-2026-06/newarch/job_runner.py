@@ -40,6 +40,7 @@ OUTPUT_KEYS = (
     "above_5_5",
     "gates",
     "doi_real_rate",
+    "delivery_audit",
     "pdf_path",
     "real_vs_simulated",
     "blockers",
@@ -394,6 +395,15 @@ def extract_output(
     routing_decision: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     review, gate, trace, real_result, refs = read_artifacts(run_dir)
+    # Pre-delivery audit: the systematized human-QA filter. Consolidates the
+    # render-quality gates + the defect classes only human review used to catch
+    # (too-few refs, promise-vs-capability, subgroup-promise-gap, type mismatch).
+    try:
+        import delivery_audit
+        audit_result = delivery_audit.audit(run_dir)
+    except Exception as exc:  # noqa: BLE001 - audit must never crash finalization
+        audit_result = {"verdict": "error", "p0_count": 0, "p1_count": 0,
+                        "issues": [], "summary": f"audit error: {exc}"}
     content_score = review.get("mean_7dim") or trace.get("final_deterministic_score")
     desk_reject = (
         review.get("elite", {}).get("desk_reject_probability")
@@ -409,6 +419,9 @@ def extract_output(
     for problem in problems:
         if isinstance(problem, dict) and problem.get("severity") in {"P0", "P1"}:
             job_blockers.append(str(problem.get("description") or problem.get("id")))
+    for ai in audit_result.get("issues", []):
+        if ai.get("severity") == "P0" and ai.get("type") == "delivery_audit":
+            job_blockers.append(f"delivery-audit {ai.get('id')}: {ai.get('message')}")
     try:
         score_float = float(content_score)
     except (TypeError, ValueError):
@@ -451,6 +464,10 @@ def extract_output(
             "prose_total_words": gate.get("prose_total_words"),
         },
         "doi_real_rate": doi_real_rate(refs),
+        "delivery_audit": {"verdict": audit_result.get("verdict"),
+                           "p0_count": audit_result.get("p0_count"),
+                           "p1_count": audit_result.get("p1_count"),
+                           "summary": audit_result.get("summary")},
         "pdf_path": pdf_path,
         "real_vs_simulated": {
             "real_status": trace.get("real_status") or real_result.get("status"),
