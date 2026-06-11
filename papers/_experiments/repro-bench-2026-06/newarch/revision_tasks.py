@@ -112,6 +112,20 @@ def render_quality_check(run_dir: Path) -> list[dict[str, Any]]:
                        "type": "render_quality",
                        "description": f"{txt.count('(?)')} unresolved '(?)' citations in the PDF "
                                       "(bibtex pass missing/incomplete)."})
+    # Broken figure/table cross-references typeset as "?@tbl-x" / "?@fig-x"
+    # (e.g. caption attrs not parsed); raw "{#tbl-" attrs in the PDF mean the same.
+    n_xref = len(re.findall(r"\?@(?:tbl|fig)-", txt or "")) + (txt or "").count("{#tbl-")
+    if n_xref:
+        issues.append({"id": "RQ_CROSSREF", "severity": "P0", "location": "render",
+                       "type": "render_quality",
+                       "description": f"{n_xref} broken table/figure cross-references "
+                                      "(?@tbl-/?@fig-/raw {#tbl- attrs) in the PDF."})
+    # A delivered PDF must never say "Abstract pending." (frontmatter extraction failed).
+    if txt and "Abstract pending." in txt:
+        issues.append({"id": "RQ_ABSTRACT_PENDING", "severity": "P0", "location": "render",
+                       "type": "render_quality",
+                       "description": "PDF contains 'Abstract pending.' — abstract extraction "
+                                      "failed during journal normalization."})
     # CJK glyph loss: xelatex without a CJK font silently drops every Chinese
     # character — the PDF "renders" but the body is gone (caught live: 6,244 CJK
     # chars in the qmd, 0 in the PDF).

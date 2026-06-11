@@ -53,7 +53,11 @@ def _sha(body: str) -> str:
 
 def _wrap(tid: str, body: str) -> str:
     sha = _sha(body)
-    return f"{GEN_OPEN.format(tid=tid, sha=sha)}\n{body}\n{GEN_CLOSE.format(tid=tid)}"
+    # Blank line between the caption and the close marker is REQUIRED: an HTML
+    # comment directly after the caption line stops pandoc from parsing the
+    # `{#tbl-id ...}` attributes — the attrs typeset literally and every
+    # @tbl-id cross-reference renders as "?@tbl-id" (caught live in r6).
+    return f"{GEN_OPEN.format(tid=tid, sha=sha)}\n{body}\n\n{GEN_CLOSE.format(tid=tid)}"
 
 
 def _main_results_table(rr: dict[str, Any]) -> str | None:
@@ -283,7 +287,7 @@ def verify(run_dir: Path, contract: dict[str, Any] | None = None) -> list[dict[s
         expect = fresh.get(tid)
         if expect is None:
             continue
-        expect_body = expect.split("\n", 1)[1].rsplit("\n", 1)[0]
+        expect_body = expect.split("\n", 1)[1].rsplit("\n", 1)[0].rstrip("\n")
         if m.group("body").strip() != expect_body.strip() or m.group("sha") != _sha(expect_body):
             problems.append({
                 "id": f"TBL_TAMPERED:{tid}", "severity": "P0", "location": "paper_draft_v0.qmd",

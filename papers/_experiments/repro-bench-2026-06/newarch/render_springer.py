@@ -52,24 +52,35 @@ def _old_title(fm: str, contract: dict[str, Any]) -> str:
     return str(contract.get("topic") or "Research Manuscript").strip()
 
 
-def _extract_abstract(fm: str, body: str) -> tuple[str, str]:
-    """Pull the abstract out of a leading `# Abstract` section (preferred) or the old
-    frontmatter; return (abstract_text, body_without_abstract_section)."""
-    am = re.search(r"(?ms)^#\s*Abstract\s*\n+(.*?)(?=\n#\s)", body)
+def _extract_abstract(fm: str, body: str) -> tuple[str, str, str]:
+    """Pull the abstract out of a leading Abstract section (any heading level —
+    the revision loop rewrites `# Abstract` as `## Abstract`) or the old
+    frontmatter. Also captures a trailing `**Keywords:** ...` line the writer
+    put inside the section. Returns (abstract, body_without_section, keywords_line)."""
+    am = re.search(r"(?ms)^#{1,3}\s*Abstract\s*\n+(.*?)(?=\n#{1,3}\s)", body)
     if am:
-        abstract = " ".join(am.group(1).split())
+        text = am.group(1)
         body = body[: am.start()] + body[am.end():]
-        return abstract, body
+        kw_line = ""
+        km = re.search(r"(?mi)^\*{0,2}\s*Keywords?\s*\*{0,2}\s*[:：]\s*(.+?)\s*$", text)
+        if km:
+            kw_line = km.group(1).strip().strip("*").strip()
+            text = text[: km.start()] + text[km.end():]
+        return " ".join(text.split()), body, kw_line
     fm_abs = re.search(r"(?ms)^abstract:\s*\|?\s*\n((?:[ \t]+.*\n?)+)", fm)
     if fm_abs:
-        return " ".join(fm_abs.group(1).split()), body
+        return " ".join(fm_abs.group(1).split()), body, ""
     fm_abs1 = re.search(r'(?m)^abstract:\s*"?(.+?)"?\s*$', fm)
     if fm_abs1:
-        return fm_abs1.group(1).strip(), body
-    return "", body
+        return fm_abs1.group(1).strip(), body, ""
+    return "", body, ""
 
 
-def _extract_keywords(fm: str, contract: dict[str, Any]) -> list[str]:
+def _extract_keywords(fm: str, contract: dict[str, Any], body_kw: str = "") -> list[str]:
+    if body_kw:
+        kws = [k.strip() for k in re.split(r"[;,、；]", body_kw) if k.strip()]
+        if kws:
+            return kws[:8]
     block = re.search(r"(?ms)^keywords:\s*\n((?:\s*-\s*.+\n?)+)", fm)
     if block:
         kws = [re.sub(r"^\s*-\s*", "", ln).strip() for ln in block.group(1).splitlines() if ln.strip()]
@@ -132,8 +143,8 @@ def normalize_frontmatter(run_dir: Path, contract: dict[str, Any], src_name: str
     text = qmd.read_text(encoding="utf-8")
     fm, body = _split_frontmatter(text)
     title = _old_title(fm, contract)
-    abstract, body = _extract_abstract(fm, body)
-    keywords = _extract_keywords(fm, contract)
+    abstract, body, body_kw = _extract_abstract(fm, body)
+    keywords = _extract_keywords(fm, contract, body_kw)
     body = _strip_trailing_references(body)
     body = _normalize_tables(body).lstrip("\n")
 
@@ -180,9 +191,10 @@ def normalize_frontmatter(run_dir: Path, contract: dict[str, Any], src_name: str
         "      text: |\n"
         "        \\usepackage{etoolbox}\n"
         "        % Wide numeric tables must shrink to fit the single column without\n"
-        "        % long row labels colliding into the next column.\n"
-        "        \\AtBeginEnvironment{longtable}{\\footnotesize}\n"
-        "        \\AtBeginEnvironment{tabular}{\\footnotesize}\n"
+        "        % long row labels colliding into the next column. Tables are single-\n"
+        "        % spaced like the reference list (review formatting double-spaces body).\n"
+        "        \\AtBeginEnvironment{longtable}{\\singlespacing\\footnotesize}\n"
+        "        \\AtBeginEnvironment{tabular}{\\singlespacing\\footnotesize}\n"
         "        % Journal convention: double-spaced body (review), single-spaced\n"
         "        % bibliography. Quarto/CSL emits the reference list as CSLReferences.\n"
         "        \\usepackage{setspace}\n"
