@@ -184,15 +184,21 @@ def analysis_metrics_block(result: dict[str, Any]) -> str:
 
 
 def meta_metrics_block(result: dict[str, Any]) -> str:
-    """Meta-analysis lane: pooled estimates + per-study effects as the ONLY
-    admissible numbers (each effect carries its verbatim evidence sentence)."""
+    """Meta-analysis lane: pooled estimates + sensitivity analyses + per-study
+    effects as the ONLY admissible numbers (each effect carries its verbatim
+    evidence sentence). Generic across synthesis types (intervention/prevalence/
+    correlation/diagnostic)."""
     m = result.get("meta") or {}
+    stype = m.get("synthesis_type") or result.get("synthesis_type") or "intervention"
     lines = [
-        "REAL META-ANALYSIS DATA (OpenAlex abstracts, mechanical extraction) — the ONLY",
-        "admissible numbers. Transcribe exact values; do NOT invent or re-pool anything.",
+        f"REAL {stype.upper()} META-ANALYSIS DATA (OpenAlex abstracts, mechanical extraction) — the",
+        "ONLY admissible numbers. Transcribe exact values; do NOT invent or re-pool anything.",
+        f"Synthesis type: {stype}. PICOS eligibility: {json.dumps(m.get('picos') or {})}",
         "",
         "PRISMA-style counts (verbatim): " + json.dumps(m.get("prisma") or {}),
-        "Pooled estimates per measure (verbatim): " + json.dumps(m.get("pooled") or {}),
+        "Pooled estimates per scale (verbatim): " + json.dumps(m.get("pooled") or {}),
+        "Sensitivity analyses PERFORMED (verbatim — report these, do NOT call them precluded): "
+        + json.dumps(m.get("sensitivity") or {})[:1200],
         "",
         "Per-study extracted effects (verbatim; cite by title/year/doi):",
     ]
@@ -201,13 +207,21 @@ def meta_metrics_block(result: dict[str, Any]) -> str:
               if e.get("ci_low") is not None else "")
         lines.append(f"- {e.get('measure')} {e.get('effect')}{ci} | n={e.get('n')} | "
                      f"{e.get('title')} ({e.get('year')}) doi:{e.get('doi')}")
+    sens = m.get("sensitivity") or {}
+    performed = ["DerSimonian-Laird random-effects pooling per scale (with I^2/tau^2)"]
+    if "egger" in sens:
+        performed.append("Egger's regression test for small-study effects")
+    if "leave_one_out" in sens:
+        performed.append("leave-one-out sensitivity analysis")
+    if "subgroup_by_outcome" in sens:
+        performed.append("subgroup analysis by outcome domain")
     lines += [
         "",
-        "ANALYSES PERFORMED — write Methods/Results to match EXACTLY this and nothing more:",
-        "DerSimonian-Laird random-effects pooling per effect measure (with I^2/tau^2) on the",
-        "extracted abstract-level effects. NO subgroup analysis, NO meta-regression, NO",
-        "funnel plot / Egger test, and NO full-text PRISMA screening were performed — even if",
-        "the proposal planned them. Do NOT claim them; list them under Limitations/Future Work.",
+        "ANALYSES PERFORMED — write Methods/Results to match EXACTLY this list and nothing more:",
+        "; ".join(performed) + ".",
+        "NOT performed (state under Limitations/Future Work, do NOT claim): meta-regression on",
+        "trial-level dose moderators, trim-and-fill, RoB 2, GRADE, and full-text PRISMA screening",
+        "(these need full-text data unavailable at the abstract level).",
         "",
         "Methodological note (state in Limitations, verbatim meaning): " + str(m.get("note") or ""),
     ]
@@ -340,17 +354,21 @@ Stop after Phase 9.
         # ML benchmark -> tbl-main + tbl-ablation; scientometric -> tbl-main + tbl-trend.
         ds_type = str((contract.get("data_source") or {}).get("type") or "").lower()
         if ds_type in ("meta-analysis", "meta_analysis"):
-            tbl2, tbl2_desc = ("tbl-studies", "the per-study extracted-effects table")
+            extra = [("tbl-sensitivity", "the sensitivity / small-study analyses table "
+                      "(Egger, leave-one-out, subgroup)"),
+                     ("tbl-studies", "the per-study extracted-effects table")]
         elif ds_type == "literature":
-            tbl2, tbl2_desc = ("tbl-trend", "the publications-per-year trend table")
+            extra = [("tbl-trend", "the publications-per-year trend table")]
         else:
-            tbl2, tbl2_desc = ("tbl-ablation", "the training-size ablation table")
+            extra = [("tbl-ablation", "the training-size ablation table")]
+        placeholders = "; ".join(
+            f"where {desc} belongs, write exactly `<!-- TABLE:{tid} -->`" for tid, desc in extra)
+        refs = ", ".join("@" + tid for tid, _ in extra)
         body = body.format(tables_directive=(
             "RESULTS TABLES ARE MACHINE-GENERATED — do NOT hand-write the numeric results tables. "
             "Where the main results table belongs, write exactly the single line "
-            "`<!-- TABLE:tbl-main -->`; where " + tbl2_desc + " belongs, write exactly "
-            f"`<!-- TABLE:{tbl2} -->`. Reference them in prose as @tbl-main and @{tbl2}. "
-            "The pipeline fills these with verified numbers from real_results.json."
+            f"`<!-- TABLE:tbl-main -->`; {placeholders}. Reference them in prose as @tbl-main, "
+            f"{refs}. The pipeline fills these with verified numbers from real_results.json."
         ))
     if phase == "phase7":
         body += (
@@ -544,10 +562,15 @@ def run_scientometric_analysis(run_dir: Path, contract: dict[str, Any]) -> dict[
 
 def run_meta_analysis_lane(run_dir: Path, contract: dict[str, Any]) -> dict[str, Any]:
     """Meta-analysis lane: extract + pool quantitative effects from real abstracts
-    (meta_analysis.py). Fail-closed: too few extractable studies blocks the job
-    with an actionable reason instead of fabricating an answer."""
+    (meta_analysis.py, generic 4-type engine). The synthesis TYPE + PICOS come
+    from the contract (chat sets them per topic); the engine math is universal.
+    Fail-closed: too few eligible studies blocks the job with an actionable reason."""
     import meta_analysis
-    result = meta_analysis.run(_literature_query(contract), run_dir)
+    syn = contract.get("synthesis") if isinstance(contract.get("synthesis"), dict) else {}
+    syn_type = str(syn.get("type") or "intervention").lower()
+    picos = syn.get("picos") if isinstance(syn.get("picos"), dict) else {}
+    result = meta_analysis.run(_literature_query(contract), run_dir,
+                               syn_type=syn_type, picos_spec=picos)
     if result.get("status") != "completed":
         raise RuntimeError(f"meta-analysis failed closed: {result.get('reason')}")
     return result

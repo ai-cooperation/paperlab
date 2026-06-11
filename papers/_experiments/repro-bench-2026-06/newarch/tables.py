@@ -162,24 +162,57 @@ def _pubs_per_year_table(rr: dict[str, Any]) -> str | None:
     return "\n".join(lines) + "\n\n" + caption
 
 
+_SCALE_LABEL = {"log_ratio": "Ratio (OR/RR/HR)", "raw": "Mean difference (SMD/MD)",
+                "proportion": "Proportion", "correlation": "Correlation (r)"}
+
+
 def _meta_pooled_table(rr: dict[str, Any]) -> str | None:
     m = rr.get("meta")
     if not isinstance(m, dict):
         return None
     pooled = m.get("pooled") or {}
     prisma = m.get("prisma") or {}
-    header = "| Measure | k | Pooled (95% CI) | I² (%) | τ² |\n|---|---|---|---|---|"
+    header = "| Effect scale | k | Pooled (95% CI) | I² (%) | τ² |\n|---|---|---|---|---|"
     lines = [header]
-    for measure, p in sorted(pooled.items()):
-        lines.append(f"| {measure} | {p.get('k')} | {_f(p.get('pooled_effect'))} "
+    for scale, p in sorted(pooled.items()):
+        lines.append(f"| {_SCALE_LABEL.get(scale, scale)} | {p.get('k')} | {_f(p.get('pooled_effect'))} "
                      f"[{_f(p.get('ci_low'))}, {_f(p.get('ci_high'))}] "
                      f"| {p.get('i2_percent')} | {p.get('tau2')} |")
     if len(lines) == 1:
         return None
-    caption = (f": Random-effects pooled estimates per effect measure (DerSimonian-Laird, "
-               f"log scale). Abstract-level extraction from {prisma.get('scanned')} screened "
-               f"OpenAlex records ({prisma.get('studies_with_effects')} studies with "
-               f"extractable effects). {{#tbl-main tbl-colwidths=\"[18,10,34,18,20]\"}}")
+    caption = (f": Random-effects pooled estimates (DerSimonian-Laird) for the "
+               f"{m.get('synthesis_type', 'meta-analysis')} synthesis. Abstract-level extraction "
+               f"from {prisma.get('scanned')} screened OpenAlex records "
+               f"({prisma.get('studies_with_effects')} eligible studies; "
+               f"{prisma.get('excluded_picos', 0)} excluded by PICOS). "
+               f"{{#tbl-main tbl-colwidths=\"[30,8,32,16,14]\"}}")
+    return "\n".join(lines) + "\n\n" + caption
+
+
+def _meta_sensitivity_table(rr: dict[str, Any]) -> str | None:
+    sens = ((rr.get("meta") or {}).get("sensitivity")) or {}
+    if not sens:
+        return None
+    header = "| Analysis | Result |\n|---|---|"
+    lines = [header]
+    if "egger" in sens:
+        e = sens["egger"]
+        lines.append(f"| Egger's test (small-study effects) | intercept {_f(e.get('intercept'))}, "
+                     f"t = {_f(e.get('t'))}; {e.get('interpretation')} |")
+    loo = sens.get("leave_one_out") or []
+    if loo:
+        effs = [r.get("pooled_effect") for r in loo if isinstance(r.get("pooled_effect"), (int, float))]
+        if effs:
+            lines.append(f"| Leave-one-out (range of pooled estimate) | {_f(min(effs))} to "
+                         f"{_f(max(effs))} across {len(loo)} omissions |")
+    for level, g in (sens.get("subgroup_by_outcome") or {}).items():
+        lines.append(f"| Subgroup: {level} | {_f(g.get('pooled_effect'))} "
+                     f"[{_f(g.get('ci_low'))}, {_f(g.get('ci_high'))}] (k={g.get('k')}, "
+                     f"I²={g.get('i2_percent')}%) |")
+    if len(lines) == 1:
+        return None
+    caption = (": Sensitivity and small-study analyses on the primary pooled estimate. "
+               "{#tbl-sensitivity tbl-colwidths=\"[40,60]\"}")
     return "\n".join(lines) + "\n\n" + caption
 
 
@@ -205,7 +238,8 @@ def _meta_studies_table(rr: dict[str, Any]) -> str | None:
 TEMPLATES = {
     "classical_ml_benchmark": [("tbl-main", _main_results_table), ("tbl-ablation", _ablation_table)],
     "scientometric": [("tbl-main", _scientometric_overview_table), ("tbl-trend", _pubs_per_year_table)],
-    "meta_analysis": [("tbl-main", _meta_pooled_table), ("tbl-studies", _meta_studies_table)],
+    "meta_analysis": [("tbl-main", _meta_pooled_table), ("tbl-sensitivity", _meta_sensitivity_table),
+                      ("tbl-studies", _meta_studies_table)],
 }
 
 
