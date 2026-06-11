@@ -203,6 +203,119 @@ def subgroup(effects: list[dict[str, Any]], scale: str, key: str) -> dict[str, A
     return out
 
 
+# ── per-type effect extraction (regex over abstracts; verbatim evidence kept) ─
+
+_NUM = r"(-?\d+(?:\.\d+)?)"
+_CI = r"[\s,;(]{0,5}95\s*%\s*(?:CI|confidence interval)[\s=:,]*" + _NUM + r"\s*(?:[-–—]|to|,)\s*" + _NUM
+_N = re.compile(r"\b[nN]\s*=\s*(\d{2,7})\b")
+
+_RATIO = re.compile(
+    r"\b(aOR|OR|aRR|RR|aHR|HR|odds ratio|risk ratio|relative risk|hazard ratio)\b[\s=:,]*"
+    + _NUM + _CI, re.I)
+_SMD = re.compile(
+    r"\b(Cohen'?s\s*d|SMD|MD|standardi[sz]ed mean difference|mean difference)\b[\s=:,]*"
+    + _NUM + r"(?:" + _CI + r")?", re.I)
+_PREV = re.compile(
+    r"\b(prevalence|pooled prevalence|proportion)\b[^.]{0,40}?" + _NUM + r"\s*%"
+    + r"(?:[\s,;(]{0,5}95\s*%\s*(?:CI|confidence interval)[\s=:,]*" + _NUM + r"\s*(?:[-–—]|to|,)\s*"
+    + _NUM + r"\s*%?)?", re.I)
+_CORR = re.compile(
+    r"\b(r|correlation coefficient|Pearson'?s?\s*r|Spearman'?s?)\b[\s=:]*"
+    + r"(-?0?\.\d+)", re.I)
+_SENS = re.compile(r"\b(sensitivity|specificity)\b[^.]{0,30}?" + _NUM + r"\s*%?", re.I)
+_MEASURE_CANON = {"odds ratio": "OR", "risk ratio": "RR", "relative risk": "RR",
+                  "hazard ratio": "HR", "aor": "OR", "arr": "RR", "ahr": "HR"}
+
+
+def _ev(text: str, start: int) -> str:
+    left = max(text.rfind(". ", 0, start), 0)
+    right = text.find(". ", start)
+    return text[left:right if right != -1 else len(text)].strip(" .")[:300]
+
+
+def _tag_moderators(effect: dict[str, Any], low_abstract: str,
+                    moderators: list[dict[str, Any]]) -> None:
+    """Tag an effect with the level of each contract-defined moderator whose
+    keywords appear in the abstract, so subgroup analysis can group by it. The
+    keyword->level maps come from the contract (e.g. delivery_mode: digital vs
+    face_to_face) — never hardcoded, so this stays generic across topics. The
+    first moderator also fills outcome_domain (the default subgroup key)."""
+    for i, mod in enumerate(moderators):
+        name = str(mod.get("name") or "").strip()
+        levels = mod.get("levels") if isinstance(mod.get("levels"), dict) else {}
+        if not name or not levels:
+            continue
+        matched = next((lvl for lvl, kws in levels.items()
+                        if any(str(k).lower() in low_abstract for k in (kws or []))),
+                       "unspecified")
+        effect[name] = matched
+        if i == 0 and not effect.get("outcome_domain"):
+            effect["outcome_domain"] = matched
+
+
+def extract(synthesis_type: str, abstract: str, work: dict[str, Any],
+            moderators: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    """Mechanical extraction dispatched by synthesis type. Each effect carries
+    measure, value, CI (when present), n, scale, a verbatim evidence sentence,
+    and any contract-defined moderator tags (for subgroup analysis)."""
+    if not abstract:
+        return []
+    nm = _N.search(abstract)
+    n = int(nm.group(1)) if nm else None
+    meta = {"n": n, "title": (work.get("title") or "")[:160],
+            "year": work.get("publication_year"), "doi": work.get("doi")}
+    out: list[dict[str, Any]] = []
+
+    def add(**kw: Any) -> None:
+        out.append({**meta, **kw, "evidence": _ev(abstract, kw.pop("_start", 0))})
+
+    if synthesis_type in ("intervention", "correlation"):
+        for m in _RATIO.finditer(abstract):
+            pt, lo, hi = float(m.group(2)), float(m.group(3)), float(m.group(4))
+            if 0 < lo <= pt <= hi:
+                add(measure=_MEASURE_CANON.get(m.group(1).lower(), m.group(1).upper()),
+                    effect=pt, ci_low=lo, ci_high=hi, scale="log_ratio", _start=m.start())
+    if synthesis_type == "intervention":
+        for m in _SMD.finditer(abstract):
+            lo = float(m.group(3)) if m.group(3) else None
+            hi = float(m.group(4)) if m.group(4) else None
+            if lo is not None and hi is not None and not (lo <= float(m.group(2)) <= hi):
+                lo = hi = None
+            raw = m.group(1).lower()
+            add(measure="MD" if raw in ("md", "mean difference") else "SMD",
+                effect=float(m.group(2)), ci_low=lo, ci_high=hi, scale="raw", _start=m.start())
+    if synthesis_type == "correlation":
+        for m in _CORR.finditer(abstract):
+            r = float(m.group(2))
+            if abs(r) < 1:
+                add(measure="r", effect=r, ci_low=None, ci_high=None,
+                    scale="correlation", _start=m.start())
+    if synthesis_type == "prevalence":
+        for m in _PREV.finditer(abstract):
+            p = float(m.group(2)) / 100.0
+            lo = float(m.group(3)) / 100.0 if m.group(3) else None
+            hi = float(m.group(4)) / 100.0 if m.group(4) else None
+            if 0 < p < 1:
+                add(measure="prevalence", effect=p, ci_low=lo, ci_high=hi,
+                    scale="proportion", _start=m.start())
+    if synthesis_type == "diagnostic":
+        for m in _SENS.finditer(abstract):
+            v = float(m.group(2))
+            p = v / 100.0 if v > 1 else v
+            if 0 < p <= 1:
+                add(measure=m.group(1).lower(), effect=p, ci_low=None, ci_high=None,
+                    scale="proportion", outcome_domain=m.group(1).lower(), _start=m.start())
+    if moderators:
+        low = abstract.lower()
+        for e in out:
+            _tag_moderators(e, low, moderators)
+    # cap per study to avoid table-mining one abstract
+    return out[:4]
+
+
+SYNTHESIS_TYPES = ("intervention", "prevalence", "correlation", "diagnostic")
+
+
 # ── PICOS eligibility screen (criteria come from the contract, not hardcoded) ─
 
 def screen_picos(work_text: str, picos: dict[str, Any]) -> tuple[bool, str]:

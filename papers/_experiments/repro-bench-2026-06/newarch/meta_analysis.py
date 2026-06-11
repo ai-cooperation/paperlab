@@ -104,6 +104,7 @@ def run(topic: str, out_dir: Path, max_works: int = 1200,
     if stype not in synthesis.SYNTHESIS_TYPES:
         stype = "intervention"
     picos = picos_spec or {}
+    moderators = [m for m in (picos.get("moderators") or []) if isinstance(m, dict)]
 
     effects: list[dict[str, Any]] = []
     screened = excluded = 0
@@ -116,7 +117,7 @@ def run(topic: str, out_dir: Path, max_works: int = 1200,
         if not ok:
             excluded += 1
             continue
-        effects.extend(synthesis.extract(stype, abstract, w))
+        effects.extend(synthesis.extract(stype, abstract, w, moderators=moderators))
     studies = {(e["doi"] or e["title"]) for e in effects}
 
     if len(studies) < MIN_STUDIES_TO_COMPLETE:
@@ -152,9 +153,13 @@ def run(topic: str, out_dir: Path, max_works: int = 1200,
             loo = synthesis.leave_one_out(by_scale[primary], primary)
             if loo:
                 sensitivity["leave_one_out"] = loo
-            sg = synthesis.subgroup(by_scale[primary], primary, "outcome_domain")
-            if len(sg) >= 2:
-                sensitivity["subgroup_by_outcome"] = sg
+            # Subgroup by each contract-defined moderator (e.g. delivery_mode),
+            # falling back to outcome_domain. A level needs >=2 distinct studies.
+            keys = [str(m.get("name")) for m in moderators if m.get("name")] or ["outcome_domain"]
+            for key in keys:
+                sg = synthesis.subgroup(by_scale[primary], primary, key)
+                if len(sg) >= 2:
+                    sensitivity[f"subgroup_by_{key}"] = sg
 
     effect_dois = {str(e.get("doi") or "").lower() for e in effects}
     background = sorted(
