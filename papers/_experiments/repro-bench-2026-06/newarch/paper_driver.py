@@ -370,7 +370,17 @@ Stop after Phase 9.
             f"`<!-- TABLE:tbl-main -->`; {placeholders}. Reference them in prose as @tbl-main, "
             f"{refs}. The pipeline fills these with verified numbers from real_results.json."
         ))
-    if phase == "phase7":
+    if phase == "phase7" and str((contract.get("data_source") or {}).get("type") or "").lower() \
+            in ("meta-analysis", "meta_analysis"):
+        body += (
+            "\n\nTWO FIGURES ARE PRE-GENERATED deterministically from the real pooled numbers — do "
+            "NOT redraw them: figures/fig_forest_plot.png (forest plot of the pooled estimate) and "
+            "figures/fig_prisma_flow.png (PRISMA-style study-selection flow). Reference them in the "
+            "Results prose as ![caption](figures/fig_forest_plot.png){#fig-forest} and "
+            "![caption](figures/fig_prisma_flow.png){#fig-prisma}, cited as @fig-forest and "
+            "@fig-prisma. You MAY additionally author ONE method-overview TikZ figure. Do not invent "
+            "other figures or numbers.\n")
+    elif phase == "phase7":
         body += (
             "\n\nThe architecture/method/pipeline figure MUST be authored as TikZ, NOT matplotlib boxes: "
             "write a standalone .tex in figures/ matching the name referenced in the QMD (e.g. "
@@ -573,6 +583,11 @@ def run_meta_analysis_lane(run_dir: Path, contract: dict[str, Any]) -> dict[str,
                                syn_type=syn_type, picos_spec=picos)
     if result.get("status") != "completed":
         raise RuntimeError(f"meta-analysis failed closed: {result.get('reason')}")
+    try:                                  # deterministic forest plot + PRISMA flow
+        import meta_figures
+        meta_figures.generate(run_dir)
+    except Exception:  # noqa: BLE001 - figures are best-effort; never fail the lane
+        pass
     return result
 
 

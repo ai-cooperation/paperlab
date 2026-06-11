@@ -115,9 +115,45 @@ def _literature_grounding(run_dir: Path) -> tuple[float, dict[str, Any]]:
                            "cited_in_text_rate": round(used_rate, 3)}
 
 
+def _lane(run_dir: Path) -> str:
+    rr = _read_json(run_dir / "real_experiments" / "real_results.json", {})
+    return str(rr.get("lane") or "")
+
+
+def _rigor_meta(run_dir: Path, rr: dict[str, Any], qmd: str) -> tuple[float, dict[str, Any]]:
+    """Meta-analysis / scientometric rigor checklist (the HUPD-ML checklist —
+    cross-validation, ablation, macro-F1 — does not apply to a synthesis paper
+    and would structurally underscore it). Checks the things a real evidence
+    synthesis must have, all machine-verifiable from real_results + qmd."""
+    meta = rr.get("meta") or {}
+    pooled = meta.get("pooled") or {}
+    sens = meta.get("sensitivity") or {}
+    prisma = meta.get("prisma") or {}
+    ks = [p.get("k") for p in pooled.values() if isinstance(p, dict)]
+    checks = {
+        "prisma_counts": bool(prisma.get("identified") and prisma.get("scanned")),
+        "pooled_with_ci": any("ci_low" in p and "ci_high" in p for p in pooled.values() if isinstance(p, dict)),
+        "heterogeneity": any("i2_percent" in p for p in pooled.values() if isinstance(p, dict))
+        or "i²" in qmd or "i2" in qmd or "heterogeneity" in qmd,
+        "random_effects": "random-effects" in qmd or "dersimonian" in qmd or "random effects" in qmd,
+        "picos_eligibility": bool((meta.get("picos") or {}).get("exclude_terms")
+                                  or (meta.get("picos") or {}).get("require_any"))
+        or prisma.get("excluded_picos", 0) > 0 or "eligibility" in qmd or "picos" in qmd,
+        "sensitivity_analysis": bool(sens),  # Egger / leave-one-out / subgroup performed
+        "adequate_k": bool(ks) and max(ks) >= 10,
+        "small_study_bias": "egger" in sens or "funnel" in qmd or "publication bias" in qmd,
+    }
+    passed = sum(1 for v in checks.values() if v)
+    score = 3.0 + (passed / len(checks)) * 5.5   # all 8 -> 8.5
+    return _clamp(score), {"lane": "meta_analysis", "checks_passed": passed,
+                           "checks_total": len(checks), "detail": {k: bool(v) for k, v in checks.items()}}
+
+
 def _methodological_rigor(run_dir: Path) -> tuple[float, dict[str, Any]]:
     rr = _read_json(run_dir / "real_experiments" / "real_results.json", {})
     qmd = _read_text(run_dir / "paper_draft_v0.qmd").lower()
+    if str(rr.get("lane") or "") in ("meta_analysis", "scientometric"):
+        return _rigor_meta(run_dir, rr, qmd)
     checks = {
         "cross_validation": bool(rr.get("cv_requested")) or "cross-validation" in qmd or "5-fold" in qmd,
         "uncertainty_ci": bool(rr.get("bootstrap_samples")) or "confidence interval" in qmd or "bootstrap" in qmd,
@@ -170,10 +206,24 @@ def _writing_coherence(run_dir: Path) -> tuple[float, dict[str, Any]]:
 def _result_interpretation(run_dir: Path) -> tuple[float, dict[str, Any]]:
     rr = _read_json(run_dir / "real_experiments" / "real_results.json", {})
     low = _read_text(run_dir / "paper_draft_v0.qmd").lower()
-    has_stats = bool(rr.get("statistical_tests"))
-    # Honest handling of non-significant results (no overclaiming) is the key signal.
-    reports_nonsig = "not statistically significant" in low or "p > 0.05" in low or "non-significant" in low
     overclaim = bool(re.search(r"\b(proves?|definitively|always outperforms?|guarantee)\b", low))
+    reports_nonsig = "not statistically significant" in low or "p > 0.05" in low or "non-significant" in low
+    if str(rr.get("lane") or "") in ("meta_analysis", "scientometric"):
+        meta = rr.get("meta") or {}
+        # A synthesis interprets its pooled CI + heterogeneity, not a p-value.
+        has_pooled = bool(meta.get("pooled"))
+        interprets_ci = "95% ci" in low or "confidence interval" in low or "ci excludes" in low or "crosses 1" in low
+        interprets_het = "heterogeneity" in low or "i²" in low or "i2" in low
+        causal_caveat = "not.*causal" in low or "association" in low or "cannot.*conclude" in low \
+            or "should not be interpreted" in low
+        score = 4.0 + (1.5 if has_pooled and interprets_ci else 0.0) \
+            + (1.0 if interprets_het else 0.0) + (1.0 if causal_caveat else 0.0)
+        if overclaim:
+            score -= 1.5
+        return _clamp(score), {"lane": "meta_analysis", "interprets_ci": interprets_ci,
+                               "interprets_heterogeneity": interprets_het,
+                               "causal_caveat": causal_caveat, "overclaim_detected": overclaim}
+    has_stats = bool(rr.get("statistical_tests"))
     score = 4.0
     if has_stats:
         score += 1.5
