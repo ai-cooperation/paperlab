@@ -105,6 +105,13 @@ def render_quality_check(run_dir: Path) -> list[dict[str, Any]]:
     if ("abstract:" in qtext or "# Abstract" in qtext) and txt and "abstract" not in txt[:3000].lower():
         issues.append({"id": "RQ_ABSTRACT", "severity": "P0", "location": "render", "type": "render_quality",
                        "description": "Abstract present in source but missing from the rendered PDF."})
+    # Unresolved natbib citations render as "(?)" — a broken pass orchestration
+    # delivered 101 of them with an empty References list before this check.
+    if txt and txt.count("(?)") >= 3:
+        issues.append({"id": "RQ_CITES_UNRESOLVED", "severity": "P0", "location": "render",
+                       "type": "render_quality",
+                       "description": f"{txt.count('(?)')} unresolved '(?)' citations in the PDF "
+                                      "(bibtex pass missing/incomplete)."})
     # CJK glyph loss: xelatex without a CJK font silently drops every Chinese
     # character — the PDF "renders" but the body is gone (caught live: 6,244 CJK
     # chars in the qmd, 0 in the PDF).

@@ -260,11 +260,46 @@ def render(run_dir: Path, contract: dict[str, Any] | None = None, timeout_s: int
         timeout=timeout_s, env=env,
     )
     if work_pdf.is_file() and work_pdf.stat().st_size > 1000:
+        _finish_citations(run_dir, work_pdf, log_dir)
         shutil.move(str(work_pdf), str(pdf))
         return True
     (log_dir / "render_springer.stderr.txt").write_text(
         (proc.stderr or proc.stdout or "")[-3000:], encoding="utf-8")
     return False
+
+
+def _pdf_has_unresolved_citations(pdf: Path) -> bool:
+    try:
+        out = subprocess.run(["pdftotext", str(pdf), "-"], text=True,
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=60).stdout
+    except Exception:  # noqa: BLE001 - cannot inspect -> assume fine, gate re-checks
+        return False
+    return out.count("(?)") >= 3
+
+
+def _finish_citations(run_dir: Path, work_pdf: Path, log_dir: Path) -> None:
+    """Deterministic natbib finisher. Quarto's pass orchestration proved unreliable
+    here (a single xelatex pass, bibtex never triggered -> 101 `(?)` citations and
+    an empty References list in a delivered PDF). When the rendered PDF still has
+    unresolved citations and keep-tex left paper_springer.tex, run the classic
+    xelatex -> bibtex -> xelatex -> xelatex cycle ourselves — same philosophy as
+    the table/figure gates: never trust the toolchain's claim, mechanically finish."""
+    tex = run_dir / "paper_springer.tex"
+    if not tex.is_file() or not _pdf_has_unresolved_citations(work_pdf):
+        return
+    def _run(cmd: list[str], timeout: int) -> None:
+        subprocess.run(cmd, cwd=run_dir, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=timeout)
+    try:
+        _run(["xelatex", "-interaction=nonstopmode", tex.name], 300)
+        _run(["bibtex", "paper_springer"], 120)
+        _run(["xelatex", "-interaction=nonstopmode", tex.name], 300)
+        _run(["xelatex", "-interaction=nonstopmode", tex.name], 300)
+        (log_dir / "render_finisher.txt").write_text(
+            f"citation finisher ran; unresolved after: {_pdf_has_unresolved_citations(work_pdf)}",
+            encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001 - finisher is best-effort; gate catches leftovers
+        (log_dir / "render_finisher.txt").write_text(f"finisher failed: {exc}", encoding="utf-8")
 
 
 if __name__ == "__main__":
