@@ -128,6 +128,31 @@ def _normalize_tables(body: str) -> str:
     return "\n".join(lines)
 
 
+_FIG_IMG = re.compile(r"!\[[^\]]*\]\([^)]*\)\{#fig-[^}]*\}")
+
+
+def _normalize_figures(body: str) -> str:
+    """A figure cross-reference (@fig-x) only resolves if its image is a STANDALONE
+    paragraph — Quarto then makes it a labeled float. Writers sometimes leave the
+    image inline with prose ("... shown in @fig-x. ![cap](p){#fig-x}"), which
+    renders as an unlabeled inline image and yields an unresolved ?@fig-x. Force
+    every ![...]{#fig-...} onto its own paragraph (blank line before and after)."""
+    out: list[str] = []
+    for line in body.split("\n"):
+        m = _FIG_IMG.search(line)
+        if not m or line.strip() == m.group(0):
+            out.append(line)
+            continue
+        before, after = line[: m.start()].rstrip(), line[m.end():].lstrip()
+        if before:
+            out.extend([before, ""])
+        out.append(m.group(0))
+        out.append("")
+        if after:
+            out.append(after)
+    return "\n".join(out)
+
+
 def _strip_trailing_references(body: str) -> str:
     # Quarto regenerates the bibliography; a hand-written `# References` heading at the
     # very end would otherwise double up.
@@ -146,7 +171,8 @@ def normalize_frontmatter(run_dir: Path, contract: dict[str, Any], src_name: str
     abstract, body, body_kw = _extract_abstract(fm, body)
     keywords = _extract_keywords(fm, contract, body_kw)
     body = _strip_trailing_references(body)
-    body = _normalize_tables(body).lstrip("\n")
+    body = _normalize_tables(body)
+    body = _normalize_figures(body).lstrip("\n")
 
     abstract = abstract or "Abstract pending."
     abs_yaml = "\n".join("  " + line for line in re.findall(r".{1,110}(?:\s|$)", abstract))
@@ -290,28 +316,55 @@ def _pdf_has_unresolved_citations(pdf: Path) -> bool:
 
 
 def _finish_citations(run_dir: Path, work_pdf: Path, log_dir: Path) -> None:
-    """Deterministic natbib finisher. Quarto's pass orchestration proved unreliable
-    here (a single xelatex pass, bibtex never triggered -> 101 `(?)` citations and
-    an empty References list in a delivered PDF). When the rendered PDF still has
-    unresolved citations and keep-tex left paper_springer.tex, run the classic
-    xelatex -> bibtex -> xelatex -> xelatex cycle ourselves — same philosophy as
-    the table/figure gates: never trust the toolchain's claim, mechanically finish."""
+    """Deterministic natbib + crossref finisher. Quarto's single pass leaves a
+    bibtex/natbib doc with `(?)` citations, an empty References list, AND
+    unresolved \\ref crossrefs (?@tbl-/?@fig-). Run the classic
+    xelatex -> bibtex -> xelatex -> xelatex cycle ourselves: bibtex builds the
+    bibliography and the extra xelatex passes resolve every \\ref.
+
+    TRIGGER on the doc being bibtex-based (has \\bibliography{}) — NOT a fragile
+    `(?)` string match: natbib/elsevier render unresolved citations in a form
+    pdftotext does not surface as `(?)`, so the old gate false-negatived and the
+    finisher silently never ran (delivered PDFs shipped with ?@tbl-/?@fig- and no
+    References). Same philosophy as the table/figure gates: never trust the
+    toolchain's claim, mechanically finish."""
     tex = run_dir / "paper_springer.tex"
-    if not tex.is_file() or not _pdf_has_unresolved_citations(work_pdf):
+    if not tex.is_file():
         return
+    try:
+        tex_src = tex.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return
+    bibtex_based = "\\bibliography{" in tex_src
+    if not (bibtex_based or _pdf_has_unresolved_citations(work_pdf)):
+        return
+
     def _run(cmd: list[str], timeout: int) -> None:
         subprocess.run(cmd, cwd=run_dir, stdout=subprocess.DEVNULL,
                        stderr=subprocess.DEVNULL, timeout=timeout)
     try:
         _run(["xelatex", "-interaction=nonstopmode", tex.name], 300)
-        _run(["bibtex", "paper_springer"], 120)
+        if bibtex_based:
+            _run(["bibtex", "paper_springer"], 120)
         _run(["xelatex", "-interaction=nonstopmode", tex.name], 300)
         _run(["xelatex", "-interaction=nonstopmode", tex.name], 300)
+        # verify both citations and crossrefs resolved in the rebuilt PDF
+        leftover = _pdf_unresolved_count(work_pdf)
         (log_dir / "render_finisher.txt").write_text(
-            f"citation finisher ran; unresolved after: {_pdf_has_unresolved_citations(work_pdf)}",
+            f"finisher ran (bibtex={bibtex_based}); unresolved markers after: {leftover}",
             encoding="utf-8")
     except Exception as exc:  # noqa: BLE001 - finisher is best-effort; gate catches leftovers
         (log_dir / "render_finisher.txt").write_text(f"finisher failed: {exc}", encoding="utf-8")
+
+
+def _pdf_unresolved_count(pdf: Path) -> int:
+    """Count residual unresolved markers (citations `(?)` and crossrefs `?@`/`??`)."""
+    try:
+        out = subprocess.run(["pdftotext", str(pdf), "-"], text=True,
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=60).stdout
+    except Exception:  # noqa: BLE001
+        return 0
+    return out.count("(?)") + len(re.findall(r"\?@|\?\?", out))
 
 
 if __name__ == "__main__":
