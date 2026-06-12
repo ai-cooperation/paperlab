@@ -619,12 +619,37 @@ def expand_references_from_analysis(run_dir: Path, contract: dict[str, Any],
     meta = result.get("meta") or {}
     for e in meta.get("effects") or []:        # included studies — must be citable
         _add(e.get("doi"))
+    # Background works must be ON-TOPIC. The corpus's most-cited list is NOT the
+    # same as relevant: an unfiltered top-cited list pulled organ-trafficking,
+    # HR-on-ChatGPT and gamification papers into a mindfulness/anxiety review.
+    # Keep a background work only if its title shares a content term with the topic.
+    topic = str((contract.get("data_source") or {}).get("name")
+                or meta.get("topic") or contract.get("topic") or "")
+    topic_terms = _content_terms(topic)
     analysis = result.get("analysis") or {}
     for w in (meta.get("background_works") or analysis.get("background_works")
               or analysis.get("most_cited") or []):
-        _add(w.get("doi"))
+        title = str(w.get("title") or "")
+        if not topic_terms or _shares_content_term(title, topic_terms):
+            _add(w.get("doi"))
     audit = build_refs_from_doi_list(run_dir, candidates)
     return int(audit.get("kept") or 0)
+
+
+_REF_STOP = {"intervention", "interventions", "effect", "effects", "study", "studies",
+             "randomized", "randomised", "controlled", "trial", "trials", "systematic",
+             "review", "meta", "analysis", "adult", "adults", "using", "based", "versus",
+             "among", "with", "from", "their", "this", "that", "between", "outcomes"}
+
+
+def _content_terms(text: str) -> set[str]:
+    """Distinctive content words of a topic (>=4 letters, minus generic study terms)."""
+    return {w for w in re.findall(r"[a-z]{4,}", text.lower()) if w not in _REF_STOP}
+
+
+def _shares_content_term(title: str, terms: set[str]) -> bool:
+    low = title.lower()
+    return any(t in low for t in terms)
 
 
 TIKZ_TEMPLATE = r"""\documentclass[border=10pt]{standalone}
@@ -866,6 +891,15 @@ def build_refs_from_doi_list(run_dir: Path, candidates: list[dict[str, Any]]) ->
             year = str(m.get("year") or "")
             journal = m.get("journal") or ""
             st = "crossref_real"
+
+        # An author-less entry renders as ", 1978. Title" in an author-year list and
+        # cites in-text as the raw bibkey ("ref (1978)"); it is unusable. Drop it.
+        if not [a for a in authors if str(a).strip()]:
+            if status not in ("404",):
+                real -= 1 if st == "crossref_real" else 0
+                undet -= 1 if st == "crossref_undetermined" else 0
+                arxiv -= 1 if st == "arxiv_datacite" else 0
+            continue
 
         key = base = _safe_key(c.get("key") or _key_from(authors, year, i), i)
         n = 1

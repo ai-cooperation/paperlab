@@ -153,6 +153,13 @@ def _normalize_figures(body: str) -> str:
     return "\n".join(out)
 
 
+def _strip_crossref_prefixes(body: str) -> str:
+    """Quarto auto-prepends "Table"/"Figure" to a @tbl-/@fig- cross-reference, so a
+    writer who pens "Table @tbl-main" / "Figure @fig-forest" gets "Table Table 1" /
+    "Figure Figure 2". Strip the redundant leading word before the reference."""
+    return re.sub(r"\b(?:Table|Figure|Fig\.?|Tab\.?)\s+(@(?:tbl|fig)-)", r"\1", body)
+
+
 def _strip_trailing_references(body: str) -> str:
     # Quarto regenerates the bibliography; a hand-written `# References` heading at the
     # very end would otherwise double up.
@@ -171,6 +178,7 @@ def normalize_frontmatter(run_dir: Path, contract: dict[str, Any], src_name: str
     abstract, body, body_kw = _extract_abstract(fm, body)
     keywords = _extract_keywords(fm, contract, body_kw)
     body = _strip_trailing_references(body)
+    body = _strip_crossref_prefixes(body)
     body = _normalize_tables(body)
     body = _normalize_figures(body).lstrip("\n")
 

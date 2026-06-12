@@ -95,6 +95,32 @@ def _subgroup_promise_check(run_dir: Path, rr: dict[str, Any]) -> list[dict[str,
     return []
 
 
+def _reference_quality_check(run_dir: Path) -> list[dict[str, Any]]:
+    """Catch the reference/citation garble a human reviewer spots instantly:
+    author-less bib entries (render as ', 1978. Title' and cite as the raw key
+    'ref (1978)'), and the 'Table Table 1' / 'Figure Figure 2' double prefix."""
+    out: list[dict[str, Any]] = []
+    bib = _read_text(run_dir / "references.bib")
+    entries = re.split(r"(?=^@\w+\s*\{)", bib, flags=re.M)
+    noauthor = [e for e in entries if e.strip().startswith("@")
+                and not re.search(r"^\s*author\s*=", e, re.M | re.I)]
+    if noauthor:
+        out.append(_issue("D5_REF_NO_AUTHOR", "P0",
+                          f"{len(noauthor)} reference(s) have no author (render as ', YEAR. Title' "
+                          "and cite as the raw bibkey); drop them in expand_references",
+                          count=len(noauthor)))
+    qmd = _read_text(run_dir / "paper_draft_v0.qmd")
+    if re.search(r"\bref\s*\(\s*(?:19|20)\d\d", qmd) or re.search(r"@ref\d{4}\b", qmd):
+        out.append(_issue("D5_CITE_BIBKEY", "P0",
+                          "in-text citation shows a raw bibkey (e.g. 'ref (1978)') — an "
+                          "author-less reference was cited"))
+    if re.search(r"\b(Table\s+Table|Figure\s+Figure)\b", qmd):
+        out.append(_issue("D5_DOUBLE_PREFIX", "P1",
+                          "'Table Table' / 'Figure Figure' double prefix (writer wrote "
+                          "'Table @tbl-x'; Quarto adds its own 'Table')"))
+    return out
+
+
 def _synthesis_type_check(run_dir: Path, rr: dict[str, Any]) -> list[dict[str, Any]]:
     contract = _read_json(run_dir.parent / "contract.json", {})
     want = str(((contract.get("synthesis") or {}).get("type") or "")).lower()
@@ -123,6 +149,7 @@ def audit(run_dir: Path) -> dict[str, Any]:
     issues.extend(_promise_capability_check(run_dir))
     issues.extend(_subgroup_promise_check(run_dir, rr))
     issues.extend(_synthesis_type_check(run_dir, rr))
+    issues.extend(_reference_quality_check(run_dir))
 
     p0 = [i for i in issues if i.get("severity") == "P0"]
     p1 = [i for i in issues if i.get("severity") == "P1"]
