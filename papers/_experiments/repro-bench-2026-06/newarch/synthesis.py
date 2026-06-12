@@ -102,10 +102,17 @@ def _prep_correlation(e: dict[str, Any]) -> tuple[float, float] | None:
 
 _TRANSFORMS = {
     "log_ratio": (_prep_log_ratio, math.exp),
-    "raw": (_prep_raw, lambda y: y),
+    "smd": (_prep_raw, lambda y: y),    # standardized -> comparable across studies
+    "md": (_prep_raw, lambda y: y),     # raw units -> NOT poolable across heterogeneous scales
+    "raw": (_prep_raw, lambda y: y),    # legacy alias (kept for back-compat)
     "proportion": (_prep_proportion, lambda y: 1 / (1 + math.exp(-y))),
     "correlation": (_prep_correlation, math.tanh),
 }
+
+# Raw mean differences live on each study's original outcome scale; pooling them
+# across studies is only valid when the scale is identical, which abstract-level
+# extraction cannot verify. So MD is extracted + reported per-study but NOT pooled.
+NON_POOLABLE_SCALES = {"md"}
 
 
 def pool(effects: list[dict[str, Any]], scale: str) -> dict[str, Any] | None:
@@ -282,8 +289,10 @@ def extract(synthesis_type: str, abstract: str, work: dict[str, Any],
             if lo is not None and hi is not None and not (lo <= float(m.group(2)) <= hi):
                 lo = hi = None
             raw = m.group(1).lower()
-            add(measure="MD" if raw in ("md", "mean difference") else "SMD",
-                effect=float(m.group(2)), ci_low=lo, ci_high=hi, scale="raw", _start=m.start())
+            is_md = raw in ("md", "mean difference")
+            add(measure="MD" if is_md else "SMD",
+                effect=float(m.group(2)), ci_low=lo, ci_high=hi,
+                scale="md" if is_md else "smd", _start=m.start())
     if synthesis_type == "correlation":
         for m in _CORR.finditer(abstract):
             r = float(m.group(2))

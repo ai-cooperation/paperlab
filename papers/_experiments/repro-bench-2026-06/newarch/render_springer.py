@@ -77,27 +77,32 @@ def _extract_abstract(fm: str, body: str) -> tuple[str, str, str]:
 
 
 def _extract_keywords(fm: str, contract: dict[str, Any], body_kw: str = "") -> list[str]:
+    found: list[str] = []
     if body_kw:
-        kws = [k.strip() for k in re.split(r"[;,、；]", body_kw) if k.strip()]
-        if kws:
-            return kws[:8]
-    block = re.search(r"(?ms)^keywords:\s*\n((?:\s*-\s*.+\n?)+)", fm)
-    if block:
-        kws = [re.sub(r"^\s*-\s*", "", ln).strip() for ln in block.group(1).splitlines() if ln.strip()]
-        kws = [k for k in kws if k]
-        if kws:
-            return kws[:6]
-    seed = " ".join(str(contract.get(k) or "") for k in ("topic", "method", "contribution"))
-    toks = re.findall(r"[A-Za-z][A-Za-z\-]{3,}", seed)
-    stop = {"with", "from", "this", "that", "their", "using", "based", "analysis", "extension"}
-    picked: list[str] = []
-    for t in toks:
-        tl = t.lower()
-        if tl not in stop and tl not in picked:
-            picked.append(tl)
-        if len(picked) >= 5:
-            break
-    return picked or DEFAULT_KEYWORDS
+        found = [k.strip() for k in re.split(r"[;,、；]", body_kw) if k.strip()]
+    if not found:
+        block = re.search(r"(?ms)^keywords:\s*\n((?:\s*-\s*.+\n?)+)", fm)
+        if block:
+            found = [re.sub(r"^\s*-\s*", "", ln).strip()
+                     for ln in block.group(1).splitlines() if ln.strip()]
+    found = [k for k in found if 2 < len(k) < 40][:8]
+    # Augment when the writer supplied too few (e.g. a single junk keyword
+    # "strategy"). The data_source.name carries the English topic terms even when
+    # the title is Chinese (so the latin-token seed below isn't empty).
+    if len(found) < 3:
+        seed = " ".join(str(contract.get(k) or "") for k in ("topic", "method", "contribution"))
+        seed += " " + str((contract.get("data_source") or {}).get("name") or "")
+        stop = {"with", "from", "this", "that", "their", "using", "based", "analysis",
+                "extension", "adults", "adult", "study", "studies"}
+        have = {k.lower() for k in found}
+        for t in re.findall(r"[A-Za-z][A-Za-z\-]{3,}", seed):
+            tl = t.lower()
+            if tl not in stop and tl not in have:
+                found.append(tl)
+                have.add(tl)
+            if len(found) >= 5:
+                break
+    return found[:6] or DEFAULT_KEYWORDS
 
 
 def _normalize_tables(body: str) -> str:

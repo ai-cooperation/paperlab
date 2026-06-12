@@ -219,6 +219,8 @@ def meta_metrics_block(result: dict[str, Any]) -> str:
         "",
         "ANALYSES PERFORMED — write Methods/Results to match EXACTLY this list and nothing more:",
         "; ".join(performed) + ".",
+        "Raw mean differences (MD) are on heterogeneous original-unit scales and are reported",
+        "per-study but NOT pooled (pooling needs a common scale, unverifiable from abstracts).",
         "NOT performed (state under Limitations/Future Work, do NOT claim): Bayesian / latent-class",
         "models, network meta-analysis, individual-patient-data MA, meta-regression on trial-level",
         "moderators, trim-and-fill, RoB 2, GRADE, and full-text PRISMA screening (these need methods",

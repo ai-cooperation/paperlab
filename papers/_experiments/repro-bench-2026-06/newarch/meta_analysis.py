@@ -134,17 +134,21 @@ def run(topic: str, out_dir: Path, max_works: int = 1200,
     # prevalence/correlation a single scale). Pooling de-dupes to one effect/study.
     by_scale: dict[str, list[dict[str, Any]]] = {}
     for e in effects:
-        by_scale.setdefault(e.get("scale", "raw"), []).append(e)
+        by_scale.setdefault(e.get("scale", "smd"), []).append(e)
+    # Raw MD is on heterogeneous original-unit scales -> reported per-study, never
+    # pooled (pooling needs a common scale, unverifiable at the abstract level).
     pooled = {scale: p for scale, rows in by_scale.items()
-              if (p := synthesis.pool(rows, scale)) is not None}
+              if scale not in synthesis.NON_POOLABLE_SCALES
+              and (p := synthesis.pool(rows, scale)) is not None}
     for p in pooled.values():           # strip internal arrays from the delivered record
         p.pop("_ys", None); p.pop("_ses", None); p.pop("_studies", None)
 
     # Sensitivity + small-study analyses on the primary (largest) pool — turns the
     # reviewer's "precluded" list into delivered analyses, deterministically.
     sensitivity: dict[str, Any] = {}
-    if by_scale:
-        primary = max(by_scale, key=lambda s: len(by_scale[s]))
+    poolable = {s: rows for s, rows in by_scale.items() if s in pooled}
+    if poolable:
+        primary = max(poolable, key=lambda s: len(poolable[s]))
         prim_pool = synthesis.pool(by_scale[primary], primary)
         if prim_pool:
             eg = synthesis.egger_test(prim_pool)

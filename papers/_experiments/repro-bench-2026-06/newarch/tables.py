@@ -162,7 +162,8 @@ def _pubs_per_year_table(rr: dict[str, Any]) -> str | None:
     return "\n".join(lines) + "\n\n" + caption
 
 
-_SCALE_LABEL = {"log_ratio": "Ratio (OR/RR/HR)", "raw": "Mean difference (SMD/MD)",
+_SCALE_LABEL = {"log_ratio": "Ratio (OR/RR/HR)", "smd": "Standardized mean difference (SMD)",
+                "md": "Mean difference (MD)", "raw": "Mean difference (SMD/MD)",
                 "proportion": "Proportion", "correlation": "Correlation (r)"}
 
 
