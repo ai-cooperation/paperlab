@@ -42,10 +42,25 @@ PER_PAGE = 200
 MIN_STUDIES_TO_COMPLETE = 3  # fewer extractable studies -> blocked (fail-closed)
 
 
-def _get(url: str, timeout: int = 30) -> dict[str, Any]:
-    req = urllib.request.Request(url, headers={"User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read().decode("utf-8", "ignore"))
+def _get(url: str, timeout: int = 45, retries: int = 4) -> dict[str, Any]:
+    """OpenAlex fetch with retry+backoff. OpenAlex intermittently 503s / times out
+    (especially recovering from an outage); collect() paginates ~10 sequential
+    requests, so without retry one transient failure kills the whole run. Retry
+    5xx/timeouts with exponential backoff; 4xx is a real error and raises at once."""
+    last: Exception | None = None
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": UA})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read().decode("utf-8", "ignore"))
+        except urllib.error.HTTPError as exc:
+            last = exc
+            if exc.code < 500:                # 4xx -> client error, do not retry
+                raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as exc:
+            last = exc
+        time.sleep(min(2 ** attempt, 8))      # 1, 2, 4, 8s
+    raise last if last else RuntimeError("OpenAlex fetch failed")
 
 
 def reconstruct_abstract(inv: dict[str, list[int]] | None) -> str:
