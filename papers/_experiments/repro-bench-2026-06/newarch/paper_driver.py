@@ -587,8 +587,11 @@ def run_meta_analysis_lane(run_dir: Path, contract: dict[str, Any]) -> dict[str,
     syn = contract.get("synthesis") if isinstance(contract.get("synthesis"), dict) else {}
     syn_type = str(syn.get("type") or "intervention").lower()
     picos = syn.get("picos") if isinstance(syn.get("picos"), dict) else {}
+    # An on-topic require_all gate excludes far more, so scan deeper to keep a
+    # viable pool (else a legitimate topic fails-closed on too-few studies).
+    max_works = 2400 if picos.get("require_all") else 1200
     result = meta_analysis.run(_literature_query(contract), run_dir,
-                               syn_type=syn_type, picos_spec=picos)
+                               syn_type=syn_type, picos_spec=picos, max_works=max_works)
     if result.get("status") != "completed":
         raise RuntimeError(f"meta-analysis failed closed: {result.get('reason')}")
     try:                                  # deterministic forest plot + PRISMA flow
