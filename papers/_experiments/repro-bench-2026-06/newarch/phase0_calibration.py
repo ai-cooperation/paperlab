@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 MIN_POOLABLE_K = 3       # below this, nothing meaningful can be pooled -> block
+QUALITY_K = 8            # below this, a SATURATED question is not worth a thin re-do
 MODERATION_MIN_K = 10    # a subgroup/moderation claim needs at least this many
 CODEX_BIN = os.environ.get("PAPER_CODEX_BIN", "codex")
 CODEX_AUTH_DIR = Path(os.environ.get("PAPER_CODEX_AUTH_DIR", str(Path.home() / ".codex")))
@@ -42,7 +43,7 @@ def feasibility_probe(run_dir: Path, query: str, syn_type: str,
     if probe_dir.exists():
         shutil.rmtree(probe_dir, ignore_errors=True)
     try:
-        r = meta_analysis.run(query, probe_dir, max_works=1500,
+        r = meta_analysis.run(query, probe_dir, max_works=2400,
                               syn_type=syn_type, picos_spec=picos)
     except Exception as exc:  # noqa: BLE001 - probe failure -> let codex/floor decide
         return {"status": "error", "reason": str(exc)[:200], "max_poolable_k": 0}
@@ -116,8 +117,10 @@ def _build_prompt(contract: dict[str, Any], probe: dict[str, Any]) -> str:
         "}\n"
         f"Rules: if max_poolable_k < {MODERATION_MIN_K}, the title/contribution MUST NOT claim "
         "moderation, subgroup, or stratified estimates — rewrite to a straightforward pooled-effect "
-        f"question. If max_poolable_k < {MIN_POOLABLE_K}, set viable=false. Keep the calibrated query "
-        "in English, core topic only."
+        f"question. If max_poolable_k < {MIN_POOLABLE_K}, set viable=false. If the gap is SATURATED "
+        f"(already well-covered by existing meta-analyses) AND max_poolable_k < {QUALITY_K}, set "
+        "viable=false — a thin re-do of a saturated question is not worth a paper; say so and suggest "
+        "a sharper, less-covered angle. Keep the calibrated query in English, core topic only."
     )
 
 
@@ -223,6 +226,17 @@ def run_phase0(run_dir: Path, contract: dict[str, Any], query: str) -> dict[str,
             result["gap_assessment"] = str(block.get("gap_assessment") or "")
             if not block["viable"]:               # codex judges it not worth doing
                 result.update(viable=False, reason=str(block.get("reason") or "codex: not viable"))
+                _write(run_dir, result)
+                return result
+            # Deterministic backstop: a SATURATED gap + a thin pool is not worth a
+            # paper even if codex waffled to viable=true. Don't burn a run on it.
+            gap = result["gap_assessment"].lower()
+            if ("saturat" in gap or "well-covered" in gap or "already" in gap) \
+                    and int(probe.get("max_poolable_k") or 0) < QUALITY_K:
+                result.update(viable=False, reason=(
+                    "saturated question + only %s poolable studies at the abstract level: not worth "
+                    "a thin re-do. Pick a sharper, less-covered angle or a less data-sparse topic. "
+                    % probe.get("max_poolable_k")) + str(block.get("reason") or ""))
                 _write(run_dir, result)
                 return result
             calib = block.get("calibrated") if isinstance(block.get("calibrated"), dict) else {}
