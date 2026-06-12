@@ -378,7 +378,7 @@ Stop after Phase 9.
             "RESULTS TABLES ARE MACHINE-GENERATED — do NOT hand-write the numeric results tables. "
             "Where the main results table belongs, write exactly the single line "
             f"`<!-- TABLE:tbl-main -->`; {placeholders}. Reference them in prose as @tbl-main, "
-            f"{refs}. The pipeline fills these with verified numbers from real_results.json."
+            f"{refs}. The pipeline fills these with verified numbers from real_results.json. Put each `<!-- TABLE:tbl-* -->` placeholder on its OWN line (blank line before and after), NEVER inside a sentence."
         ))
     if phase == "phase7" and str((contract.get("data_source") or {}).get("type") or "").lower() \
             in ("meta-analysis", "meta_analysis"):
@@ -640,13 +640,28 @@ def expand_references_from_analysis(run_dir: Path, contract: dict[str, Any],
                 or meta.get("topic") or contract.get("topic") or "")
     topic_terms = _content_terms(topic)
     analysis = result.get("analysis") or {}
-    for w in (meta.get("background_works") or analysis.get("background_works")
-              or analysis.get("most_cited") or []):
-        title = str(w.get("title") or "")
-        if not topic_terms or _shares_content_term(title, topic_terms):
+    background = (meta.get("background_works") or analysis.get("background_works")
+                 or analysis.get("most_cited") or [])
+    relevant = [w for w in background if not topic_terms
+                or _shares_content_term(str(w.get("title") or ""), topic_terms)]
+    for w in relevant:
+        _add(w.get("doi"))
+    # Backfill toward a healthy reference count. When require_all gated the corpus,
+    # the background list is ALREADY on-topic, so a work the title-term filter dropped
+    # (relevant but differently titled, e.g. a heterogeneity-methods paper) is still
+    # on-topic and safe to add. Only backfill in that on-topic-corpus case.
+    picos = (contract.get("synthesis") or {}).get("picos") or {}
+    if picos.get("require_all"):
+        dropped = [w for w in background if w not in relevant]
+        for w in dropped:                       # already citation-sorted (most-cited first)
+            if len(candidates) >= REF_BACKFILL_TARGET:
+                break
             _add(w.get("doi"))
     audit = build_refs_from_doi_list(run_dir, candidates)
     return int(audit.get("kept") or 0)
+
+
+REF_BACKFILL_TARGET = 26   # a little above the 20-ref delivery-audit floor
 
 
 _REF_STOP = {"intervention", "interventions", "effect", "effects", "study", "studies",

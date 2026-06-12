@@ -158,6 +158,17 @@ def _normalize_figures(body: str) -> str:
     return "\n".join(out)
 
 
+def _isolate_generated(body: str) -> str:
+    """A GENERATED table block must be its own paragraph or pandoc won't parse the
+    caption's {#tbl-id} attribute (it appears raw, and @tbl-id can't resolve). The
+    writer sometimes embeds the placeholder mid-sentence ("...summarised in
+    <!-- GENERATED:tbl-studies -->| ... |"), gluing prose to the block. Force a
+    blank line before every open marker and after every close marker."""
+    body = re.sub(r"(\S)[ \t]*(<!-- GENERATED:)", r"\1\n\n\2", body)
+    body = re.sub(r"(<!-- /GENERATED:[^>]*-->)[ \t]*(\S)", r"\1\n\n\2", body)
+    return body
+
+
 def _strip_crossref_prefixes(body: str) -> str:
     """Quarto auto-prepends "Table"/"Figure" to a @tbl-/@fig- cross-reference, so a
     writer who pens "Table @tbl-main" / "Figure @fig-forest" gets "Table Table 1" /
@@ -183,6 +194,7 @@ def normalize_frontmatter(run_dir: Path, contract: dict[str, Any], src_name: str
     abstract, body, body_kw = _extract_abstract(fm, body)
     keywords = _extract_keywords(fm, contract, body_kw)
     body = _strip_trailing_references(body)
+    body = _isolate_generated(body)
     body = _strip_crossref_prefixes(body)
     body = _normalize_tables(body)
     body = _normalize_figures(body).lstrip("\n")

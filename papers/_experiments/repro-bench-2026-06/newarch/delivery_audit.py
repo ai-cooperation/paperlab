@@ -85,13 +85,23 @@ def _promise_capability_check(run_dir: Path) -> list[dict[str, Any]]:
 
 def _subgroup_promise_check(run_dir: Path, rr: dict[str, Any]) -> list[dict[str, Any]]:
     qmd = _read_text(run_dir / "paper_draft_v0.qmd").lower()
-    promises_subgroup = "subgroup" in qmd
+    if str(rr.get("lane") or "") != "meta_analysis":
+        return []
+    contract = _read_json(run_dir / "research_contract.json", {}) \
+        or _read_json(run_dir.parent / "contract.json", {})
+    syn = contract.get("synthesis") if isinstance(contract.get("synthesis"), dict) else {}
+    # The paper only OWES a subgroup if the contract intended one (has moderators) and
+    # it was not deliberately suppressed by phase-0. Otherwise a "subgroup" mention is
+    # the paper citing PRIOR work's subgroups (legitimate) — not an unmet promise.
+    intended = bool((syn.get("picos") or {}).get("moderators")) and not syn.get("suppress_moderation_claim")
+    if not intended:
+        return []
     sens = (rr.get("meta") or {}).get("sensitivity") or {}
     ran_subgroup = any(k.startswith("subgroup") for k in sens)
-    if promises_subgroup and not ran_subgroup and str(rr.get("lane") or "") == "meta_analysis":
+    if "subgroup" in qmd and not ran_subgroup:
         return [_issue("D3_SUBGROUP_GAP", "P1",
-                       "paper discusses a subgroup analysis but real_results ran none "
-                       "(effects carry no moderator tag); the promised subgroup did not compute")]
+                       "contract intended a moderator subgroup but real_results ran none "
+                       "(too few studies per moderator level); the promised subgroup did not compute")]
     return []
 
 
