@@ -109,11 +109,16 @@ def run(topic: str, out_dir: Path, max_works: int = 1200,
             json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
         return result
 
+    import corpus_sources
     try:
-        works, total = collect(topic, max_works)
-    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
-        return finish({"status": "blocked", "simulated": False, "source": "OpenAlex",
-                       "reason": f"collection failed: {exc}", "topic": topic})
+        works, total, by_source = corpus_sources.collect_corpus(topic, max_works)
+    except urllib.error.HTTPError as exc:
+        kind = "rate-limit/credit exhausted" if exc.code in (429, 503) else f"HTTP {exc.code}"
+        return finish({"status": "blocked", "simulated": False, "source": "corpus",
+                       "reason": f"corpus collection failed ({kind}): {exc}", "topic": topic})
+    except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
+        return finish({"status": "blocked", "simulated": False, "source": "corpus",
+                       "reason": f"corpus collection failed: {exc}", "topic": topic})
 
     stype = str(syn_type or "intervention").lower()
     if stype not in synthesis.SYNTHESIS_TYPES:
@@ -124,7 +129,7 @@ def run(topic: str, out_dir: Path, max_works: int = 1200,
     effects: list[dict[str, Any]] = []
     screened = excluded = 0
     for w in works:
-        abstract = reconstruct_abstract(w.get("abstract_inverted_index"))
+        abstract = w.get("abstract") or reconstruct_abstract(w.get("abstract_inverted_index"))
         if not abstract:
             continue
         screened += 1
@@ -196,7 +201,8 @@ def run(topic: str, out_dir: Path, max_works: int = 1200,
             "topic": topic, "synthesis_type": stype,
             "prisma": {"identified": total, "scanned": len(works),
                        "with_abstract": screened, "excluded_picos": excluded,
-                       "studies_with_effects": len(studies), "effects_extracted": len(effects)},
+                       "studies_with_effects": len(studies), "effects_extracted": len(effects),
+                       "by_source": by_source},
             "picos": picos,
             "effects": effects,
             "background_works": background_works,
