@@ -321,7 +321,14 @@ SYNTHESIS_TYPES = ("intervention", "prevalence", "correlation", "diagnostic")
 def screen_picos(work_text: str, picos: dict[str, Any]) -> tuple[bool, str]:
     """Generic eligibility screen. `picos` is the contract's spec, e.g.
     {"exclude_terms": ["pediatric","children","cerebral palsy"],
-     "require_any": ["randomized","randomised","controlled trial","rct"]}.
+     "require_any": ["randomized","randomised","controlled trial","rct"],
+     "require_all": ["mindfulness","anxiety"]}.
+    - exclude_terms: any hit -> excluded (Population/design exclusions).
+    - require_any: at least one must appear (e.g. a study-design family).
+    - require_all: EVERY term must appear — this is the on-topic gate. Without it,
+      a "randomized + controlled trial" screen alone pools dietary/massage/smoking
+      studies into a mindfulness-anxiety review. The intervention + outcome concept
+      belong here so the pool is actually about the topic.
     Returns (eligible, reason). Topic-specific terms live in the contract; this
     function is universal."""
     text = work_text.lower()
@@ -330,5 +337,16 @@ def screen_picos(work_text: str, picos: dict[str, Any]) -> tuple[bool, str]:
             return False, f"excluded: matches '{term}'"
     req = [t.lower() for t in (picos.get("require_any") or [])]
     if req and not any(t in text for t in req):
-        return False, f"excluded: none of required terms {req}"
+        return False, f"excluded: none of require_any {req}"
+    # require_all: AND across concepts, OR within. Each element is either a string
+    # (must appear) or a list of synonyms (at least one must appear). This lets the
+    # on-topic gate demand both intervention AND outcome while tolerating phrasing:
+    # [["mindfulness","mbsr","mbct","meditation"], ["anxiety","anxious"]].
+    for concept in (picos.get("require_all") or []):
+        if isinstance(concept, (list, tuple)):
+            syns = [str(s).lower() for s in concept]
+            if syns and not any(s in text for s in syns):
+                return False, f"excluded: missing concept (none of {syns})"
+        elif str(concept).lower() not in text:
+            return False, f"excluded: missing required term '{concept}'"
     return True, "eligible"
