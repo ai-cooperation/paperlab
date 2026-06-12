@@ -390,7 +390,15 @@ Stop after Phase 9.
             "![caption](figures/fig_prisma_flow.png){#fig-prisma}, cited as @fig-forest and "
             "@fig-prisma. You MAY additionally author ONE method-overview TikZ figure. Do not invent "
             "other figures or numbers.\n")
-    elif phase == "phase7":
+    if phase in ("phase7", "phase8") and ((contract.get("synthesis") or {}).get("suppress_moderation_claim")):
+        body += (
+            "\n\nMODERATION CLAIM SUPPRESSED (phase-0 calibration): the poolable evidence is too sparse "
+            "to support a moderator/subgroup/stratified analysis. Do NOT frame the title, abstract, "
+            "research question, or contribution around delivery mode, moderation, subgroup, or "
+            "stratified estimates. Write a straightforward POOLED-EFFECT paper (the overall effect + "
+            "its uncertainty + heterogeneity). You may mention moderation once as future work only.\n")
+    if phase == "phase7" and str((contract.get("data_source") or {}).get("type") or "").lower() \
+            not in ("meta-analysis", "meta_analysis"):
         body += (
             "\n\nThe architecture/method/pipeline figure MUST be authored as TikZ, NOT matplotlib boxes: "
             "write a standalone .tex in figures/ matching the name referenced in the QMD (e.g. "
@@ -1332,6 +1340,36 @@ def main() -> int:
     def record(step: str, **kw: Any) -> None:
         trace["steps"].append({"step": step, "at": now(), **kw})
         (run_dir / "newarch_trace.json").write_text(json.dumps(trace, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    # ── Phase 0: plan calibration (meta-analysis lane, fresh runs only) ──────────
+    # Catch an over-committed / non-viable plan BEFORE the 12 phases, instead of
+    # discovering it when the reviewer penalises the finished paper (a wasted run).
+    _ds = str((contract.get("data_source") or {}).get("type") or "").lower()
+    if "phase1" in args.phases and _ds in ("meta-analysis", "meta_analysis"):
+        try:
+            import phase0_calibration
+            cal = phase0_calibration.run_phase0(run_dir, contract, _literature_query(contract))
+            record("phase0_calibration", viable=cal.get("viable"), source=cal.get("source"),
+                   max_poolable_k=(cal.get("probe") or {}).get("max_poolable_k"),
+                   downgrade_moderation=cal.get("downgrade_moderation", False))
+            if not cal.get("viable"):
+                reason = cal.get("reason") or "plan not viable for an abstract-level meta-analysis"
+                (run_dir / "real_experiments").mkdir(parents=True, exist_ok=True)
+                (run_dir / "real_experiments" / "real_results.json").write_text(
+                    json.dumps({"status": "blocked", "simulated": False, "source": "phase0",
+                                "reason": f"phase-0 calibration blocked the plan: {reason}"},
+                               ensure_ascii=False), encoding="utf-8")
+                print(f"phase0: NOT VIABLE — {reason}", flush=True)
+                raise SystemExit(2)
+            calibrated = cal.get("contract")
+            if isinstance(calibrated, dict) and calibrated is not contract:
+                contract = calibrated   # downstream phases + prompts use the calibrated plan
+                (run_dir / "research_contract.json").write_text(
+                    json.dumps(contract, ensure_ascii=False, indent=2), encoding="utf-8")
+        except SystemExit:
+            raise
+        except Exception as exc:  # noqa: BLE001 - calibration must never crash a viable run
+            record("phase0_calibration", error=str(exc)[:160])
 
     elite = args.review_depth in {"7dim+elite", "full-3-layer"}
     real_summary: str | None = None
