@@ -71,7 +71,14 @@ def forest_plot(run_dir: Path, meta: dict[str, Any]) -> list[str]:
         lo, hi, pt = e["ci_low"], e["ci_high"], e["effect"]
         ax.plot([lo, hi], [y, y], color="#444", lw=1.3, zorder=2)
         ax.plot([pt], [y], "s", color="#2b6cb0", ms=6, zorder=3)
-    labels = [f"{(e.get('title') or '')[:48]} ({e.get('year') or 'n.d.'})" for e in rows]
+    def _label(e: dict[str, Any]) -> str:
+        # word-boundary truncation (no mid-word cut) + year, for a clean axis tick
+        title = " ".join(str(e.get("title") or "").split())
+        if len(title) > 46:
+            cut = title[:46].rsplit(" ", 1)[0]
+            title = (cut or title[:46]) + "…"
+        return f"{title} ({e.get('year') or 'n.d.'})"
+    labels = [_label(e) for e in rows]
     # pooled diamond
     pe, plo, phi = pooled["pooled_effect"], pooled["ci_low"], pooled["ci_high"]
     ax.add_patch(Polygon([[plo, 0], [pe, 0.32], [phi, 0], [pe, -0.32]],
