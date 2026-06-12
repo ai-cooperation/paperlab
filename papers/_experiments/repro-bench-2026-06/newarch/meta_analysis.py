@@ -99,7 +99,8 @@ def collect(topic: str, max_works: int = 1200, timeout: int = 30) -> tuple[list[
 
 
 def run(topic: str, out_dir: Path, max_works: int = 1200,
-        syn_type: str = "intervention", picos_spec: dict[str, Any] | None = None) -> dict[str, Any]:
+        syn_type: str = "intervention", picos_spec: dict[str, Any] | None = None,
+        cache_path: Path | None = None) -> dict[str, Any]:
     started = time.time()
     out_dir = out_dir.expanduser().resolve()
     (out_dir / "real_experiments").mkdir(parents=True, exist_ok=True)
@@ -110,15 +111,36 @@ def run(topic: str, out_dir: Path, max_works: int = 1200,
         return result
 
     import corpus_sources
-    try:
-        works, total, by_source = corpus_sources.collect_corpus(topic, max_works)
-    except urllib.error.HTTPError as exc:
-        kind = "rate-limit/credit exhausted" if exc.code in (429, 503) else f"HTTP {exc.code}"
-        return finish({"status": "blocked", "simulated": False, "source": "corpus",
-                       "reason": f"corpus collection failed ({kind}): {exc}", "topic": topic})
-    except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
-        return finish({"status": "blocked", "simulated": False, "source": "corpus",
-                       "reason": f"corpus collection failed: {exc}", "topic": topic})
+    # Collect ONCE per job, then cache: the phase-0 probe and the real run share
+    # the same corpus via cache_path. Without this, a job does 2+ large collects
+    # (probe + run, x model retries); a rate-limited source then returns wildly
+    # different counts each time (seen 13 -> 1 -> 0), causing false blocks.
+    works = total = by_source = None
+    if cache_path is not None and Path(cache_path).is_file():
+        try:
+            cached = json.loads(Path(cache_path).read_text(encoding="utf-8"))
+            if cached.get("query") == topic and int(cached.get("max_works") or 0) >= max_works:
+                works = cached["works"]
+                total, by_source = cached.get("total"), cached.get("by_source")
+        except (json.JSONDecodeError, OSError, KeyError):
+            works = None
+    if works is None:
+        try:
+            works, total, by_source = corpus_sources.collect_corpus(topic, max_works)
+        except urllib.error.HTTPError as exc:
+            kind = "rate-limit/credit exhausted" if exc.code in (429, 503) else f"HTTP {exc.code}"
+            return finish({"status": "blocked", "simulated": False, "source": "corpus",
+                           "reason": f"corpus collection failed ({kind}): {exc}", "topic": topic})
+        except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
+            return finish({"status": "blocked", "simulated": False, "source": "corpus",
+                           "reason": f"corpus collection failed: {exc}", "topic": topic})
+        if cache_path is not None:
+            try:
+                Path(cache_path).write_text(json.dumps(
+                    {"query": topic, "max_works": max_works, "works": works,
+                     "total": total, "by_source": by_source}), encoding="utf-8")
+            except OSError:
+                pass
 
     stype = str(syn_type or "intervention").lower()
     if stype not in synthesis.SYNTHESIS_TYPES:

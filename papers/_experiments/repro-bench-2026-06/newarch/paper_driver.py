@@ -601,7 +601,8 @@ def run_meta_analysis_lane(run_dir: Path, contract: dict[str, Any]) -> dict[str,
     # viable pool (else a legitimate topic fails-closed on too-few studies).
     max_works = 2400 if picos.get("require_all") else 1200
     result = meta_analysis.run(_literature_query(contract), run_dir,
-                               syn_type=syn_type, picos_spec=picos, max_works=max_works)
+                               syn_type=syn_type, picos_spec=picos, max_works=max_works,
+                               cache_path=run_dir / "_corpus_cache.json")   # reuse phase-0's collect
     if result.get("status") != "completed":
         raise RuntimeError(f"meta-analysis failed closed: {result.get('reason')}")
     try:                                  # deterministic forest plot + PRISMA flow

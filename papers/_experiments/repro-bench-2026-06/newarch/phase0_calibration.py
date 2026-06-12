@@ -37,14 +37,16 @@ def feasibility_probe(run_dir: Path, query: str, syn_type: str,
                       picos: dict[str, Any]) -> dict[str, Any]:
     """Lightweight count of what this plan would actually pool — runs the real
     meta_analysis extraction to a scratch dir (no paper written) and reports the
-    poolable k per scale. This is the ground truth codex calibrates against."""
+    poolable k per scale. Collects through the SHARED job cache so the real run
+    reuses the same corpus (one collect per job, no re-hammering the source)."""
     import meta_analysis
     probe_dir = run_dir / "_phase0_probe"
     if probe_dir.exists():
         shutil.rmtree(probe_dir, ignore_errors=True)
     try:
         r = meta_analysis.run(query, probe_dir, max_works=2400,
-                              syn_type=syn_type, picos_spec=picos)
+                              syn_type=syn_type, picos_spec=picos,
+                              cache_path=run_dir / "_corpus_cache.json")
     except Exception as exc:  # noqa: BLE001 - probe failure -> let codex/floor decide
         return {"status": "error", "reason": str(exc)[:200], "max_poolable_k": 0}
     if r.get("status") != "completed":
@@ -155,8 +157,10 @@ def _apply(contract: dict[str, Any], calibrated: dict[str, Any]) -> dict[str, An
     """Merge codex's calibrated fields into a NEW contract (immutable; bounded to
     the safe, plan-level fields — never level/tier/identity)."""
     c = json.loads(json.dumps(contract))  # deep copy
-    if isinstance(calibrated.get("data_source_name"), str) and calibrated["data_source_name"].strip():
-        c.setdefault("data_source", {})["name"] = calibrated["data_source_name"].strip()
+    # NOTE: codex's data_source_name (query) is intentionally NOT applied. The query
+    # is fixed deterministically (_clean_query) so the probe's cached corpus is reused
+    # by the real run; letting codex rewrite the query would invalidate the cache and
+    # force a second large collect (the source then throttles -> inconsistent counts).
     for fld in ("topic_title", "contribution"):
         key = "topic" if fld == "topic_title" else fld
         if isinstance(calibrated.get(fld), str) and calibrated[fld].strip():
@@ -207,7 +211,12 @@ def run_phase0(run_dir: Path, contract: dict[str, Any], query: str) -> dict[str,
     syn_type = str(syn.get("type") or "intervention").lower()
     picos = syn.get("picos") if isinstance(syn.get("picos"), dict) else {}
 
-    probe = feasibility_probe(run_dir, query, syn_type, picos)
+    # Clean the query up-front (strip moderator phrases) and probe on THAT, so the
+    # probe's cached corpus is exactly what the real run will reuse (one collect).
+    clean_query = _clean_query(query, picos.get("moderators") or [])
+    if clean_query and contract.get("data_source"):
+        contract["data_source"]["name"] = clean_query
+    probe = feasibility_probe(run_dir, clean_query, syn_type, picos)
     floor = deterministic_floor(contract, probe)
     result: dict[str, Any] = {"probe": probe, "contract": contract, "gap_assessment": "",
                               "source": "floor", "downgrade_moderation": floor.get("downgrade_moderation", False)}
