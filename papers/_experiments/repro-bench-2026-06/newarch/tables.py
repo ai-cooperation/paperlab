@@ -304,6 +304,52 @@ def inject(run_dir: Path, contract: dict[str, Any] | None = None) -> int:
     return n
 
 
+# Pre-generated figures the writer must reference but reliably fails to EMBED
+# (it writes "@fig-forest_plot" in prose with no ![...]{#fig} float -> unresolved
+# ?@fig + a figureless PDF). Machine owns the embed, exactly like GENERATED tables.
+_FIGSPEC = [
+    ("fig-forest", "fig_forest_plot.png",
+     "Forest plot of study-level effect sizes and the random-effects pooled estimate."),
+    ("fig-prisma", "fig_prisma_flow.png", "PRISMA-style flow diagram of study selection."),
+    ("fig-method", "fig_method_overview.png",
+     "Overview of the abstract-level meta-analysis pipeline."),
+]
+
+
+def inject_figures(run_dir: Path) -> int:
+    """Normalize the writer's varied @fig-* references to canonical labels and
+    guarantee each pre-generated figure is embedded as a labelled float (own
+    paragraph). Returns the number of embeds inserted."""
+    run_dir = Path(run_dir)
+    qmd = run_dir / "paper_draft_v0.qmd"
+    figdir = run_dir / "figures"
+    if not qmd.is_file():
+        return 0
+    text = qmd.read_text(encoding="utf-8", errors="ignore")
+    n = 0
+    for canon, fname, caption in _FIGSPEC:
+        if not (figdir / fname).is_file():
+            continue
+        stem = canon.split("-", 1)[1]                       # forest / prisma / method
+        # collapse @fig-forest_plot, @fig-forestplot, @fig-forest... -> @fig-forest
+        text = re.sub(rf"@fig-{stem}[A-Za-z_]*", f"@{canon}", text)
+        if f"{{#{canon}}}" in text:                          # already embedded as a float
+            continue
+        embed = f"![{caption}](figures/{fname}){{#{canon}}}"
+        ref = f"@{canon}"
+        idx = text.find(ref)
+        if idx != -1:                                        # after the referencing paragraph
+            end = text.find("\n\n", idx)
+            end = len(text) if end == -1 else end
+            text = text[:end] + f"\n\n{embed}\n" + text[end:]
+        else:                                                # referenced nowhere: append + add a ref
+            text += f"\n\nThe analysis pipeline and pooled results are shown in {ref}.\n\n{embed}\n"
+        n += 1
+    if n:
+        qmd.write_text(text, encoding="utf-8")
+    return n
+
+
 def verify(run_dir: Path, contract: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Post-render integrity check: every GENERATED block in the qmd must still equal a
     fresh deterministic regeneration from real_results (catches tampering inside the

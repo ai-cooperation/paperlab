@@ -1486,6 +1486,7 @@ def main() -> int:
     except (json.JSONDecodeError, OSError):
         contract_obj = {}
     record("inject_tables", n=tables.inject(run_dir, contract_obj))
+    record("inject_figures", n=tables.inject_figures(run_dir))
 
     # Fix 1: deterministic journal-format render (replaces the model's ad-hoc render).
     record("render_pdf", ok=render_pdf(run_dir))
@@ -1615,6 +1616,7 @@ def main() -> int:
             # it replaces any stale block with a fresh regeneration, so model edits
             # inside machine regions are healed rather than merely flagged P0.
             record(f"reinject_tables_r{round_idx}", n=tables.inject(run_dir, contract_obj))
+            tables.inject_figures(run_dir)
             render_pdf(run_dir)
         except Exception as exc:  # noqa: BLE001 - any failure must roll back, not corrupt the run
             failed_reason = f"exception: {str(exc)[:200]}"

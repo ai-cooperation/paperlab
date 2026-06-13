@@ -65,16 +65,30 @@ def _refs_count_check(run_dir: Path, rr: dict[str, Any]) -> list[dict[str, Any]]
     return []
 
 
+_NEG = re.compile(r"\b(not|no|without|did not|were not|was not|could not|cannot|"
+                  r"precluded|avoid|beyond|outside|absence of|rather than|instead of)\b")
+
+
 def _promise_capability_check(run_dir: Path) -> list[dict[str, Any]]:
     qmd = _read_text(run_dir / "paper_draft_v0.qmd")
     if not qmd:
         return []
-    # only inspect the framing (title + abstract + first heading block), where an
-    # over-claim does damage; a method named once in Future Work is fine.
+    # Inspect the framing (title + abstract + first heading block), where an
+    # over-claim does damage. A mention is only a CLAIM if it is asserted as
+    # performed — a disclaimer ("the following were NOT performed: Bayesian ...")
+    # or a Future Work note is honest, not a mismatch. Skip negated mentions.
     head = qmd[:2500].lower()
     fut = qmd.lower().find("future work")
-    hits = [p for p in UNSUPPORTED_METHOD_PATTERNS
-            if (m := re.search(p, head)) and (fut == -1 or m.start() < fut)]
+    hits: list[str] = []
+    for p in UNSUPPORTED_METHOD_PATTERNS:
+        m = re.search(p, head)
+        if not m:
+            continue
+        if fut != -1 and m.start() >= fut:        # named only in Future Work
+            continue
+        if _NEG.search(head[max(0, m.start() - 80): m.start()]):  # disclaimed, not claimed
+            continue
+        hits.append(p)
     if hits:
         return [_issue("D2_PROMISE_MISMATCH", "P0",
                        "title/abstract claims a method the automated engine never ran "
