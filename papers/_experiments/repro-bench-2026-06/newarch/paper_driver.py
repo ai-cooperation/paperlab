@@ -383,12 +383,13 @@ Stop after Phase 9.
     if phase == "phase7" and str((contract.get("data_source") or {}).get("type") or "").lower() \
             in ("meta-analysis", "meta_analysis"):
         body += (
-            "\n\nTWO FIGURES ARE PRE-GENERATED deterministically from the real pooled numbers — do "
-            "NOT redraw them: figures/fig_forest_plot.png (forest plot of the pooled estimate) and "
-            "figures/fig_prisma_flow.png (PRISMA-style study-selection flow). Reference them in the "
-            "Results prose as ![caption](figures/fig_forest_plot.png){#fig-forest} and "
-            "![caption](figures/fig_prisma_flow.png){#fig-prisma}, cited as @fig-forest and "
-            "@fig-prisma. You MAY additionally author ONE method-overview TikZ figure. Do not invent "
+            "\n\nTHREE FIGURES ARE PRE-GENERATED deterministically from the real numbers — do NOT "
+            "redraw them and do NOT author any TikZ/matplotlib figure yourself: "
+            "figures/fig_method_overview.png (the abstract-level pipeline overview), "
+            "figures/fig_prisma_flow.png (PRISMA 2020 study-selection flow), and "
+            "figures/fig_forest_plot.png (forest plot of the pooled estimate). Reference them in prose "
+            "as @fig-method (Methods), @fig-prisma and @fig-forest (Results); the pipeline injects the "
+            "![caption](path){#fig-...} embeds, so you only need the @fig-... citations. Do not invent "
             "other figures or numbers.\n")
     if phase in ("phase7", "phase8") and ((contract.get("synthesis") or {}).get("suppress_moderation_claim")):
         body += (
