@@ -261,10 +261,17 @@ def _tag_moderators(effect: dict[str, Any], low_abstract: str,
 
 
 def extract(synthesis_type: str, abstract: str, work: dict[str, Any],
-            moderators: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+            moderators: list[dict[str, Any]] | None = None,
+            outcome_terms: list[str] | None = None) -> list[dict[str, Any]]:
     """Mechanical extraction dispatched by synthesis type. Each effect carries
     measure, value, CI (when present), n, scale, a verbatim evidence sentence,
-    and any contract-defined moderator tags (for subgroup analysis)."""
+    and any contract-defined moderator tags (for subgroup analysis).
+
+    outcome_terms (optional) gates ONLY non-poolable raw MD effects: a mean
+    difference whose evidence sentence never names the outcome is almost always a
+    secondary/off-topic measure (e.g. a knee-fitness MD inside a depression review).
+    Poolable effects (smd/ratio/r/proportion) are never dropped here, so k — the
+    scarce quantity at abstract level — is fully preserved regardless of this filter."""
     if not abstract:
         return []
     nm = _N.search(abstract)
@@ -314,6 +321,11 @@ def extract(synthesis_type: str, abstract: str, work: dict[str, Any],
             if 0 < p <= 1:
                 add(measure=m.group(1).lower(), effect=p, ci_low=None, ci_high=None,
                     scale="proportion", outcome_domain=m.group(1).lower(), _start=m.start())
+    if outcome_terms:
+        ot = [t.lower() for t in outcome_terms if t]
+        if ot:
+            out = [e for e in out if e.get("scale") != "md"
+                   or any(t in (e.get("evidence") or "").lower() for t in ot)]
     if moderators:
         low = abstract.lower()
         for e in out:

@@ -1377,7 +1377,7 @@ def main() -> int:
                                 "reason": f"phase-0 calibration blocked the plan: {reason}"},
                                ensure_ascii=False), encoding="utf-8")
                 print(f"phase0: NOT VIABLE — {reason}", flush=True)
-                raise SystemExit(2)
+                raise SystemExit(3)   # 3 = deterministic block (terminal; job_runner won't retry)
             calibrated = cal.get("contract")
             if isinstance(calibrated, dict) and calibrated is not contract:
                 contract = calibrated   # downstream phases + prompts use the calibrated plan
@@ -1426,17 +1426,25 @@ def main() -> int:
             # collect + analyse the OpenAlex corpus (universal, any field); the
             # registered dataset lane (HUPD) runs the classical-ML experiment.
             ds_type = str((contract.get("data_source") or {}).get("type") or "").lower()
-            if ds_type in ("meta-analysis", "meta_analysis"):
-                result = run_meta_analysis_lane(run_dir, contract)
-                record("meta_analysis", status=result.get("status"),
-                       studies=((result.get("meta") or {}).get("prisma") or {}).get("studies_with_effects"),
-                       simulated=result.get("simulated"))
-                record("expand_references",
-                       kept=expand_references_from_analysis(run_dir, contract, result))
-            elif ds_type == "literature":
-                result = run_scientometric_analysis(run_dir, contract)
-                record("scientometric_analysis", status=result.get("status"),
-                       rows=result.get("rows"), simulated=result.get("simulated"))
+            if ds_type in ("meta-analysis", "meta_analysis", "literature"):
+                # A fail-closed lane (too few eligible studies / collection failed) is a
+                # deterministic block, not a crash: retrying won't help, so exit 3 (terminal)
+                # rather than let the RuntimeError become exit 1 (which job_runner retries).
+                try:
+                    if ds_type == "literature":
+                        result = run_scientometric_analysis(run_dir, contract)
+                        record("scientometric_analysis", status=result.get("status"),
+                               rows=result.get("rows"), simulated=result.get("simulated"))
+                    else:
+                        result = run_meta_analysis_lane(run_dir, contract)
+                        record("meta_analysis", status=result.get("status"),
+                               studies=((result.get("meta") or {}).get("prisma") or {}).get("studies_with_effects"),
+                               simulated=result.get("simulated"))
+                except RuntimeError as exc:
+                    trace["final_status"] = "blocked_data_not_viable"
+                    record("lane_blocked", reason=str(exc)[:200])
+                    _write_blocked_review(run_dir, contract, args, str(exc))
+                    return 3
                 record("expand_references",
                        kept=expand_references_from_analysis(run_dir, contract, result))
             else:

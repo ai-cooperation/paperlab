@@ -147,6 +147,15 @@ def run(topic: str, out_dir: Path, max_works: int = 1200,
         stype = "intervention"
     picos = picos_spec or {}
     moderators = [m for m in (picos.get("moderators") or []) if isinstance(m, dict)]
+    # Convention: require_all = [[intervention/exposure syns], <outcome>, <population>...].
+    # The first group is the manipulated intervention (named in almost every sentence,
+    # so useless as an on-topic signal); the remaining groups are the study's subject
+    # (outcome + population). An MD whose evidence sentence names NONE of those subject
+    # terms is a tangential side-measure -> drop. We union groups[1:] rather than guess
+    # which one is "the outcome" (it may sit in any non-first position). extract() applies
+    # this to non-poolable MD only, so even a wrong guess can never change k or the pool.
+    _ra = [g for g in (picos.get("require_all") or []) if isinstance(g, list) and g]
+    outcome_terms = [str(t) for g in _ra[1:] for t in g] if len(_ra) >= 2 else None
 
     effects: list[dict[str, Any]] = []
     screened = excluded = 0
@@ -159,7 +168,8 @@ def run(topic: str, out_dir: Path, max_works: int = 1200,
         if not ok:
             excluded += 1
             continue
-        effects.extend(synthesis.extract(stype, abstract, w, moderators=moderators))
+        effects.extend(synthesis.extract(stype, abstract, w, moderators=moderators,
+                                         outcome_terms=outcome_terms))
     studies = {(e["doi"] or e["title"]) for e in effects}
 
     if len(studies) < MIN_STUDIES_TO_COMPLETE:

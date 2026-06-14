@@ -26,6 +26,8 @@ import source_probe
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_JOBS_DIR = SCRIPT_DIR / "jobs"
 RUNNER_VERSION = "2026-06-06-a"
+BLOCKED_EXIT = 3   # paper_driver exit code for a deterministic block (terminal; no retry)
+
 OUTPUT_KEYS = (
     "job_id",
     "status",
@@ -350,6 +352,11 @@ def run_pipeline(job_dir: Path, run_dir: Path, routing_decision: dict[str, Any])
             }
             attempts.append(entry)
             if proc.returncode == 0:
+                return attempts
+            if proc.returncode == BLOCKED_EXIT:
+                # Deterministic block (non-viable plan / too few studies / DOI gate):
+                # retrying or switching model cannot help -> terminal, stop now.
+                entry["terminal_block"] = True
                 return attempts
         if not fallback.get("paid_fallback"):
             return attempts
@@ -804,7 +811,23 @@ def run_job(job_id: str, jobs_dir: Path = DEFAULT_JOBS_DIR) -> dict[str, Any]:
     update_state(job_dir, "running", "data gate passed", data_source_lock=lock)
 
     attempts = run_pipeline(job_dir, run_dir, routing_decision)
-    success = bool(attempts and attempts[-1].get("returncode") == 0)
+    last_rc = attempts[-1].get("returncode") if attempts else 1
+    if last_rc == BLOCKED_EXIT:
+        # Deterministic block (non-viable plan / data): a clean "blocked", not a
+        # retried "failed". Surface the real reason from the blocked real_results.
+        rr = read_json(run_dir / "real_experiments" / "real_results.json")
+        reason = (rr.get("reason") if isinstance(rr, dict) else None) \
+            or "plan/data not viable (phase-0 or lane block)"
+        output = failed_output(job_id, run_dir, attempts, routing_decision)
+        output["status"] = "blocked"
+        output["blockers"] = [reason]
+        write_json(job_dir / "output.json", output)
+        repo_sync = sync_project_repo(contract, "blocked", job_dir, run_dir, output)
+        notification = notify_completion(contract, output)
+        update_state(job_dir, "blocked", f"blocked: {reason[:90]}", attempts=attempts,
+                     output=output, repo_sync=repo_sync, notification=notification)
+        return output
+    success = last_rc == 0
     if not success:
         output = failed_output(job_id, run_dir, attempts, routing_decision)
         write_json(job_dir / "output.json", output)
