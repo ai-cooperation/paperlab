@@ -28,6 +28,7 @@ from .dossier import Dossier, new_dossier
 from .gate_lifecycle import GateReport, run_gates
 from .orchestrator import Orchestrator, OrchestratorBlocked, Phase
 from .review import ReviewOutcome, SelfHealLoop, SelfHealResult, build_review_fn
+from .submission import SubmitDecision, ViabilityLock, derive_contract, lock_for, submit_gate
 from .viability import ViabilityDecision, handle_viability
 
 __all__ = [
@@ -46,4 +47,6 @@ __all__ = [
     "SelfHealLoop", "SelfHealResult", "ReviewOutcome", "build_review_fn",
     # viability + tier
     "ViabilityDecision", "handle_viability",
+    # submission gate + viability-lock (P8 canonical a-side logic)
+    "SubmitDecision", "ViabilityLock", "derive_contract", "lock_for", "submit_gate",
 ]
