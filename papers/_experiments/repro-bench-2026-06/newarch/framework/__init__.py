@@ -27,6 +27,7 @@ from .domain_pack import (
 from .dossier import Dossier, new_dossier
 from .gate_lifecycle import GateReport, run_gates
 from .orchestrator import Orchestrator, OrchestratorBlocked, Phase
+from .review import ReviewOutcome, SelfHealLoop, SelfHealResult, build_review_fn
 
 __all__ = [
     # seam + value objects
@@ -40,4 +41,6 @@ __all__ = [
     "Dispatcher", "MockDispatcher", "HermesDispatcher", "WorkerPacket", "WorkerResult",
     # orchestrator
     "Orchestrator", "OrchestratorBlocked", "Phase",
+    # review + self-heal
+    "SelfHealLoop", "SelfHealResult", "ReviewOutcome", "build_review_fn",
 ]
