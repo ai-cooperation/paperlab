@@ -149,9 +149,18 @@ def paper_path_for_job(job_id: str, jobs_dir: Path) -> Path:
     return pdf
 
 
-def create_app(jobs_dir: Path = DEFAULT_HTTP_JOBS_DIR, start_worker: bool = True) -> FastAPI:
+def create_app(jobs_dir: Path = DEFAULT_HTTP_JOBS_DIR, start_worker: bool = True,
+               engine_dispatcher: Any = None) -> FastAPI:
     app = FastAPI(title="Paper Job Service", version=job_runner.RUNNER_VERSION)
     resolved_jobs_dir = jobs_dir.expanduser().resolve()
+
+    # Engine-v2 (orchestrator) routes mount ALONGSIDE the old pipeline for A/B, only
+    # when a dispatcher is supplied (offline: MockDispatcher; live: HermesDispatcher).
+    # The old paper_driver pipeline is untouched (P7: never churn prod around an
+    # unproven orchestrator).
+    if engine_dispatcher is not None:
+        import engine_routes
+        engine_routes.register(app, resolved_jobs_dir, engine_dispatcher)
 
     @app.get("/health")
     def health() -> dict[str, Any]:
