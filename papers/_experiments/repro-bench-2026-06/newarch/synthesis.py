@@ -371,3 +371,52 @@ def screen_picos(work_text: str, picos: dict[str, Any]) -> tuple[bool, str]:
         elif str(concept).lower() not in text:
             return False, f"excluded: missing required term '{concept}'"
     return True, "eligible"
+
+
+# ── Authoritative poolable-k (Phase 1: kill the 8/3/23 divergence) ───────────
+# One source of truth for "how many poolable effects per scale", shared by the
+# meta lane (meta_analysis.run), the phase0 viability probe, and pack viability.
+# The number is PER SCALE and counted AFTER pool()'s one-effect-per-study dedup —
+# so SMD k=8 and log_ratio k=3 are different *strata*, never "8 vs 3 inconsistency".
+# A naive len(effects) (e.g. 64 raw, mixing scales + multi-effect studies + non-
+# poolable MD) is NOT poolable-k and must never be used as one.
+
+def collect_effects_by_scale(works: list[dict[str, Any]], picos: dict[str, Any],
+                             synthesis_type: str,
+                             moderators: list[dict[str, Any]] | None = None,
+                             outcome_terms: list[str] | None = None,
+                             ) -> dict[str, list[dict[str, Any]]]:
+    """Screen PICOS + extract effects + group by scale. Mirrors meta_analysis.run's
+    screen->extract->group step exactly (it reads a pre-resolved `abstract`; the
+    corpus cache stores resolved abstracts). outcome_terms gates ONLY non-poolable
+    MD, so it can never change poolable-k."""
+    stype = str(synthesis_type or "intervention").lower()
+    if stype not in SYNTHESIS_TYPES:
+        stype = "intervention"
+    by_scale: dict[str, list[dict[str, Any]]] = {}
+    for w in works:
+        abstract = w.get("abstract")
+        if not abstract:
+            continue
+        ok, _ = screen_picos((w.get("title") or "") + " " + abstract, picos)
+        if not ok:
+            continue
+        for e in extract(stype, abstract, w, moderators=moderators, outcome_terms=outcome_terms):
+            by_scale.setdefault(e.get("scale", "smd"), []).append(e)
+    return by_scale
+
+
+def poolable_k_by_scale(works: list[dict[str, Any]], picos: dict[str, Any],
+                        synthesis_type: str) -> dict[str, int]:
+    """THE authoritative poolable-k. Returns {scale: k} for every poolable scale
+    (k = pool()'s study count after dedup). Non-poolable scales (raw MD) are
+    excluded. Empty dict means nothing pools (non-viable)."""
+    by_scale = collect_effects_by_scale(works, picos, synthesis_type)
+    out: dict[str, int] = {}
+    for scale, rows in by_scale.items():
+        if scale in NON_POOLABLE_SCALES:
+            continue
+        p = pool(rows, scale)
+        if p and p.get("k"):
+            out[scale] = int(p["k"])
+    return out

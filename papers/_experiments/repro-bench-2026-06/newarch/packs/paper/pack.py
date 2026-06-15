@@ -6,7 +6,6 @@ seam. The framework calls this through the interface; it never imports it.
 """
 from __future__ import annotations
 
-from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +17,6 @@ from framework import DomainPack, Gate, GateResult, Severity, ViabilityVerdict
 POOLABLE_FLOOR = 5
 REFS_FLOOR = 35              # Gate A (DESIGN §3.8)
 DOI_REAL_RATE_FLOOR = 0.80   # Gate A
-_NON_POOLABLE_SCALES = {"md"}   # raw mean-difference is not abstract-level poolable
 
 
 def _work_text(w: dict[str, Any]) -> str:
@@ -74,8 +72,9 @@ class PaperPack(DomainPack):
         return ["openalex", "europepmc", "crossref"]
 
     def viability_probe(self, contract: dict[str, Any], sources: dict[str, Any]) -> ViabilityVerdict:
-        """Deterministic poolable-k over the (frozen, pre-collected) corpus —
-        screen PICOS, extract effects, count what actually pools per scale."""
+        """Deterministic poolable-k over the (frozen, pre-collected) corpus, via the
+        ONE authoritative counter `synthesis.poolable_k_by_scale` (Phase 1) — the
+        same count the meta lane + phase0 probe produce, so no path can diverge."""
         corpus = sources.get("corpus") or {}
         works = corpus.get("works") if isinstance(corpus, dict) else corpus
         works = works or []
@@ -83,23 +82,9 @@ class PaperPack(DomainPack):
         picos = syn.get("picos") or {}
         syn_type = syn.get("type") or "intervention"
 
-        eligible = 0
-        by_scale: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        for w in works:
-            ok, _ = synthesis.screen_picos(_work_text(w), picos)
-            if not ok:
-                continue
-            eligible += 1
-            for e in synthesis.extract(syn_type, w.get("abstract") or "", w):
-                by_scale[e["scale"]].append(e)
-
-        poolable_k: dict[str, int] = {}
-        for scale, effs in by_scale.items():
-            if scale in _NON_POOLABLE_SCALES:
-                continue
-            pooled = synthesis.pool(effs, scale)
-            if pooled and pooled.get("k"):
-                poolable_k[scale] = int(pooled["k"])
+        poolable_k = synthesis.poolable_k_by_scale(works, picos, syn_type)
+        eligible = sum(1 for w in works
+                       if synthesis.screen_picos(_work_text(w), picos)[0])
         max_k = max(poolable_k.values(), default=0)
 
         viable = max_k >= POOLABLE_FLOOR
