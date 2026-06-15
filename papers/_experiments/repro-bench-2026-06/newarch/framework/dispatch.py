@@ -27,12 +27,16 @@ WORKER_MODELS = {
     "external": "codex-cli",
 }
 
-# LIVE wiring on ac-2012 (verified 2026-06-15): the free worker tier is the local
-# custom endpoint model `deepseek-v4-flash-free` (hermes -z, base 127.0.0.1:8898;
-# the config's "big-pickle"->opencode-zen mapping needs a key and is unused). The
-# strong brain (reviewers + brain reasoning) is the subscription codex CLI — the
-# design's sanctioned path (§3.1) — proven working on alan.chen75.
-LIVE_WORKER_MODEL = "deepseek-v4-flash-free"
+# LIVE wiring on ac-2012 (the ORIGINAL pipeline's proven invocation, run_newarch.py
+# hermes_short): the free worker is `big-pickle` on the `custom` provider (local
+# gateway 127.0.0.1:8898) — invoked as `hermes -z <prompt> --provider custom -m
+# big-pickle --ignore-rules --toolsets file,terminal`. The `--provider custom` is
+# REQUIRED: without it hermes resolves big-pickle to opencode-zen (which is keyless/
+# unused here). The strong brain (reviewers) is the subscription codex CLI (§3.1).
+LIVE_WORKER_MODEL = "big-pickle"
+LIVE_WORKER_PROVIDER = "custom"
+LIVE_WORKER_TOOLSETS = "file,terminal"
+HERMES_VENV_BIN = str(Path.home() / ".hermes" / "hermes-agent" / "venv" / "bin" / "hermes")
 BRAIN_CLASSES = {"reviewer", "external"}      # routed to codex CLI, not the free worker
 
 
@@ -139,7 +143,7 @@ class LiveDispatcher(Dispatcher):
     Hermes path cheap: the bulk (section writing, fixes) runs on the FREE worker, only
     the brain/review judgment spends codex quota."""
 
-    def __init__(self, *, worker_model: str = LIVE_WORKER_MODEL, hermes_bin: str = "hermes",
+    def __init__(self, *, worker_model: str = LIVE_WORKER_MODEL, hermes_bin: str = HERMES_VENV_BIN,
                  codex_bin: str = "codex", run_dir: Path | None = None,
                  worker_timeout_s: int = 600, brain_timeout_s: int = 1200):
         self.worker_model = worker_model
@@ -150,11 +154,19 @@ class LiveDispatcher(Dispatcher):
         self.brain_timeout_s = brain_timeout_s
 
     def _packet_prompt(self, packet: WorkerPacket) -> str:
-        return (
-            "You are a BOUNDED worker. You cannot delegate. Read ONLY allowed_files_read; "
-            "write ONLY allowed_files_write. End with the literal token CHILD_OK on success "
-            "or BLOCKED: <reason>.\n\n"
-            f"PACKET:\n{json.dumps(asdict(packet), ensure_ascii=False, indent=2)}\n")
+        # The task_goal IS the full instruction (the paper-phase prompt). Pass it
+        # DIRECTLY — do NOT bury it in a JSON envelope, or a smart brain (codex)
+        # treats the wrapper as the task and just echoes CHILD_OK without doing the
+        # file write (observed live 2026-06-15). A thin suffix names the outputs.
+        parts = [packet.task_goal]
+        if packet.relevant_excerpts:
+            parts.append("\nContext:\n" + packet.relevant_excerpts)
+        if packet.allowed_files_write:
+            parts.append(f"\nWrite ONLY these file(s) in the current directory: "
+                         f"{', '.join(packet.allowed_files_write)}. Then end with the token CHILD_OK.")
+        else:
+            parts.append("\nEnd with the token CHILD_OK.")
+        return "\n".join(parts)
 
     def delegate(self, packet: WorkerPacket) -> WorkerResult:  # pragma: no cover - live only
         cwd = str(self.run_dir) if self.run_dir else None
@@ -164,7 +176,11 @@ class LiveDispatcher(Dispatcher):
                    "--sandbox", "workspace-write", prompt]
             timeout = self.brain_timeout_s
         else:
-            cmd = [self.hermes_bin, "-z", prompt, "-m", self.worker_model, "--cli"]
+            # ORIGINAL pipeline's proven big-pickle invocation (run_newarch.hermes_short):
+            # --provider custom routes to the local gateway; --toolsets file,terminal
+            # gives the worker the tools to actually write its output file.
+            cmd = [self.hermes_bin, "-z", prompt, "--provider", LIVE_WORKER_PROVIDER,
+                   "-m", self.worker_model, "--ignore-rules", "--toolsets", LIVE_WORKER_TOOLSETS]
             timeout = self.worker_timeout_s
         try:
             proc = subprocess.run(cmd, text=True, capture_output=True,
