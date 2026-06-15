@@ -1,0 +1,22 @@
+{
+  "probe": {
+    "status": "completed",
+    "total_studies": 35,
+    "excluded_picos": 2253,
+    "by_scale_counts": {
+      "smd": 79,
+      "md": 9,
+      "log_ratio": 3
+    },
+    "poolable_k": {
+      "smd": 13,
+      "log_ratio": 3
+    },
+    "max_poolable_k": 13
+  },
+  "gap_assessment": "SATURATED: the broad clinical question is already well covered, including Noetel et al., BMJ 2024, a systematic review and network meta-analysis of 218 randomized trials of exercise for depression, and Tang et al., BMC Geriatrics 2024, a network meta-analysis specifically on optimal exercise dose/type for depressive symptoms in older adults. The remaining defensible gap is not clinical novelty but whether an abstract-only OpenAlex pipeline recovers a directionally useful pooled estimate.",
+  "source": "codex",
+  "downgrade_moderation": false,
+  "viable": true,
+  "reason": "Viable, but only as a modest abstract-level synthesis, not as a definitive clinical meta-analysis. The feasibility probe finds 13 poolable SMD studies and 3 log-ratio studies, which clears the minimum for DerSimonian-Laird random-effects pooling, while raw MD should remain descriptive only. The paper must be framed as an OpenAlex-abstract-derived estimate with limited screening depth and no risk-of-bias, GRADE, meta-regression, or full-text eligibility confirmation."
+}

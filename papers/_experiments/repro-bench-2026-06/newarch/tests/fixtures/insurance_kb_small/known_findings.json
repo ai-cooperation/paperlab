@@ -1,0 +1,63 @@
+{
+  "_purpose": "Oracle for the insurance pack (ENGINE_GENERAL_SPEC 2.2). Ground-truth findings the evidence_model should extract from docs/, each with a REQUIRED source_url. Drives: (a) viability_probe target_findings yield (5 findings present -> the 5-tier is viable, the 15-tier is not), (b) evidence tests (every finding cites a real doc), (c) gate tests (one stale source, one conflicting pair).",
+  "fresh_window_days": 120,
+  "as_of": "2026-06-15",
+  "tiers": { "shallow": 5, "standard": 10, "deep": 15 },
+  "findings": [
+    {
+      "id": "f1",
+      "type": "pricing",
+      "content": "國泰人壽本季上調主力實支實付醫療險保費（方向：上調）。",
+      "source_url": "https://example-insurance-news.tw/articles/health-premium-2026q2",
+      "doc_id": "tw_health_premium_2026-06-10",
+      "date": "2026-06-10",
+      "region": "台灣"
+    },
+    {
+      "id": "f2",
+      "type": "pricing",
+      "content": "國泰人壽本季下調部分醫療險保費（方向：下調）。",
+      "source_url": "https://example-insurance-news.tw/articles/health-premium-cut-2026q2",
+      "doc_id": "tw_health_premium_conflict_2026-06-12",
+      "date": "2026-06-12",
+      "region": "台灣",
+      "conflicts_with": "f1"
+    },
+    {
+      "id": "f3",
+      "type": "product",
+      "content": "日本壽險推出穿戴裝置步數連動健康促進附約。",
+      "source_url": "https://example-insurance-news.jp/articles/health-rider-2026q2",
+      "doc_id": "jp_nisa_health_2026-06-11",
+      "date": "2026-06-11",
+      "region": "日本"
+    },
+    {
+      "id": "f4",
+      "type": "background",
+      "content": "韓國健康險 2025-Q3 市場概況（已過時）。",
+      "source_url": "https://example-insurance-news.kr/articles/health-2025q3",
+      "doc_id": "kr_health_stale_2025-09-02",
+      "date": "2025-09-02",
+      "region": "韓國",
+      "stale": true
+    },
+    {
+      "id": "f5",
+      "type": "regulatory",
+      "content": "香港保監局發布健康險核保揭露與理賠時效新指引（方向：監管收緊）。",
+      "source_url": "https://example-insurance-news.hk/articles/ia-circular-2026q2",
+      "doc_id": "hk_regulatory_2026-06-13",
+      "date": "2026-06-13",
+      "region": "香港"
+    }
+  ],
+  "expected": {
+    "total_findings": 5,
+    "fresh_findings": 4,
+    "stale_findings": ["f4"],
+    "conflicting_pairs": [["f1", "f2"]],
+    "viable_tiers": ["shallow"],
+    "non_viable_tiers": ["standard", "deep"]
+  }
+}

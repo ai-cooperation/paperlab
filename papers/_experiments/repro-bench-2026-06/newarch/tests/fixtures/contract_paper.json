@@ -1,0 +1,60 @@
+{
+  "job_id": "proj_2026-06-13_epmc",
+  "project_id": "proj_2026-06-13_epmc",
+  "source": "paper-mcp",
+  "level": "master",
+  "tier": "free",
+  "topic": "Exercise Interventions and Depressive Symptoms in Older Adults: An Abstract-Level Random-Effects Meta-Analysis of Randomized Trial Evidence",
+  "research_question": "Do exercise interventions reduce depressive symptoms in older adults, and how large is the pooled effect?",
+  "contribution": "A constrained OpenAlex abstract-level pooled estimate of exercise intervention effects on depressive symptoms in older adults, emphasizing feasibility, direction, and uncertainty rather than definitive clinical guidance.",
+  "data_source": {
+    "type": "meta-analysis",
+    "name": "exercise depression older adults",
+    "probe_required": false
+  },
+  "synthesis": {
+    "type": "intervention",
+    "picos": {
+      "exclude_terms": [
+        "pediatric",
+        "children",
+        "adolescent",
+        "youth",
+        "student",
+        "postpartum",
+        "prenatal"
+      ],
+      "require_any": [
+        "randomized",
+        "randomised",
+        "controlled trial",
+        "RCT"
+      ],
+      "require_all": [
+        [
+          "exercise",
+          "physical activity",
+          "aerobic",
+          "resistance training",
+          "walking",
+          "yoga",
+          "tai chi"
+        ],
+        [
+          "depression",
+          "depressive symptoms",
+          "depressive"
+        ],
+        [
+          "older adults",
+          "elderly",
+          "late-life",
+          "aged",
+          "seniors"
+        ]
+      ]
+    }
+  },
+  "target_journal": "Q2-Q3 stable target journal",
+  "output_language": "en"
+}

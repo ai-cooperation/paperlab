@@ -1,0 +1,24 @@
+# Coverage scope for the engine a-side.
+# Plan (ENGINE_BUILD_PLAN.md): the deterministic core + gates ARE the value, so
+# they are the most-tested; reasoning quality is checked by e2e + golden score,
+# not unit coverage. We do NOT yet enforce --cov-fail-under globally; per-module
+# thresholds are added as each phase lands its tests.
+[run]
+branch = True
+omit =
+    tests/*
+    conftest.py
+    */__pycache__/*
+    .venv/*
+    # legacy monolith assembly-line + standalone experiment (retired by the
+    # orchestrator; not part of the framework/gate core under test)
+    run_newarch.py
+    real_patent_experiment.py
+
+[report]
+show_missing = True
+skip_covered = False
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
+    raise NotImplementedError

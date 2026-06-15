@@ -1,0 +1,37 @@
+{
+  "job_id": "ifrs_2026-06-15_ifrs17-vs-usgaap",
+  "project_id": "ifrs_2026-06-15_ifrs17-vs-usgaap",
+  "source": "ifrs-mcp",
+  "level": "vip",
+  "tier": "paid",
+  "topic": "IFRS 17 與 US GAAP (ASC 944) 保險合約衡量差異比較",
+  "research_question": "IFRS 17 與 US GAAP 在保險合約的衡量模型、合約服務邊際與過渡規定上有哪些 clause 級差異？",
+  "contribution": "逐 clause 對照兩套準則，標出衡量模型、CSM、風險調整、過渡日的差異與各自 effective date，產出法規比較報告。",
+  "data_source": {
+    "type": "clause-diff",
+    "name": "ifrs17-asc944",
+    "standards": ["IFRS 17", "US GAAP ASC 944"],
+    "probe_required": true
+  },
+  "synthesis": {
+    "type": "clause-cross-standard",
+    "scope": {
+      "standards": ["IFRS 17", "US GAAP ASC 944"],
+      "clause_axes": ["measurement_model", "contractual_service_margin", "risk_adjustment", "transition"],
+      "audience": "保險財報/精算/法遵團隊",
+      "depth": "deep"
+    }
+  },
+  "section_template": [
+    "範圍與準則版本",
+    "衡量模型對照",
+    "合約服務邊際差異",
+    "風險調整差異",
+    "過渡與生效日",
+    "缺漏條款與不確定性",
+    "參考條文"
+  ],
+  "deliverable": "docx",
+  "output_language": "zh-TW",
+  "_note": "speculative pack #3 per ENGINE_GENERAL_SPEC 2.2 — confirms/refines the seam, does not design it."
+}

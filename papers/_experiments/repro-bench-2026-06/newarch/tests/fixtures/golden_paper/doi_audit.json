@@ -1,0 +1,17 @@
+{
+  "run": "run",
+  "mode": "verify_and_complete",
+  "candidates": 48,
+  "kept": 47,
+  "crossref_real": 47,
+  "arxiv_on_datacite": 0,
+  "suspicious_404": 1,
+  "undetermined": 0,
+  "suspicious_dois": [
+    "10.5281/zenodo.14200027"
+  ],
+  "real_existence_rate": 0.979,
+  "real_rate": 0.979,
+  "floor": 0.8,
+  "passed": true
+}

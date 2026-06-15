@@ -1,0 +1,11 @@
+{
+  "issues": [
+    {
+      "id": "RQ_CROSSREF",
+      "severity": "P0",
+      "location": "render",
+      "type": "render_quality",
+      "description": "2 broken table/figure cross-references (?@tbl-/?@fig-/raw {#tbl- attrs) in the PDF."
+    }
+  ]
+}

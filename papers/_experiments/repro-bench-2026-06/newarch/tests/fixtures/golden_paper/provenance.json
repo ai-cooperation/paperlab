@@ -1,0 +1,22 @@
+{
+  "schema_version": "provenance-2026-06-10",
+  "job_id": "proj_2026-06-13_epmc",
+  "generated_at": "2026-06-13T13:42:39.527585+08:00",
+  "experiment_code_commit": null,
+  "contract_schema_hash": null,
+  "a_schema_hash": "966d06dbad9fab9e",
+  "deps": {
+    "python": "3.10.12",
+    "numpy": "2.2.6",
+    "scipy": "1.15.3",
+    "sklearn": "1.7.2",
+    "pyarrow": "24.0.0",
+    "pandas": "2.3.3"
+  },
+  "seed": null,
+  "data_source": "OpenAlex",
+  "data_rows": 2400,
+  "real_results_status": "completed",
+  "real_results_simulated": false,
+  "real_results_sha256": "b0eb4c56168f3b9f7b6418ecd4d4c631cf61b5dcfdac743f71bb9bdd8a45261f"
+}
