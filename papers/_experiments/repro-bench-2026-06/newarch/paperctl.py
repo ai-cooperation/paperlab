@@ -10,7 +10,7 @@ stdout and returns exit code 0 (pass) or nonzero (gate block / error).
     paperctl figures meta              --run-dir RUN
     paperctl tables inject             --run-dir RUN
     paperctl render                    --run-dir RUN
-    paperctl gate phase2|phase3|phase8|phase9|final --run-dir RUN
+    paperctl gate A|B|C|D|E|F|phase2|phase3|phase8|phase9|final --run-dir RUN
     paperctl review compile            --run-dir RUN
     paperctl provenance                --run-dir RUN
 
@@ -220,9 +220,152 @@ _GATE_BACKENDS: dict[str, Callable[[Path], "tuple[dict[str, Any], bool]"]] = {
     "final": _gate_content,
 }
 
+# --------------------------------------------------------------------------- #
+# gate A|B|C|D|E|F — the PAPER PACK's hard-gates (DESIGN §3.8), run INDEPENDENTLY
+# through the framework's run_gates lifecycle. paperctl builds the dossier from the
+# run-dir artifacts; the framework re-runs the pack's registered gate, enforcing
+# the same fail-closed block the orchestrator does. This is distinct from the
+# legacy phase2/3/8/9/final mapping above (kept intact for back-compat).
+# --------------------------------------------------------------------------- #
+_PACK_GATES = frozenset("ABCDEF")
+
+
+def _read_text(run_dir: Path, *names: str) -> str:
+    for name in names:
+        p = run_dir / name
+        if p.is_file():
+            return p.read_text(encoding="utf-8", errors="ignore")
+    return ""
+
+
+def _read_json(run_dir: Path, *names: str) -> dict[str, Any]:
+    for name in names:
+        p = run_dir / name
+        if p.is_file():
+            try:
+                data = json.loads(p.read_text(encoding="utf-8", errors="ignore"))
+                if isinstance(data, dict):
+                    return data
+            except (json.JSONDecodeError, OSError):
+                pass
+    return {}
+
+
+def _scan_figures_for_dossier(run_dir: Path) -> list[dict[str, Any]]:
+    """List paired figures (name, svg/png present) for Gate C from run_dir/figures."""
+    figdir = run_dir / "figures"
+    if not figdir.is_dir():
+        return []
+    svgs = {p.stem for p in figdir.glob("*.svg")}
+    pngs = {p.stem for p in figdir.glob("*.png")}
+    return [{"name": stem, "svg": stem in svgs, "png": stem in pngs,
+             "in_figure_numbers": []}
+            for stem in sorted(svgs | pngs)]
+
+
+def _build_dossier(run_dir: Path) -> dict[str, Any]:
+    """Assemble the dossier the A–F gates read from a run-dir's artifacts.
+
+    Maps on-disk files to the documented dossier keys (packs/paper/gates.py):
+      draft_text  <- paper_draft_v0.qmd (or paper_springer.qmd)
+      qmd_text    <- same draft (for Gate C dedup)
+      claim_evidence <- claim_evidence_map.md rows (flattened text is enough for B)
+      real_results <- real_experiments/real_results.json
+      evidence.references <- doi_audit.json {bib_count, doi_real_rate}
+      evidence.figures <- figures/*.svg|png pairs
+      viability   <- recomputed poolable-k over the seeded corpus cache (Gate E)
+    """
+    import synthesis
+
+    draft = _read_text(run_dir, "paper_draft_v0.qmd", "paper_springer.qmd")
+    real_results = _read_json(run_dir, "real_experiments/real_results.json")
+
+    doi = _read_json(run_dir, "doi_audit.json")
+    refs = {
+        "bib_count": doi.get("kept") or doi.get("crossref_real") or 0,
+        "doi_real_rate": doi.get("real_rate") or doi.get("real_existence_rate"),
+    }
+    # bib_count falls back to counting references.bib entries.
+    if not refs["bib_count"]:
+        import re as _re
+        bibtext = _read_text(run_dir, "references.bib")
+        refs["bib_count"] = len(_re.findall(r"^@\w+\s*\{", bibtext, _re.MULTILINE))
+
+    # Gate E: recompute viability (max poolable-k) over the run's frozen corpus cache.
+    viability: dict[str, Any] = {}
+    corpus = _read_json(run_dir, "_corpus_cache.json")
+    contract = _load_contract(run_dir)
+    works = corpus.get("works") if isinstance(corpus, dict) else None
+    if works:
+        picos = ((contract.get("synthesis") or {}).get("picos")) or {}
+        syn_type = (contract.get("synthesis") or {}).get("type") or "intervention"
+        pk = synthesis.poolable_k_by_scale(works, picos, syn_type)
+        viability = {"poolable_k": pk, "max_poolable_k": max(pk.values(), default=0)}
+    elif real_results:
+        # fall back to the pooled k reported in real_results
+        pooled = (real_results.get("meta") or {}).get("pooled") or {}
+        pk = {s: int(v.get("k") or 0) for s, v in pooled.items() if isinstance(v, dict)}
+        if pk:
+            viability = {"poolable_k": pk, "max_poolable_k": max(pk.values(), default=0)}
+
+    return {
+        "draft_text": draft,
+        "qmd_text": draft,
+        "claim_evidence": _claim_evidence_rows(run_dir),
+        "real_results": real_results,
+        "evidence": {"references": refs, "figures": _scan_figures_for_dossier(run_dir)},
+        "viability": viability,
+        "render_ok": (run_dir / "paper_draft_v0.pdf").is_file() or None,
+    }
+
+
+def _claim_evidence_rows(run_dir: Path) -> list[dict[str, Any]]:
+    """Parse claim_evidence_map.md's table rows into dossier rows (Gate B matrix)."""
+    text = _read_text(run_dir, "claim_evidence_map.md")
+    rows: list[dict[str, Any]] = []
+    for line in text.splitlines():
+        s = line.strip()
+        if not (s.startswith("|") and s.endswith("|")) or "---" in s:
+            continue
+        cells = [c.strip() for c in s.strip("|").split("|")]
+        if cells and cells[0].lower() in ("#", "claim"):    # header row
+            continue
+        rows.append({"row": " | ".join(cells)})
+    return rows
+
+
+def cmd_gate_pack(run_dir: Path, gate_name: str) -> int:
+    """Run ONE paper-pack gate (A–F) independently via framework.run_gates.
+
+    Builds the dossier from the run-dir, then asks the framework to re-run the pack's
+    registered gate of that name. Exit 0 = passed, nonzero = blocked (BLOCK) — a WARN
+    gate (E) NEVER returns nonzero even when its steering signal fires.
+    """
+    from framework import run_gates
+    from packs.paper import PaperPack
+
+    pack = PaperPack()
+    dossier = _build_dossier(run_dir)
+    report = run_gates(pack, dossier, only={gate_name})
+    if not report.results:
+        print(json.dumps({"error": f"unknown pack gate: {gate_name}"}), file=sys.stderr)
+        return 2
+    res = report.results[0]
+    _emit({"gate": gate_name, "run": run_dir.name, "passed": res.passed,
+           "severity": res.severity.value, "p0": res.p0, "blocked": report.blocked,
+           "details": res.details, "evidence": res.evidence})
+    # WARN gates annotate but never block the deliverable -> exit 0 even when failing.
+    return 1 if report.blocked else 0
+
 
 def cmd_gate(run_dir: Path, phase: str) -> int:
-    """Run the deterministic gate for `phase`; emit verdict, nonzero exit on block."""
+    """Run the gate for `phase`; emit verdict, nonzero exit on block.
+
+    `phase` is either a pack gate name (A–F) routed to the PaperPack gate_registry,
+    or a legacy phase id (phase2/3/8/9/final) mapped to its deterministic backend.
+    """
+    if phase in _PACK_GATES:
+        return cmd_gate_pack(run_dir, phase)
     backend = _GATE_BACKENDS[phase]
     verdict, passed = backend(run_dir)
     _emit({"gate": phase, "run": run_dir.name, "passed": passed, "verdict": verdict})
@@ -268,9 +411,10 @@ def build_parser() -> argparse.ArgumentParser:
     # render
     _add_run_dir(sub.add_parser("render", help="render the journal-format PDF"))
 
-    # gate <phase>
-    gate = sub.add_parser("gate", help="run a deterministic phase gate")
-    gate.add_argument("phase", choices=sorted(_GATE_BACKENDS), help="which phase gate to run")
+    # gate <phase|A-F>
+    gate = sub.add_parser("gate", help="run a deterministic gate (pack gate A-F or legacy phase)")
+    gate.add_argument("phase", choices=sorted(_PACK_GATES) + sorted(_GATE_BACKENDS),
+                      help="pack gate A|B|C|D|E|F, or legacy phase2/3/8/9/final")
     _add_run_dir(gate)
 
     # review compile

@@ -105,10 +105,14 @@ def test_insurance_gate_registry_blocks_gatefail_report(fixtures_dir):
 
 
 def test_paper_pending_gates_fail_closed_not_silent_pass():
-    # B/D/E/F land in Phase 4; until then the lifecycle must fail them CLOSED
-    # (a NotImplementedError gate is never a silent pass).
+    # B/D/F are now REAL checks (Phase 4); over an EMPTY dossier (no draft / figures /
+    # results) they must still fail CLOSED — a BLOCK gate with nothing to check is
+    # never a silent pass (a weak worker cannot make a gate vanish by starving it).
     report = run_gates(PaperPack(), {})
     by_gate = {r.gate: r for r in report.results}
     for g in ("B", "D", "F"):                            # BLOCK gates
-        assert by_gate[g].passed is False and "not implemented" in by_gate[g].details
+        assert by_gate[g].passed is False and by_gate[g].p0 is True
+        assert "fail-closed" in by_gate[g].details
+    # E is WARN-only: over an empty dossier value is insufficient (fails) but never blocks.
+    assert by_gate["E"].passed is False and by_gate["E"].p0 is False
     assert report.blocked is True

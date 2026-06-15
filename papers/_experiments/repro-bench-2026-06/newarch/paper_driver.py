@@ -923,13 +923,21 @@ def build_refs_from_doi_list(run_dir: Path, candidates: list[dict[str, Any]]) ->
             st = "crossref_real"
 
         # An author-less entry renders as ", 1978. Title" in an author-year list and
-        # cites in-text as the raw bibkey ("ref (1978)"); it is unusable. Drop it.
+        # cites in-text as the raw bibkey ("ref (1978)"); it is unusable. Drop it —
+        # EXCEPT arXiv: a 10.48550 DOI is DataCite-verifiable-real, so an author-less
+        # arXiv entry is an incomplete-metadata case, NOT a fabrication. Dropping a
+        # real cited preprint is the actual arXiv-verification bug (memory:
+        # arxiv-verification-gap); keep it with a minimal synthesized citation.
+        # (Enhancement: complete authors/title from the DataCite API when online.)
         if not [a for a in authors if str(a).strip()]:
-            if status not in ("404",):
-                real -= 1 if st == "crossref_real" else 0
-                undet -= 1 if st == "crossref_undetermined" else 0
-                arxiv -= 1 if st == "arxiv_datacite" else 0
-            continue
+            if st == "arxiv_datacite":
+                authors = ["arXiv preprint"]
+                title = title or doi
+            else:
+                if status not in ("404",):
+                    real -= 1 if st == "crossref_real" else 0
+                    undet -= 1 if st == "crossref_undetermined" else 0
+                continue
 
         key = base = _safe_key(c.get("key") or _key_from(authors, year, i), i)
         n = 1

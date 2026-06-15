@@ -10,42 +10,20 @@ from pathlib import Path
 from typing import Any
 
 import synthesis  # newarch deterministic meta-analysis extraction/pooling
-from framework import DomainPack, Gate, GateResult, Severity, ViabilityVerdict
+from framework import DomainPack, Gate, Severity, ViabilityVerdict
+
+from . import gates  # real A–F gate-check helpers (DESIGN §3.7–§3.8)
 
 # A meta-analysis needs a minimum of compatible (poolable) effects to say anything.
-# Tuned in Phase 6 (viability+tier); kept conservative here.
-POOLABLE_FLOOR = 5
-REFS_FLOOR = 35              # Gate A (DESIGN §3.8)
-DOI_REAL_RATE_FLOOR = 0.80   # Gate A
+# Tuned in Phase 6 (viability+tier); kept conservative here. Re-exported from gates
+# so the viability probe + Gate E share ONE floor.
+POOLABLE_FLOOR = gates.POOLABLE_FLOOR
+REFS_FLOOR = gates.REFS_FLOOR              # Gate A (DESIGN §3.8)
+DOI_REAL_RATE_FLOOR = gates.DOI_REAL_RATE_FLOOR   # Gate A
 
 
 def _work_text(w: dict[str, Any]) -> str:
     return f"{w.get('title') or ''}\n{w.get('abstract') or ''}"
-
-
-# ── Gate checks (A + C real; B/D/E/F land in Phase 4, fail-closed until then) ──
-def _gate_refs(dossier: dict[str, Any]) -> GateResult:
-    refs = (dossier.get("evidence") or {}).get("references") or {}
-    n = int(refs.get("bib_count") or 0)
-    rate = refs.get("doi_real_rate")
-    ok = n >= REFS_FLOOR and (rate is None or rate >= DOI_REAL_RATE_FLOOR)
-    return GateResult(gate="A", severity=Severity.BLOCK, passed=ok, p0=not ok,
-                      details=f"bib_count={n} (floor {REFS_FLOOR}), doi_real_rate={rate}",
-                      evidence={"bib_count": n, "doi_real_rate": rate})
-
-
-def _gate_figures(dossier: dict[str, Any]) -> GateResult:
-    figs = (dossier.get("evidence") or {}).get("figures") or []
-    ok = len(figs) >= 1
-    return GateResult(gate="C", severity=Severity.BLOCK, passed=ok, p0=not ok,
-                      details=f"{len(figs)} figure(s) registered",
-                      evidence={"n_figures": len(figs)})
-
-
-def _gate_pending_p4(name: str):
-    def _check(_dossier: dict[str, Any]) -> GateResult:
-        raise NotImplementedError(f"paper Gate {name} lands in Phase 4")
-    return _check
 
 
 class PaperPack(DomainPack):
@@ -109,13 +87,18 @@ class PaperPack(DomainPack):
                 "Discussion", "Limitations", "Conclusion"]
 
     def gate_registry(self) -> list[Gate]:
+        """The paper pack's A–F hard-gates (DESIGN §3.8). Each check lives in
+        ``packs/paper/gates.py`` and reads clearly-named dossier keys (documented
+        there). The framework's ``run_gates`` lifecycle runs + enforces them; this
+        list only registers them. B/D/F BLOCK and fail-closed on missing input;
+        E WARN-only (adjust + log, never blocks)."""
         return [
-            Gate("A", Severity.BLOCK, _gate_refs, when="after Phase 2"),
-            Gate("B", Severity.BLOCK, _gate_pending_p4("B"), when="Phase 7->8"),
-            Gate("C", Severity.BLOCK, _gate_figures, when="before Phase 8"),
-            Gate("D", Severity.BLOCK, _gate_pending_p4("D"), when="Phase 9"),
-            Gate("E", Severity.WARN, _gate_pending_p4("E"), when="Phase 0/1/3 framing"),
-            Gate("F", Severity.BLOCK, _gate_pending_p4("F"), when="Phase 8 after writing"),
+            Gate("A", Severity.BLOCK, gates.gate_refs, when="after Phase 2"),
+            Gate("B", Severity.BLOCK, gates.gate_claim_evidence, when="Phase 7->8 (before writing)"),
+            Gate("C", Severity.BLOCK, gates.gate_figures, when="before Phase 8 + Stage 0.5"),
+            Gate("D", Severity.BLOCK, gates.gate_readability, when="Phase 9"),
+            Gate("E", Severity.WARN, gates.gate_value, when="Phase 0/1/3 framing"),
+            Gate("F", Severity.BLOCK, gates.gate_logic, when="Phase 8 after writing"),
         ]
 
     def review_rubric(self) -> dict[str, Any]:
