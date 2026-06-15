@@ -21,26 +21,34 @@ def test_review_score_of_golden(golden_dir):
 
 def test_golden_meets_its_own_bar(golden_dir):
     proof = golden_proof.prove_against_golden(golden_dir, golden_dir)
-    assert proof["passed"] is True
-    assert proof["candidate_score"] == proof["golden_bar"] == 57.1
+    assert proof["passed"] is True                            # meets its own floor
+    assert proof["candidate_review"] == proof["golden_review_bar"] == 57.1
+    assert proof["candidate_floor"] == proof["golden_floor_bar"]    # floor matches too
 
 
 def test_degraded_run_fails_the_bar(tmp_path, golden_dir):
-    # a candidate that scored below the golden bar is rejected
+    # a candidate that scored below the golden bar is rejected (no floor either)
     (tmp_path / "final_content_review_deterministic.json").write_text(json.dumps(
         {"scores_7dim": {d: {"score": 3.0} for d in
                          ("novelty", "methodological_rigor", "evidence_validity",
                           "literature_grounding", "result_interpretation",
                           "limitation_honesty", "writing_coherence")}}), encoding="utf-8")
     proof = golden_proof.prove_against_golden(tmp_path, golden_dir)
-    assert proof["candidate_score"] == 30.0 and proof["passed"] is False
+    assert proof["candidate_review"] == 30.0 and proof["passed"] is False
+
+
+def test_review_score_reads_live_round_files(tmp_path):
+    # a live framework run scores via quality_review_round{r}.json, not the golden file
+    (tmp_path / "quality_review_round1.json").write_text(json.dumps({"score_100": 58}))
+    (tmp_path / "quality_review_round2.json").write_text(json.dumps({"score_100": 64}))
+    assert golden_proof.review_score(tmp_path) == 64.0        # latest round
 
 
 def test_production_run_requires_no_p0(golden_dir):
     # the golden fixture itself has P0s (no_p0=False) -> a PRODUCTION-grade proof
-    # (require_no_p0) rejects it even though it meets its own score bar.
+    # (require_no_p0) rejects it even though it meets its own floor.
     proof = golden_proof.prove_against_golden(golden_dir, golden_dir, require_no_p0=True)
-    assert proof["meets_score"] is True and proof["gate_summary"]["no_p0"] is False
+    assert proof["meets_floor"] is True and proof["gate_summary"]["no_p0"] is False
     assert proof["passed"] is False
 
 

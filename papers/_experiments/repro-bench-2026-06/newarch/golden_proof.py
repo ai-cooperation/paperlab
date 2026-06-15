@@ -24,15 +24,35 @@ def _read(path: Path) -> dict[str, Any]:
 
 
 def review_score(run_dir: Path) -> float | None:
-    """The strong-reviewer 7-dim mean, normalised to /100 (the engine's score scale).
-    None when the run was never scored."""
-    review = _read(Path(run_dir) / REVIEW_FILE)
+    """The strong-reviewer score, /100. Reads the golden's
+    final_content_review_deterministic.json (scores_7dim mean *10) OR, for a live
+    framework run, the latest quality_review_round{r}.json (score_100). None when
+    the run was never scored."""
+    run_dir = Path(run_dir)
+    review = _read(run_dir / REVIEW_FILE)
     dims = review.get("scores_7dim") or {}
     vals = [(v.get("score") if isinstance(v, dict) else v) for v in dims.values()]
     vals = [float(v) for v in vals if isinstance(v, (int, float))]
-    if not vals:
+    if vals:
+        return round(sum(vals) / len(vals) * 10.0, 1)      # /10 dims -> /100
+    rounds = sorted(run_dir.glob("quality_review_round*.json"))
+    if rounds:
+        last = _read(rounds[-1])
+        if isinstance(last.get("score_100"), (int, float)):
+            return float(last["score_100"])
+    return None
+
+
+def floor_score_100(run_dir: Path) -> float | None:
+    """The deterministic floor (floor_score.py), /100 — the un-gameable cross-check
+    available for ANY run dir (golden or live)."""
+    try:
+        import floor_score as _fs
+        fs = _fs.floor_scores(Path(run_dir))
+        m = fs.get("mean_6_floor")
+        return round(float(m) * 10.0, 1) if m is not None else None
+    except Exception:  # noqa: BLE001
         return None
-    return round(sum(vals) / len(vals) * 10.0, 1)      # /10 dims -> /100
 
 
 def gate_summary(run_dir: Path) -> dict[str, Any]:
@@ -49,12 +69,17 @@ def prove_against_golden(candidate_dir: Path, golden_dir: Path,
     a fresh Hermes run must meet or beat it."""
     cand = review_score(candidate_dir)
     bar = review_score(golden_dir)
+    cand_floor = floor_score_100(candidate_dir)
+    bar_floor = floor_score_100(golden_dir)
     gates = gate_summary(candidate_dir)
     meets_score = cand is not None and bar is not None and cand >= bar
+    meets_floor = cand_floor is not None and bar_floor is not None and cand_floor >= bar_floor
     meets_gates = (gates.get("no_p0") is True) if require_no_p0 else True
     return {
-        "candidate_score": cand, "golden_bar": bar,
-        "meets_score": meets_score, "meets_gates": meets_gates,
+        "candidate_review": cand, "golden_review_bar": bar,
+        "candidate_floor": cand_floor, "golden_floor_bar": bar_floor,
+        "meets_review": meets_score, "meets_floor": meets_floor, "meets_gates": meets_gates,
         "gate_summary": gates,
-        "passed": bool(meets_score and meets_gates),
+        # pass = beats the golden on the deterministic floor (un-gameable) + (optionally) no P0
+        "passed": bool(meets_floor and meets_gates),
     }
