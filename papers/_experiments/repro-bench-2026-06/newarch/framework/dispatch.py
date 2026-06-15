@@ -27,6 +27,14 @@ WORKER_MODELS = {
     "external": "codex-cli",
 }
 
+# LIVE wiring on ac-2012 (verified 2026-06-15): the free worker tier is the local
+# custom endpoint model `deepseek-v4-flash-free` (hermes -z, base 127.0.0.1:8898;
+# the config's "big-pickle"->opencode-zen mapping needs a key and is unused). The
+# strong brain (reviewers + brain reasoning) is the subscription codex CLI — the
+# design's sanctioned path (§3.1) — proven working on alan.chen75.
+LIVE_WORKER_MODEL = "deepseek-v4-flash-free"
+BRAIN_CLASSES = {"reviewer", "external"}      # routed to codex CLI, not the free worker
+
 
 @dataclass
 class WorkerPacket:
@@ -107,10 +115,10 @@ class HermesDispatcher(Dispatcher):
             f"PACKET:\n{body}\n")
 
     def delegate(self, packet: WorkerPacket) -> WorkerResult:  # pragma: no cover - live only
-        cmd = [self.hermes_bin, "-z", "-m", packet.resolved_model()]
+        cmd = [self.hermes_bin, "-z", self._prompt(packet), "-m", packet.resolved_model(), "--cli"]
         try:
-            proc = subprocess.run(cmd, input=self._prompt(packet), text=True,
-                                  capture_output=True, timeout=self.timeout_s,
+            proc = subprocess.run(cmd, text=True, capture_output=True,
+                                  timeout=self.timeout_s,
                                   cwd=str(self.run_dir) if self.run_dir else None)
         except (subprocess.TimeoutExpired, OSError) as exc:
             return WorkerResult(task_id=packet.task_id, status="error",
@@ -120,4 +128,55 @@ class HermesDispatcher(Dispatcher):
             return WorkerResult(task_id=packet.task_id, status="CHILD_OK",
                                 output={"stdout_tail": out[-2000:]})
         reason = next((ln for ln in out.splitlines() if "BLOCKED" in ln), "no CHILD_OK token")
+        return WorkerResult(task_id=packet.task_id, status="blocked", blockers=[reason])
+
+
+class LiveDispatcher(Dispatcher):
+    """LIVE ac-2012 wiring of the NEW design: free workers via hermes, strong brain
+    via the codex CLI. drafter/fixer -> `hermes -z -m deepseek-v4-flash-free` (free,
+    local endpoint); reviewer/external -> `codex exec` (subscription codex, §3.1).
+    This is the hybrid the design sanctions (§3.1 fallback), and it is what makes the
+    Hermes path cheap: the bulk (section writing, fixes) runs on the FREE worker, only
+    the brain/review judgment spends codex quota."""
+
+    def __init__(self, *, worker_model: str = LIVE_WORKER_MODEL, hermes_bin: str = "hermes",
+                 codex_bin: str = "codex", run_dir: Path | None = None,
+                 worker_timeout_s: int = 600, brain_timeout_s: int = 1200):
+        self.worker_model = worker_model
+        self.hermes_bin = hermes_bin
+        self.codex_bin = codex_bin
+        self.run_dir = Path(run_dir) if run_dir else None
+        self.worker_timeout_s = worker_timeout_s
+        self.brain_timeout_s = brain_timeout_s
+
+    def _packet_prompt(self, packet: WorkerPacket) -> str:
+        return (
+            "You are a BOUNDED worker. You cannot delegate. Read ONLY allowed_files_read; "
+            "write ONLY allowed_files_write. End with the literal token CHILD_OK on success "
+            "or BLOCKED: <reason>.\n\n"
+            f"PACKET:\n{json.dumps(asdict(packet), ensure_ascii=False, indent=2)}\n")
+
+    def delegate(self, packet: WorkerPacket) -> WorkerResult:  # pragma: no cover - live only
+        cwd = str(self.run_dir) if self.run_dir else None
+        prompt = self._packet_prompt(packet)
+        if packet.worker_class in BRAIN_CLASSES:
+            cmd = [self.codex_bin, "exec", "--skip-git-repo-check",
+                   "--sandbox", "workspace-write", prompt]
+            timeout = self.brain_timeout_s
+        else:
+            cmd = [self.hermes_bin, "-z", prompt, "-m", self.worker_model, "--cli"]
+            timeout = self.worker_timeout_s
+        try:
+            proc = subprocess.run(cmd, text=True, capture_output=True,
+                                  timeout=timeout, cwd=cwd, stdin=subprocess.DEVNULL)
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            return WorkerResult(task_id=packet.task_id, status="error",
+                                blockers=[f"{packet.worker_class} dispatch failed: {exc}"])
+        out = (proc.stdout or "") + (proc.stderr or "")
+        if "CHILD_OK" in out or (packet.worker_class in BRAIN_CLASSES and proc.returncode == 0):
+            return WorkerResult(task_id=packet.task_id, status="CHILD_OK",
+                                changed_files=list(packet.allowed_files_write),
+                                output={"stdout_tail": out[-2000:]})
+        reason = next((ln for ln in out.splitlines() if "BLOCKED" in ln),
+                      f"rc={proc.returncode}, no CHILD_OK")
         return WorkerResult(task_id=packet.task_id, status="blocked", blockers=[reason])

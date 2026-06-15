@@ -11,6 +11,7 @@ Invariant (enforced by tests/test_pack_interface.py): zero `import paper_*` /
 from .dispatch import (
     Dispatcher,
     HermesDispatcher,
+    LiveDispatcher,
     MockDispatcher,
     WorkerPacket,
     WorkerResult,
@@ -40,7 +41,7 @@ __all__ = [
     # dossier
     "Dossier", "new_dossier",
     # dispatch
-    "Dispatcher", "MockDispatcher", "HermesDispatcher", "WorkerPacket", "WorkerResult",
+    "Dispatcher", "MockDispatcher", "HermesDispatcher", "LiveDispatcher", "WorkerPacket", "WorkerResult",
     # orchestrator
     "Orchestrator", "OrchestratorBlocked", "Phase",
     # review + self-heal
