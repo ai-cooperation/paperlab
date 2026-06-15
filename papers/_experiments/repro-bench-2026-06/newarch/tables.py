@@ -331,10 +331,16 @@ def inject_figures(run_dir: Path) -> int:
         if not (figdir / fname).is_file():
             continue
         stem = canon.split("-", 1)[1]                       # forest / prisma / method
-        # collapse @fig-forest_plot, @fig-forestplot, @fig-forest... -> @fig-forest
+        # 1) normalize varied @-refs (@fig-forest_plot, @fig-forestplot...) -> @fig-forest
         text = re.sub(rf"@fig-{stem}[A-Za-z_]*", f"@{canon}", text)
-        if f"{{#{canon}}}" in text:                          # already embedded as a float
-            continue
+        # 2) DEDUP (the real fix): strip EVERY float embed the writer added for this figure —
+        #    keyed by filename OR by the canonical label, any caption/attrs. The injector OWNS the
+        #    single embed; we never trust the writer to place it exactly once. The codex writer
+        #    double-embedded the same {#fig-x} in Intro + Methods + Results, so Quarto rendered
+        #    duplicate floats (Fig 1 & 5, 2 & 6). Strip-then-inject-one is idempotent.
+        text = re.sub(rf"!\[[^\]]*\]\(figures/{re.escape(fname)}\)\{{#[^}}]*\}}[ \t]*\n?", "", text)
+        text = re.sub(rf"!\[[^\]]*\]\([^)]*\)\{{#{re.escape(canon)}[^}}]*\}}[ \t]*\n?", "", text)
+        # 3) inject EXACTLY ONE canonical labelled float, right after its first reference
         embed = f"![{caption}](figures/{fname}){{#{canon}}}"
         ref = f"@{canon}"
         idx = text.find(ref)
