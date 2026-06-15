@@ -37,7 +37,11 @@ from . import logic_audit
 # ── thresholds (DESIGN §3.8) ─────────────────────────────────────────────────
 REFS_FLOOR = 35
 DOI_REAL_RATE_FLOOR = 0.80
-POOLABLE_FLOOR = 5            # Gate E: max poolable-k below this => value-insufficient
+# The credible-meta-analysis bar (= phase0_calibration.QUALITY_K): below this, a
+# pooled abstract-level estimate is too thin to stand as a quality paper. Used by
+# BOTH Gate E (value) and the paper viability probe so "viable" and "worth writing"
+# share one floor. (Hard nothing-pools block is at phase0_calibration.MIN_POOLABLE_K.)
+POOLABLE_FLOOR = 8           # exercise max-k=8 -> viable; mindfulness max-k=6 -> thin
 PROSE_WORD_FLOOR = 3000       # Gate D: a paper body under this is "too thin" (matches compile_review)
 PLACEHOLDER_MARKERS = ("PLACEHOLDER", "[placeholder]", "TODO:", "TODO ", "TBD",
                        "lorem ipsum", "XXX", "FIXME", "<!-- todo")
