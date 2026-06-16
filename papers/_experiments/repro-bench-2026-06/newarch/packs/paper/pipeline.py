@@ -149,12 +149,19 @@ def _phase_data_dataset(o: Orchestrator, contract: dict[str, Any]) -> None:
         reasons = "; ".join(p.get("description", "") for p in (res.get("problems") or [])[:3])
         raise OrchestratorBlocked("data", reason=f"dataset lane blocked ({res.get('stage')}): {reasons}")
 
-    # related-work bibliography from a topic literature search (NOT from the dataset)
+    # related-work bibliography from a topic literature search (NOT from the dataset).
+    # CRITICAL: openalex_analysis.run writes its OWN real_experiments/real_results.json
+    # (a scientometric result) — it would CLOBBER the dataset analysis result. Snapshot +
+    # restore around it so the dataset's real_results (the paper's numbers) survives.
+    rr_path = o.run_dir / "real_experiments" / "real_results.json"
+    saved = rr_path.read_text(encoding="utf-8") if rr_path.is_file() else None
     try:
         import openalex_analysis
         lit = openalex_analysis.run(PD._literature_query(contract), o.run_dir)
     except Exception:  # noqa: BLE001 - no corpus just means seed-ref-only bibliography
         lit = {}
+    if saved is not None:
+        rr_path.write_text(saved, encoding="utf-8")   # restore the dataset analysis result
     kept = PD.expand_references_from_analysis(o.run_dir, contract, lit)
 
     rr = res.get("real_results") or {}
