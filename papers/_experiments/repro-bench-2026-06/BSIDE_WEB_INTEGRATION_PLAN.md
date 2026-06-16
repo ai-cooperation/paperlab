@@ -90,12 +90,24 @@ chat.ai grill (thin scope, no numbers)
 - Non-destructive deploy: `KillMode=process`, in-flight worker survives; absolute paths + md5-verify after scp.
 - Production `paper-a.cooperation.tw` stays on the old pipeline until a golden A/B greenlights `/v2/jobs`.
 
-## 7. Sequencing (smallest safe first — codex-endorsed)
-1. **a: `/v2/jobs` → run_paper detached subprocess** (3a) + the exception→failed wrapper. **Validate from the
-   `engine-live-newarch` copy on a SEPARATE port + separate `PAPER_JOBS_DIR`**: POST the exercise fixture →
-   response <1s → `dossier.json` immediate → restart uvicorn, worker survives → poll `/status` advances →
-   final `paper_draft_v0.pdf` + `dossier.json`. **No b-side, no production.**
-2. a: viability-probe + corpus cache (3b) + projection enrichment (3c) + op-hardening (3d).
-3. web: `/projects/{id}` over the projection (read-only).
-4. b: viability-lock + submit gate + derive-contract (thin client); A/B vs old `/jobs`.
-5. Flip the b-side default to `/v2/jobs` once the golden A/B passes; retire the old loop behind a flag.
+## 7. Sequencing (smallest safe first — codex-endorsed) — STATUS 2026-06-16
+
+1. ✅ **DONE + live-validated** — a: `/v2/jobs` → run_paper detached subprocess (3a) + exception→failed
+   wrapper + idempotency + concurrency + enriched projection. Validated on the `engine-live-newarch` copy
+   (port 8899, separate `PAPER_JOBS_DIR`): POST 0.02s, dossier immediate, worker survives uvicorn restart,
+   a fresh-corpus run finished end-to-end (floor 70.8 > golden 62.2, delivery=pass, PDF 320KB).
+2. ✅ **DONE** — a: `/jobs/viability-probe` + corpus cache by contract_hash (3b) + projection enrichment
+   (3c) + op-hardening (3d: gateway health check, process-group kill, wall-clock watchdog) + auto-pivot fix.
+   Live-validated: a direct probe on 2012 collected 2400 works → viable, max_k=8, cached.
+3. ✅ **DONE** — web: `engine_project_page.html` renders the enriched projection (status/PDF/floor). Hugo
+   `/projects/{id}` adopts it (read-only) — remaining = drop the template into the paperlab site repo.
+4. ✅ **DONE (code)** — b: paper-mcp `probe_viability` tool + viability-lock (D1) + submit gate over the
+   /v2 path + A/B routing. `tsc` clean. Remaining = `wrangler d1 migrations apply` + deploy (gated).
+5. ◑ **config ready** — `A_ENGINE_ENDPOINT` (default `/jobs`). Flip to `/v2/jobs` ONLY after a golden A/B.
+
+### Remaining to go live (deployment, gated — not code)
+- a-side: deploy the v2 routes + viability_service to the PROD `paper-job-service` (or front `engine-live`
+  behind the tunnel) with `PAPER_ENGINE_V2=1`; keep the old `/jobs` pipeline as the A/B oracle.
+- b-side: `wrangler d1 migrations apply paper-mcp-db` (0002) + `wrangler deploy`; leave `A_ENGINE_ENDPOINT=/jobs`.
+- Run a golden A/B (same contract through `/jobs` and `/v2/jobs`); when v2 ≥ old on the floor + gates, flip
+  `A_ENGINE_ENDPOINT=/v2/jobs`. Production stays on the old loop until then.
