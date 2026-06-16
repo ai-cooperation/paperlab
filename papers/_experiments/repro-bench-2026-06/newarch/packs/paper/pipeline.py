@@ -29,6 +29,7 @@ import tables
 from framework import (
     Dispatcher,
     Orchestrator,
+    OrchestratorBlocked,
     Phase,
     ReviewOutcome,
     SelfHealLoop,
@@ -68,10 +69,13 @@ def _dispatch_brain(o: Orchestrator, label: str, prompt: str, writes: list[str],
             f"{writes} on disk now — do not just acknowledge. Write them, then output CHILD_OK.")
         pkt = WorkerPacket(task_id=f"{label}{'' if attempt == 0 else '-retry'}", role=label,
                            worker_class="reviewer", task_goal=p, allowed_files_write=writes)
-        o.fan_out([pkt])
+        res = o.fan_out([pkt])[0]
         if all((o.run_dir / w).exists() for w in writes):
             return True
-    return False
+        if res.status == "error":          # brain unavailable (codex quota/auth) -> fail loud now
+            raise OrchestratorBlocked(label, reason=f"brain unavailable at {label}: {'; '.join(res.blockers)}")
+    # the brain ran but wrote no output (twice) -> block; never proceed to a garbage paper
+    raise OrchestratorBlocked(label, reason=f"brain produced no output at {label} after 2 attempts: {writes}")
 
 
 def _dispatch_worker(o: Orchestrator, label: str, prompt: str, writes: list[str],

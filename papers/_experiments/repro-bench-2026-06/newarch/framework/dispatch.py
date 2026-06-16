@@ -39,6 +39,13 @@ WORKER_MODELS = {
 LIVE_WORKER_MODEL = "big-pickle"
 LIVE_WORKER_PROVIDER = "custom"
 LIVE_WORKER_TOOLSETS = "file,terminal"
+# codex can exit 0 while printing a quota/auth error and writing NOTHING — detect
+# these so the run fails LOUD instead of proceeding with empty files (garbage output).
+CODEX_ERROR_MARKERS = (
+    "you've hit your usage limit", "hit your usage limit", "usage limit",
+    "payment required", "deactivated_workspace", "upstream_authorization_error",
+    "error: unexpected status", "rate limit", "quota",
+)
 HERMES_VENV_BIN = str(Path.home() / ".hermes" / "hermes-agent" / "venv" / "bin" / "hermes")
 BRAIN_CLASSES = {"reviewer", "external"}      # routed to codex CLI, not the free worker
 
@@ -218,6 +225,12 @@ class LiveDispatcher(Dispatcher):
             return WorkerResult(task_id=packet.task_id, status="error",
                                 blockers=[f"{packet.worker_class} timed out after {timeout}s (group killed)"])
         out = out or ""
+        low = out.lower()
+        if is_brain and any(m in low for m in CODEX_ERROR_MARKERS):
+            line = next((ln for ln in out.splitlines() if "ERROR" in ln or "limit" in ln.lower()),
+                        "codex quota/auth error")
+            return WorkerResult(task_id=packet.task_id, status="error",
+                                blockers=[f"codex unavailable: {line.strip()[:160]}"])
         if "CHILD_OK" in out or (is_brain and rc == 0):
             return WorkerResult(task_id=packet.task_id, status="CHILD_OK",
                                 changed_files=list(packet.allowed_files_write),
