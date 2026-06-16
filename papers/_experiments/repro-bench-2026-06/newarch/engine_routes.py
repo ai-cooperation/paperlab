@@ -61,54 +61,72 @@ def _read_json_safe(path: Path) -> dict[str, Any]:
         return {}
 
 
-def _phase3_gaps(run_dir: Path) -> list[str]:
+# a Gap-table first-header may be localized; recognise these aliases (en + zh)
+_GAP_HEADER_ALIASES = ("gap", "缺口", "研究缺口", "研究空白")
+# scales whose no-effect NULL is 0 (CI crossing 0 -> not significant). log_ratio is on
+# the log scale so its null is also 0. A raw ratio / prevalence / proportion scale would
+# need a different null, so significance is asserted ONLY for these — never guessed.
+_ZERO_NULL_SCALES = {"smd", "md", "smcc", "rd", "log_ratio", "logor", "logrr", "z", "cohen_d", "hedges_g"}
+
+
+def _phase3_gaps(run_dir: Path) -> list[dict[str, str]]:
     """Surface the gaps the engine actually WROTE (phase3_positioning.md Gap Matrix).
-    The run_paper lane writes the gap to a file, not to dossier.claims.research_gaps, so
-    the projection looked empty ('尚未判定') even though the engine produced a full gap
-    analysis. Parse the Gap column of the markdown table."""
+    The run_paper lane writes the gap to a FILE (not dossier.claims.research_gaps), so the
+    projection looked empty ('尚未判定') even though a full gap analysis exists. GENERAL:
+    find ANY markdown table whose first header is a Gap alias (en/zh) — do not depend on a
+    fixed English heading — and project {gap, description}."""
     md = Path(run_dir) / "phase3_positioning.md"
     if not md.is_file():
         return []
-    gaps: list[str] = []
-    in_matrix = False
-    for line in md.read_text(encoding="utf-8", errors="ignore").splitlines():
+    lines = md.read_text(encoding="utf-8", errors="ignore").splitlines()
+    gaps: list[dict[str, str]] = []
+    for i, line in enumerate(lines):
         s = line.strip()
-        if s.startswith("#") and "gap matrix" in s.lower():   # any heading level, case-insensitive
-            in_matrix = True
+        if not s.startswith("|"):
             continue
-        if in_matrix and s.startswith("#"):                  # next heading ends the section
-            break
-        if in_matrix and s.startswith("|"):
-            first = s.strip("|").split("|")[0].strip()
-            if first and first.lower() != "gap" and set(first) - set("-: "):
-                gaps.append(first)
+        header = [c.strip().lower() for c in s.strip("|").split("|")]
+        if not header or not any(header[0].startswith(a) for a in _GAP_HEADER_ALIASES):
+            continue
+        # found a gap table header; the next line is the |---| separator, then rows
+        for row in lines[i + 2:]:
+            r = row.strip()
+            if not r.startswith("|"):
+                break
+            cells = [c.strip() for c in r.strip("|").split("|")]
+            label = cells[0] if cells else ""
+            if not label or not (set(label) - set("-: ")):
+                continue
+            desc = cells[1] if len(cells) > 1 else ""
+            gaps.append({"gap": label, "description": desc})
+        break
     return gaps[:5]
 
 
-def _key_result(run_dir: Path) -> dict[str, Any]:
-    """The ACTUAL finding (real_results) for a result card + the pooled-k for data
-    feasibility — language-neutral numbers the page shows even for an English paper.
-
-    GENERAL across synthesis scales: pick the PRIMARY pooled scale the SAME way the
-    engine does — the scale with the most pooled effects (meta_analysis.py picks
-    `max(poolable, key=len)`), never hardcode SMD. There is no `primary` flag in
-    real_results, so we re-derive it. Returns {} for non-meta runs (no `meta.pooled`)
-    so the card simply hides instead of showing a wrong/blank number."""
-    rr = _read_json_safe(Path(run_dir) / "real_experiments" / "real_results.json")
+def _key_result(rr: dict[str, Any]) -> dict[str, Any]:
+    """The ACTUAL finding (parsed real_results) for the result card + the pooled-effects
+    count. GENERAL across synthesis scales: pick the PRIMARY pooled scale the SAME way the
+    engine does — most pooled EFFECTS (meta_analysis.py `max(poolable, key=len)`), with a
+    deterministic scale-name tie-break — never hardcode SMD. Distinguishes EFFECTS (k) from
+    STUDIES (studies_with_effects); asserts significance ONLY for zero-null scales. Returns
+    {} for non-meta runs (no `meta.pooled`) so the card simply hides."""
     meta = rr.get("meta", {}) if isinstance(rr, dict) else {}
     pooled = meta.get("pooled") or {}
     prisma = meta.get("prisma") or {}
     scales = {s: v for s, v in pooled.items() if isinstance(v, dict) and v.get("pooled_effect") is not None}
     if not scales:
         return {}
-    primary = max(scales, key=lambda s: scales[s].get("k") or 0)   # most effects = primary
+    primary = max(scales, key=lambda s: (scales[s].get("k") or 0, s))   # most effects; deterministic tie-break
     p = scales[primary]
-    return {"scale": p.get("scale") or primary, "k": p.get("k"),
-            "pooled_effect": p.get("pooled_effect"),
-            "ci_low": p.get("ci_low"), "ci_high": p.get("ci_high"),
-            "i2_percent": p.get("i2_percent"),
-            "studies_with_effects": prisma.get("studies_with_effects"),
-            "identified": prisma.get("identified")}
+    scale = (p.get("scale") or primary)
+    lo, hi = p.get("ci_low"), p.get("ci_high")
+    is_sig: Any = None
+    if str(scale).lower() in _ZERO_NULL_SCALES and isinstance(lo, (int, float)) and isinstance(hi, (int, float)):
+        is_sig = not (lo <= 0 <= hi)                          # CI excludes the null (0) -> significant
+    return {"scale": scale, "k_effects": p.get("k"),
+            "n_studies": prisma.get("studies_with_effects"),
+            "n_identified": prisma.get("identified"),
+            "pooled_effect": p.get("pooled_effect"), "ci_low": lo, "ci_high": hi,
+            "i2_percent": p.get("i2_percent"), "is_significant": is_sig}
 
 
 def project_status(dossier_data: dict[str, Any], run_dir: Path) -> dict[str, Any]:
@@ -123,38 +141,44 @@ def project_status(dossier_data: dict[str, Any], run_dir: Path) -> dict[str, Any
     ext = dossier_data.get("pack_ext", {})
     result = ext.get("run_result") or {}
     pdf = Path(run_dir) / "paper_draft_v0.pdf"
+    rr = _read_json_safe(Path(run_dir) / "real_experiments" / "real_results.json")
 
     a_gap = claims.get("research_gaps") or _phase3_gaps(run_dir)
-    key_result = _key_result(run_dir)
-    # data feasibility: the run_paper lane has no intake-viability phase, but the meta
-    # analysis DID pool k effects — surface that real k so the page isn't blank ('—').
-    via_metric = viability.get("metric")
-    via_viable = viability.get("viable")
-    if via_metric is None and key_result.get("k"):
-        via_metric = {"max_poolable_k": key_result["k"]}
-        via_viable = True if via_viable is None else via_viable
+    key_result = _key_result(rr)
+    run_status = _run_status(dossier_data)
+    has_result = result.get("floor_100") is not None
+    # honest terminal state: 'done' must have a real run_result; otherwise it finished
+    # without a deliverable — surface 'incomplete', don't show 完成 with everything blank.
+    if run_status == "done" and not has_result:
+        run_status = "incomplete"
     return {
         "engine": "v2",
         "job_id": dossier_data.get("run", {}).get("job_id"),
-        "status": _run_status(dossier_data),
+        "status": run_status,
         "phase": status.get("phase"),
         "checkpoint": status.get("checkpoint"),
         "blocked": status.get("blocked", False),
         "blockers": status.get("blockers", []),
         "tier": contract.get("level"),
+        "lane": rr.get("lane"),
+        "synthesis_type": rr.get("synthesis_type") or (rr.get("meta") or {}).get("synthesis_type"),
+        "output_language": contract.get("output_language"),
         "research_plan": {"topic": contract.get("topic"),
                           "research_question": contract.get("research_question"),
                           "contribution": contract.get("contribution")},
-        # b-gap = the grill's gap; for a live run_paper (no intake phase) fall back to
-        # the contract's contribution/question so the page always shows the b-side gap.
-        "b_gap": claims.get("b_gap") or contract.get("contribution") or contract.get("research_question"),
+        # b_gap = the grill's gap ONLY (nullable). Do NOT fall back to the contribution/RQ —
+        # that would mislabel the research aim as a 'gap' for a direct (no-grill) submit.
+        "b_gap": claims.get("b_gap"),
         "a_gap": a_gap,
-        "viability": {"viable": via_viable, "metric": via_metric,
+        # viability = the REAL viability decision (nullable). pooled_k is a DATA-EXTENT fact
+        # (how many effects were pooled), NOT a viability verdict — never fabricate viable.
+        "viability": {"viable": viability.get("viable"), "metric": viability.get("metric"),
+                      "pooled_k": key_result.get("k_effects"),
                       "pending_confirmation": dossier_data.get("pending_confirmation")},
         "key_result": key_result or None,
         "summary": {"floor_100": result.get("floor_100"), "delivery": result.get("delivery"),
                     "phases_done": result.get("phases_done")},
-        "artifacts": {"pdf": str(pdf) if pdf.is_file() else None},
+        "artifacts": {"has_pdf": pdf.is_file()},   # bool flag — no server path leak; page derives /paper
         "error": ext.get("run_error"),
         "updated_at": status.get("finished_at") or status.get("started_at"),
     }
