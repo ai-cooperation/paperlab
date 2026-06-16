@@ -100,6 +100,7 @@
 
   function render(s) {
     $('pp-err').classList.add('hidden');
+    if (s.data_warning) { $('pp-err').textContent = '資料警告：' + esc(s.data_warning); $('pp-err').classList.remove('hidden'); }
     const rp = s.research_plan || {};
     $('pp-topic').textContent = rp.topic || '(未命名專案)';
     $('pp-job').textContent = s.job_id || JOB || '';
@@ -136,6 +137,13 @@
         + (kr.n_studies != null ? `（來自 ${esc(kr.n_studies)} 篇有可萃取效應的研究）` : '')
         + (kr.i2_percent != null ? `，異質性 I&sup2; = ${esc(kr.i2_percent)}%` : '')
         + (kr.n_identified != null ? `<br>文獻篩選：${fmtN(kr.n_identified)} 筆 → ${esc(kr.n_studies)} 篇有可萃取效應` : '');
+      $('pp-finding').classList.remove('hidden');
+    } else if (s.synthesis_type || s.lane) {
+      // GENERIC non-meta summary: this research did not produce a poolable statistic
+      // (different lane/output type) — show what kind it was, honestly, no fake numbers.
+      $('pp-finding-body').innerHTML = `研究類型：<b>${esc(s.synthesis_type || '—')}</b>`
+        + (s.lane ? `（lane: ${esc(s.lane)}）` : '')
+        + `<br><span class="text-gray-500 text-sm">此研究未產生可合併的統計效應量；完整產出見論文 PDF。</span>`;
       $('pp-finding').classList.remove('hidden');
     } else { $('pp-finding').classList.add('hidden'); }
 
