@@ -284,4 +284,5 @@ def create_app(jobs_dir: Path = DEFAULT_HTTP_JOBS_DIR, start_worker: bool = True
     return app
 
 
-app = create_app()
+# engine-v2 routes mount only when PAPER_ENGINE_V2=1 (A/B opt-in; prod default off)
+app = create_app(engine_v2=os.environ.get("PAPER_ENGINE_V2") == "1")

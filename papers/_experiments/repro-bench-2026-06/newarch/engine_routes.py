@@ -76,7 +76,9 @@ def project_status(dossier_data: dict[str, Any], run_dir: Path) -> dict[str, Any
         "research_plan": {"topic": contract.get("topic"),
                           "research_question": contract.get("research_question"),
                           "contribution": contract.get("contribution")},
-        "b_gap": claims.get("b_gap"),
+        # b-gap = the grill's gap; for a live run_paper (no intake phase) fall back to
+        # the contract's contribution/question so the page always shows the b-side gap.
+        "b_gap": claims.get("b_gap") or contract.get("contribution") or contract.get("research_question"),
         "a_gap": claims.get("research_gaps", []),
         "viability": {"viable": viability.get("viable"), "metric": viability.get("metric"),
                       "pending_confirmation": dossier_data.get("pending_confirmation")},
