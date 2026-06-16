@@ -150,17 +150,21 @@ def paper_path_for_job(job_id: str, jobs_dir: Path) -> Path:
 
 
 def create_app(jobs_dir: Path = DEFAULT_HTTP_JOBS_DIR, start_worker: bool = True,
-               engine_dispatcher: Any = None) -> FastAPI:
+               engine_v2: bool = False, v2_spawn: Any = None,
+               v2_max_concurrent: int = 1) -> FastAPI:
     app = FastAPI(title="Paper Job Service", version=job_runner.RUNNER_VERSION)
     resolved_jobs_dir = jobs_dir.expanduser().resolve()
 
-    # Engine-v2 (orchestrator) routes mount ALONGSIDE the old pipeline for A/B, only
-    # when a dispatcher is supplied (offline: MockDispatcher; live: HermesDispatcher).
-    # The old paper_driver pipeline is untouched (P7: never churn prod around an
-    # unproven orchestrator).
-    if engine_dispatcher is not None:
+    # Engine-v2 routes mount ALONGSIDE the old pipeline for A/B (P7: never churn prod
+    # around an unproven orchestrator). POST /v2/jobs detaches a v2_worker subprocess
+    # running the full pipeline; the old paper_driver pipeline on /jobs is untouched.
+    # v2_spawn is injectable so tests stub the heavy worker.
+    if engine_v2:
         import engine_routes
-        engine_routes.register(app, resolved_jobs_dir, engine_dispatcher)
+        kw: dict[str, Any] = {"max_concurrent": v2_max_concurrent}
+        if v2_spawn is not None:
+            kw["spawn"] = v2_spawn
+        engine_routes.register(app, resolved_jobs_dir, **kw)
 
     @app.get("/health")
     def health() -> dict[str, Any]:
