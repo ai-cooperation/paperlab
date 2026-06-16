@@ -32,6 +32,12 @@
     <!-- terminal result (shown when done/blocked/failed) -->
     <div id="pp-result" class="hidden rounded-xl p-5 mb-5"></div>
 
+    <!-- the actual finding (real_results) -->
+    <div id="pp-finding" class="hidden bg-white border border-gray-200 rounded-xl p-5 mb-5">
+      <div class="text-sm font-bold uppercase tracking-wide text-secondary mb-2">研究結果</div>
+      <div id="pp-finding-body" class="text-base text-primary leading-relaxed"></div>
+    </div>
+
     <div class="grid sm:grid-cols-2 gap-5">
       <div class="bg-white border border-gray-200 rounded-xl p-5">
         <div class="text-sm font-bold uppercase tracking-wide text-secondary mb-2">研究計畫</div>
@@ -105,6 +111,21 @@
       + (k != null ? `（可合併 k=${k}）` : '');
     if (s.blocked) { $('pp-blk').classList.remove('hidden'); $('pp-blk').textContent = 'BLOCKED: ' + (s.blockers || []).join('; '); }
     else $('pp-blk').classList.add('hidden');
+
+    // the actual finding (pooled result) — language-neutral numbers
+    const kr = s.key_result;
+    if (kr && kr.pooled_effect != null) {
+      const lo = kr.ci_low, hi = kr.ci_high;
+      const nonSig = (lo != null && hi != null && lo <= 0 && hi >= 0) ? '（95% 信賴區間跨越 0，未達統計顯著）' : '';
+      $('pp-finding-body').innerHTML =
+        `合併效應量（${esc((kr.scale || 'smd').toUpperCase())}）：<b>${esc(kr.pooled_effect)}</b>`
+        + (lo != null && hi != null ? `，95% CI [${esc(lo)}, ${esc(hi)}]` : '') + esc(nonSig)
+        + `<br>納入 <b>${esc(kr.k)}</b> 篇研究的可萃取效應`
+        + (kr.i2_percent != null ? `，異質性 I&sup2; = ${esc(kr.i2_percent)}%` : '')
+        + (kr.identified != null && kr.studies_with_effects != null
+            ? `<br>文獻篩選：${Number(kr.identified).toLocaleString()} 筆 → ${esc(kr.studies_with_effects)} 篇有可萃取效應` : '');
+      $('pp-finding').classList.remove('hidden');
+    } else { $('pp-finding').classList.add('hidden'); }
 
     // phase timeline
     const curIdx = PHASES.findIndex((p) => p[0] === s.phase);
