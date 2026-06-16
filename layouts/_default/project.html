@@ -1,0 +1,147 @@
+{{ define "main" }}
+{{/*
+  Live project progress page (ENGINE_BUILD_PLAN P9 / DESIGN §5.3).
+  Polls the a-side projection every 5s and renders the research plan, the gap, the tier
+  decision, a phase timeline, and the terminal result (floor / delivery / PDF).
+  Open with ?status=<full status url> (preferred — flip-independent) OR ?job=<id>.
+  The a-side status endpoint is public (read-only projection), so no auth is needed.
+*/}}
+<div class="max-w-3xl mx-auto px-4 sm:px-6 py-10">
+
+  <header class="mb-6">
+    <a href="/projects/" class="text-base text-secondary hover:underline">&larr; 我的研究專案</a>
+    <h1 id="pp-topic" class="text-3xl font-black text-primary mt-3 mb-2 leading-snug">載入中…</h1>
+    <p class="text-gray-500 text-base">
+      Job <span id="pp-job" class="font-mono"></span>
+      · 階段 <span id="pp-phase" class="font-semibold text-primary">—</span>
+      · 更新 <span id="pp-updated"></span>
+    </p>
+  </header>
+
+  <div id="pp-noid" class="hidden bg-tip border-l-4 border-secondary rounded-r-lg p-6 text-gray-700">
+    沒有指定專案。請從 <a href="/projects/" class="text-secondary underline">我的研究專案</a> 點「查即時進度」。
+  </div>
+
+  <div id="pp-app" class="hidden">
+    <!-- phase timeline -->
+    <div class="bg-white border border-gray-200 rounded-xl p-5 mb-5">
+      <div class="text-sm font-bold uppercase tracking-wide text-secondary mb-3">執行階段</div>
+      <div id="pp-steps" class="flex flex-wrap gap-2"></div>
+    </div>
+
+    <!-- terminal result (shown when done/blocked/failed) -->
+    <div id="pp-result" class="hidden rounded-xl p-5 mb-5"></div>
+
+    <div class="grid sm:grid-cols-2 gap-5">
+      <div class="bg-white border border-gray-200 rounded-xl p-5">
+        <div class="text-sm font-bold uppercase tracking-wide text-secondary mb-2">研究計畫</div>
+        <div class="text-sm text-gray-500">研究問題</div>
+        <div id="pp-rq" class="text-base text-primary mb-3">—</div>
+        <div class="text-sm text-gray-500">貢獻</div>
+        <div id="pp-contrib" class="text-base text-primary">—</div>
+      </div>
+      <div class="bg-white border border-gray-200 rounded-xl p-5">
+        <div class="text-sm font-bold uppercase tracking-wide text-secondary mb-2">層級與可行性</div>
+        <div class="text-sm text-gray-500">層級</div>
+        <div id="pp-tier" class="text-base text-primary mb-3">—</div>
+        <div class="text-sm text-gray-500">資料可行性</div>
+        <div id="pp-via" class="text-base text-primary">—</div>
+        <div id="pp-blk" class="hidden mt-3 text-base font-semibold text-red-700"></div>
+      </div>
+      <div class="bg-white border border-gray-200 rounded-xl p-5 sm:col-span-2">
+        <div class="text-sm font-bold uppercase tracking-wide text-secondary mb-2">研究缺口</div>
+        <div id="pp-bgap" class="text-base text-primary mb-3">—</div>
+        <ul id="pp-agap" class="list-disc pl-6 text-base text-gray-700 space-y-1"></ul>
+      </div>
+    </div>
+
+    <p class="text-gray-400 text-sm mt-6">a 段非同步跑完整論文，本頁每 5 秒自動更新；可關閉再回來。</p>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const q = new URLSearchParams(location.search);
+
+  // status URL: prefer a full ?status= (decoupled from /jobs vs /v2/jobs); else build from ?job=
+  const API = (q.get('api') || 'https://paper-a.cooperation.tw').replace(/\/+$/, '');
+  let STATUS_URL = q.get('status') || '';
+  const JOB = q.get('job') || '';
+  if (!STATUS_URL && JOB) STATUS_URL = `${API}/v2/jobs/${encodeURIComponent(JOB)}/status`;
+
+  if (!STATUS_URL) { $('pp-noid').classList.remove('hidden'); $('pp-topic').textContent = '研究專案進度'; return; }
+  $('pp-app').classList.remove('hidden');
+
+  // pipeline phases in order (matches the a-side projection's `phase`)
+  const PHASES = [
+    ['data', '資料'], ['gap', '缺口'], ['structure', '結構'], ['claim_evidence', '證據'],
+    ['write', '撰寫'], ['render_gates', '渲染'], ['review_heal', '審查'],
+    ['format_repair', '格式'], ['done', '完成'],
+  ];
+  const BADGE = {
+    running: ['執行中', 'bg-amber-100 text-amber-700'], done: ['完成', 'bg-green-100 text-green-700'],
+    blocked: ['卡住', 'bg-red-100 text-red-700'], failed: ['失敗', 'bg-red-100 text-red-700'],
+  };
+  let timer = null;
+
+  function render(s) {
+    const rp = s.research_plan || {};
+    $('pp-topic').textContent = rp.topic || '(未命名專案)';
+    $('pp-job').textContent = s.job_id || JOB || '';
+    $('pp-phase').textContent = s.phase || '—';
+    $('pp-updated').textContent = new Date().toLocaleTimeString('zh-TW');
+    $('pp-rq').textContent = rp.research_question || '—';
+    $('pp-contrib').textContent = rp.contribution || '—';
+    $('pp-bgap').textContent = s.b_gap || '—';
+    $('pp-agap').innerHTML = (s.a_gap && s.a_gap.length)
+      ? s.a_gap.map((g) => `<li>${esc(typeof g === 'string' ? g : (g.description || JSON.stringify(g)))}</li>`).join('')
+      : '<li class="text-gray-400">尚未判定</li>';
+    $('pp-tier').textContent = s.tier || '—';
+    const v = s.viability || {};
+    const k = v.metric && v.metric.max_poolable_k;
+    $('pp-via').textContent = (v.viable === false ? '不足' : v.viable === true ? '可行' : '—')
+      + (k != null ? `（可合併 k=${k}）` : '');
+    if (s.blocked) { $('pp-blk').classList.remove('hidden'); $('pp-blk').textContent = 'BLOCKED: ' + (s.blockers || []).join('; '); }
+    else $('pp-blk').classList.add('hidden');
+
+    // phase timeline
+    const curIdx = PHASES.findIndex((p) => p[0] === s.phase);
+    $('pp-steps').innerHTML = PHASES.map((p, i) => {
+      const done = curIdx >= 0 && i <= curIdx;
+      const cls = done ? 'bg-primary text-white border-primary' : 'bg-white text-gray-500 border-gray-300';
+      return `<span class="px-3 py-1 rounded-full text-sm border ${cls}">${p[1]}</span>`;
+    }).join('');
+
+    // terminal result
+    const terminal = s.status === 'done' || s.status === 'blocked' || s.status === 'failed';
+    if (terminal) {
+      const sum = s.summary || {};
+      const [lbl, badge] = BADGE[s.status] || ['—', 'bg-gray-100 text-gray-600'];
+      const pdfUrl = (s.artifacts && s.artifacts.pdf) ? STATUS_URL.replace(/\/status$/, '/paper') : '';
+      const box = $('pp-result');
+      box.className = 'rounded-xl p-5 mb-5 border ' + (s.status === 'done' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200');
+      box.innerHTML =
+        `<div class="flex items-center gap-3 mb-2">
+           <span class="px-2.5 py-1 rounded-full text-sm font-bold ${badge}">${lbl}</span>
+           <span class="text-base text-gray-600">品質 floor <b class="text-primary">${sum.floor_100 != null ? sum.floor_100 : '—'}</b>/100 · 交付 <b>${esc(sum.delivery || '—')}</b></span>
+         </div>`
+        + (pdfUrl ? `<a href="${esc(pdfUrl)}" target="_blank" rel="noreferrer" class="inline-block mt-2 px-5 py-2.5 rounded-lg bg-accent text-primary-dark font-bold hover:bg-accent-dark transition">下載論文 PDF</a>` : '')
+        + (s.error ? `<div class="text-sm text-red-700 mt-2">執行中發生錯誤</div>` : '');
+      box.classList.remove('hidden');
+      if (timer) { clearInterval(timer); timer = null; }   // stop polling at a terminal state
+    }
+  }
+
+  async function poll() {
+    try {
+      const r = await fetch(STATUS_URL, { cache: 'no-store' });
+      if (r.ok) render(await r.json());
+    } catch (e) { /* transient fetch errors are non-fatal; keep the last render */ }
+  }
+  poll();
+  timer = setInterval(poll, 5000);
+})();
+</script>
+{{ end }}
