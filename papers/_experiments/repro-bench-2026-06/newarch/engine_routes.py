@@ -168,3 +168,13 @@ def register(app: FastAPI, jobs_dir: Path, *,
             raise HTTPException(status_code=404, detail=f"no v2 job: {job_id}")
         data = json.loads(dossier_path.read_text(encoding="utf-8"))
         return project_status(data, _run_dir(job_id))
+
+    @app.get("/v2/jobs/{job_id}/paper")
+    def get_v2_paper(job_id: str):
+        """Serve the rendered PDF for download (the live page links here when done)."""
+        from fastapi.responses import FileResponse
+        pdf = _run_dir(job_id) / "paper_draft_v0.pdf"
+        if not pdf.is_file():
+            raise HTTPException(status_code=404, detail=f"no paper for v2 job: {job_id}")
+        return FileResponse(str(pdf), media_type="application/pdf",
+                            filename=f"{job_id}_paper.pdf")

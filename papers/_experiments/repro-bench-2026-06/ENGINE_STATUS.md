@@ -145,6 +145,29 @@ Delivery still reports `blocked` (strict 80-AND-no-P0 gate; honest — quality n
   prod `tables.py` is unchanged. Flip still waits on a CLEAN prod /v2 rerun (redeploy the
   fixed pack → rerun → expect delivery=pass, floor>62.2 → flip `A_ENGINE_ENDPOINT`).
 
+## 6d. FLIPPED — production cutover (2026-06-16) — `/v2/jobs` is now the live engine
+
+- **a-side**: the fixed pack (`tables.py` body-placement, `format_repair.py`, `pipeline.py`
+  Phase 9b, `engine_routes.py` `/v2/jobs/{id}/paper` download) deployed to prod
+  `~/paper-job-service/newarch` (backups `*.pre-figfix-*` / `*.pre-fmtrepair-*` /
+  `*.pre-paper-*`), service restarted (no in-flight job). Public tunnel verified:
+  `/v2/jobs/{id}/status` 200, `/v2/jobs/{id}/paper` 200 application/pdf 303 KB.
+- **CLEAN prod /v2 A/B (the gate)**: end-to-end (8 phases incl. format_repair) →
+  **floor 70.8 > 62.2, review 82 > 57.1, delivery=`pass`, delivery_audit p0=0/p1=0,
+  0 broken `?@` in the PDF** (`format_repair.json`: crossref_ok, repaired=false — the
+  by-construction fix means the first render is already clean). The crossref defect that
+  blocked the previous A/B is gone.
+- **b-side FLIP**: `A_ENGINE_ENDPOINT` `/jobs` → `/v2/jobs` (wrangler.jsonc) + `wrangler
+  deploy` (paper-mcp.alan-chen75.workers.dev, version 4c39708e). Production submit now
+  routes to the new engine. `submit_to_pipeline` hardened: if no explicit viability-lock,
+  it AUTO-PROBES inline (a flip must not refuse a viable contract just because the grill
+  didn't pre-probe; non-viable is still refused).
+- **web**: live progress page `/project/?status=<url>` (Hugo, polls the public a-side
+  projection every 5s; research plan / gap / tier / phase timeline / floor+delivery+PDF
+  download); `/projects/` "查即時進度" links to it. Deploys from `main` (GitHub Pages).
+- **Old `/jobs` pipeline stays available** (instant rollback: set `A_ENGINE_ENDPOINT`
+  back to `/jobs` + redeploy).
+
 ## 7. Known gaps (codex review 2026-06-16 — fix during integration)
 
 - `framework.viability.handle_viability` master branch LOGS an auto-pivot + writes the steering log but
