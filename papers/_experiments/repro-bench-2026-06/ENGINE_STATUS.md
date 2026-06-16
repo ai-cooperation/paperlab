@@ -92,6 +92,29 @@ Delivery still reports `blocked` (strict 80-AND-no-P0 gate; honest — quality n
 - **a-side /jobs/viability-probe** endpoint (wrap handle_viability) — not yet exposed.
 - IFRS pack (#3) — still speculative.
 
+## 6b. Deployment status (2026-06-16) — DEPLOYED, NOT flipped
+
+- **Branch pushed**: `origin/engine-build` (ai-cooperation/paperlab).
+- **a-side (prod ac-2012)**: v2 code in `~/paper-job-service/newarch` (backup
+  `newarch-code-pre-v2-backup.tgz` + `*.pre-v2.bak`); `PAPER_ENGINE_V2=1` + PATH/HOME
+  in `~/.config/paper-job-service/paper-job-service.env`; user-service `paper-job-service`
+  (uvicorn :8765, `KillMode=process`) restarted. Verified: health, /jobs intact,
+  /v2/jobs + /jobs/viability-probe on the public tunnel, worker spawns under the prod env.
+- **b-side (Cloudflare)**: `wrangler d1 migrations apply` (0002 viability_locks) +
+  `wrangler deploy` (paper-mcp.alan-chen75.workers.dev, v6e8ee7db). `A_ENGINE_ENDPOINT="/jobs"`
+  → **prod routing UNCHANGED** (old pipeline). v2 path available, gated behind the flip.
+- **Golden A/B FAILED → NOT flipped (prod safe on /jobs)**: the prod v2 run scored
+  floor 42 / no PDF because **codex (alan.chen75) hit its usage limit mid-run**. codex
+  exits 0 while printing "you've hit your usage limit" and writes nothing; LiveDispatcher
+  had treated brain rc==0 as CHILD_OK → empty brain files → garbage. FIXED: LiveDispatcher
+  detects codex error markers → status=error; `_dispatch_brain` raises OrchestratorBlocked
+  on brain-error/no-output → the run now BLOCKS loud, never garbage (redeployed).
+- **BLOCKER to finish (flip)**: codex quota — alan.chen75 exhausted (the 4 engine-live
+  golden-beating runs + the A/B drained it); `~/.codex` has ONE profile (no rotation
+  fallback). When quota is back (reset, or add `~/.codex/auth.json.<name>` for
+  `_rotate_codex_auth`): re-run the prod /v2 A/B → if it beats golden, flip
+  `A_ENGINE_ENDPOINT=/v2/jobs` + `wrangler deploy`.
+
 ## 7. Known gaps (codex review 2026-06-16 — fix during integration)
 
 - `framework.viability.handle_viability` master branch LOGS an auto-pivot + writes the steering log but
