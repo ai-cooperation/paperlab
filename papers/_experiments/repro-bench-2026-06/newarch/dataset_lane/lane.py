@@ -1,0 +1,131 @@
+"""The general dataset-analysis lane orchestration. It drives the AGENT (brain plans,
+worker codes) and the DETERMINISTIC core (fetch, runner, gates) to turn a `data_source`
+of type "dataset" into a verified `real_experiments/real_results.json` that the normal
+downstream phases (gap/structure/write/render) consume.
+
+Domain-agnostic: every prompt is built from the CONTRACT (topic, question, data_source,
+requested method) — this file names no dataset, column, or study. `brain(prompt, writes)`
+and `worker(prompt, writes)` are injected by the pipeline (bound to the LiveDispatcher);
+in tests they are stubbed.
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any, Callable
+
+from . import fetch, gates, runner, schema
+
+Dispatch = Callable[[str, list[str]], bool]
+
+
+def _contract_brief(contract: dict[str, Any]) -> str:
+    ds = contract.get("data_source") or {}
+    return (
+        f"Research contract:\n- Topic: {contract.get('topic')}\n"
+        f"- Research question: {contract.get('research_question')}\n"
+        f"- Contribution: {contract.get('contribution')}\n"
+        f"- Data source: {ds.get('name')} (type={ds.get('type')}, url={ds.get('url')})\n"
+        f"- Output language: {contract.get('output_language')}\n"
+        "Use ONLY the real downloaded data. Never invent values. Every number you will "
+        "later report in the paper must be produced by the analysis code and recorded in "
+        "real_results.json.\n")
+
+
+def _resolve_prompt(contract: dict[str, Any], skills: str) -> str:
+    ds = contract.get("data_source") or {}
+    return _contract_brief(contract) + (
+        f"\nYou are the DATA-RESOLUTION brain. Read these skills:\n{skills}\n"
+        f"Resolve the dataset at {ds.get('url')} into the ACTUAL downloadable data files "
+        "needed for this study (the agent may read the landing page / data dictionary to "
+        "find the real file URLs). Write `data/download_plan.json` = a JSON list of "
+        '{"url": "<direct file url>", "filename": "<name>"}. List ONLY real file URLs from '
+        "the source — no invented or example URLs. Python downloads them; you do not. "
+        "Only write that one file. End with CHILD_OK.")
+
+
+def _spec_prompt(contract: dict[str, Any], manifest: dict[str, Any], skills: str) -> str:
+    cols = sorted({c for a in (manifest.get("artifacts") or [])
+                   for c in ((a.get("probe_sample") or {}).get("columns") or [])})
+    return _contract_brief(contract) + (
+        f"\nYou are the ANALYSIS-SPEC brain. Read these skills:\n{skills}\n"
+        "The real data is downloaded (see data/manifest.json). Sample columns seen: "
+        f"{cols[:80] if cols else '(binary format — open the files to discover columns)'}.\n"
+        "Write `real_experiments/analysis_spec.json`: map the contract's exposures/outcomes/"
+        "method to THIS dataset's real variable names; choose defensible models; and IF the "
+        "dataset is a complex survey, declare survey_design = {weight_variable, "
+        "strata_variable, psu_variable, design notes} using the dataset's REAL column names. "
+        "Include `required_outputs` (sample_flow, weighted/unweighted n, model_results, "
+        "spline_results, subgroup_results, sensitivity_results). Keep wording consistent "
+        "with the study design (e.g. cross-sectional => association/odds, not prevention). "
+        "Only write that one file. End with CHILD_OK.")
+
+
+def _code_prompt(contract: dict[str, Any], skills: str) -> str:
+    return _contract_brief(contract) + (
+        f"\nYou WRITE the analysis program. Read these skills:\n{skills}\n"
+        "Write `real_experiments/analysis.py`. It is invoked as:\n"
+        "  python analysis.py --manifest data/manifest.json "
+        "--spec real_experiments/analysis_spec.json --out real_experiments/real_results.json\n"
+        "It MUST: (1) read the real downloaded files listed in the manifest (pandas; handle "
+        "the formats present — csv/xpt/sas7bdat/zip etc.); (2) build the analytic dataset per "
+        "the spec (derive exposures/outcomes, record sample flow); (3) run the spec's models "
+        "(survey-weighted with the declared weight/strata/psu when the spec declares a survey "
+        "design — apply the weights, do NOT run a plain unweighted fit); (4) write "
+        "real_results.json with EXACTLY: status='completed', simulated=False, "
+        f"lane='{schema.LANE_NAME}', source, data_manifest_sha256 (copy manifest_sha256 from "
+        "the manifest you read), rows, sample_flow, survey_design (weighted bool + the real "
+        "column names + design_df + weight combination rule), variables (the columns you "
+        "actually used), models (each: id, family, outcome, exposure, estimate, ci_low, "
+        "ci_high, p_value, n_unweighted, n_weighted, covariates), and numeric_index (a flat "
+        "list of EVERY number you report). Print a one-line summary to stdout. Do NOT "
+        "hardcode results or write numbers you did not compute. Only write that one file. "
+        "End with CHILD_OK.")
+
+
+def _fix_prompt(contract: dict[str, Any], problems: list[dict[str, Any]]) -> str:
+    bullets = "\n".join(f"- [{p.get('id')}] {p.get('description')}" for p in problems)
+    return _contract_brief(contract) + (
+        "\nThe deterministic gates FAILED on your analysis. Fix `real_experiments/analysis.py` "
+        "so they pass — by doing the analysis CORRECTLY, never by fabricating numbers or "
+        "faking the result shape:\n" + bullets + "\n"
+        "Common causes: did not actually read the downloaded files; ran an UNWEIGHTED fit "
+        "when the spec declares a survey design (apply the weights/strata/psu); missing "
+        "required real_results fields; numbers in the manuscript not in numeric_index. "
+        "Rewrite analysis.py and stop. End with CHILD_OK.")
+
+
+def run(run_dir: Path, contract: dict[str, Any], *, brain: Dispatch, worker: Dispatch,
+        skills: str = "", max_heal_rounds: int = 2) -> dict[str, Any]:
+    """Fetch -> spec -> code -> execute -> gates (+heal). Returns
+    {ok, problems, real_results}. Raises nothing; the caller decides on `ok`."""
+    run_dir = Path(run_dir)
+
+    # 1. resolve + deterministic fetch (one re-resolve heal if the gate rejects the data)
+    for attempt in range(2):
+        brain(_resolve_prompt(contract, skills), [schema.DOWNLOAD_PLAN])
+        fetch.fetch(run_dir, contract)
+        fetch_problems = gates.fetch_gate(run_dir)
+        if not fetch_problems:
+            break
+        if attempt == 1:
+            return {"ok": False, "problems": fetch_problems, "real_results": None,
+                    "stage": "fetch"}
+
+    # 2. agent writes the spec, then the analysis code
+    manifest = schema.read_json(run_dir, schema.MANIFEST) or {}
+    brain(_spec_prompt(contract, manifest, skills), [schema.ANALYSIS_SPEC])
+    worker(_code_prompt(contract, skills), [schema.ANALYSIS_CODE])
+
+    # 3. deterministic execute + gates, with a worker heal loop on the analysis code
+    problems: list[dict[str, Any]] = []
+    for rnd in range(max_heal_rounds + 1):
+        runner.run_analysis(run_dir)
+        problems = gates.run_all(run_dir)
+        if not problems:
+            break
+        if rnd < max_heal_rounds:
+            worker(_fix_prompt(contract, problems), [schema.ANALYSIS_CODE])
+
+    rr = schema.read_json(run_dir, schema.REAL_RESULTS)
+    return {"ok": not problems, "problems": problems, "real_results": rr, "stage": "analysis"}
