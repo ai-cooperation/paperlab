@@ -59,12 +59,19 @@ def _hdr(c: dict[str, Any]) -> str:
 
 def _dispatch_brain(o: Orchestrator, label: str, prompt: str, writes: list[str],
                     timeout: int = 1200) -> bool:
-    """One codex-brain reasoning unit via the dispatcher; verify the artifact exists."""
-    pkt = WorkerPacket(task_id=label, role=label, worker_class="reviewer",
-                       task_goal=prompt, allowed_files_write=writes)
+    """One codex-brain reasoning unit via the dispatcher; verify the artifact exists,
+    retry once with a forceful nudge if the brain returned OK but wrote nothing."""
     o.dispatcher.run_dir = o.run_dir  # type: ignore[attr-defined]
-    res = o.fan_out([pkt])[0]
-    return res.ok and all((o.run_dir / w).exists() for w in writes)
+    for attempt in range(2):
+        p = prompt if attempt == 0 else (
+            prompt + f"\n\nIMPORTANT: you MUST actually create the file(s) "
+            f"{writes} on disk now — do not just acknowledge. Write them, then output CHILD_OK.")
+        pkt = WorkerPacket(task_id=f"{label}{'' if attempt == 0 else '-retry'}", role=label,
+                           worker_class="reviewer", task_goal=p, allowed_files_write=writes)
+        o.fan_out([pkt])
+        if all((o.run_dir / w).exists() for w in writes):
+            return True
+    return False
 
 
 def _dispatch_worker(o: Orchestrator, label: str, prompt: str, writes: list[str],
@@ -207,23 +214,42 @@ def _phase_review_heal(o: Orchestrator) -> None:
     c = o.dossier.data["contract"]
 
     def review_fn(_data: dict[str, Any], rnd: int) -> ReviewOutcome:
+        # The brain DIAGNOSES *and PRESCRIBES* in ONE call: for every problem it emits
+        # a concrete, executable edit (verbatim locator + exact replacement). The
+        # free worker that applies them is NOT smart — it only finds the locator and
+        # writes the replacement. The intelligence is all here, in codex.
         prompt = _hdr(c) + f"""
 You are the REVIEW brain (independent — you did NOT write this). Read:
 {_skill('paper-draft', 'paper-review-skill', 'elite-reviewer-audit', 'paper-logic-audit')}
-Review paper_draft_v0.qmd vs real_experiments/real_results.json + claim_evidence_map.md. Write
-`quality_review_round{rnd}.json`: {{"score_100": <int>, "p0": [..], "p1": [..],
-"fixes_by_type": {{"claim_evidence":[..], "coherence":[..], "writing":[..]}}}}. Tough Q1 reviewer on the
-7 dimensions. Do NOT edit the paper. End with CHILD_OK."""
+Review paper_draft_v0.qmd vs real_experiments/real_results.json + claim_evidence_map.md as a tough
+Q1 reviewer on the 7 dimensions. Write `quality_review_round{rnd}.json` with this EXACT shape:
+{{"score_100": <int 0-100>, "p0": [<short labels>], "p1": [<short labels>],
+  "edits": [
+    {{"severity": "P0|P1|P2|P3",
+      "locator": "<COPY the exact existing sentence/phrase from the qmd that must change — verbatim>",
+      "action": "replace|insert_after|delete",
+      "replacement": "<the EXACT new text to write; empty for delete>",
+      "reason": "<one line>"}}
+  ]}}
+RULES: for EVERY P0/P1 you MUST give a concrete edit whose `locator` is copied VERBATIM from the qmd
+and whose `replacement` is the exact final text — never a vague suggestion. The editor that applies
+these is NOT smart; it only finds your locator and writes your replacement. Prioritise: (a) overclaims
+-> rewrite so claim <= evidence (numbers must match real_results; downgrade strong verbs when k small /
+CI crosses zero); (b) STRENGTHEN the Limitations section — add honest abstract-level caveats verbatim
+(no full text, pattern-based abstract screening, small k, wide CI crossing zero, no RoB2/GRADE/PRISMA).
+Do NOT edit the paper yourself. End with CHILD_OK."""
         _dispatch_brain(o, f"review_round{rnd}", prompt, [f"quality_review_round{rnd}.json"])
         rev = _read(o.run_dir / f"quality_review_round{rnd}.json")
         fs = floor_score.floor_scores(o.run_dir)
         floor100 = round(float(fs.get("mean_6_floor") or 0) * 10, 1)
         hg = fs.get("hard_gates") or {}
+        # carry the concrete edits as the loop's findings (one mechanical batch)
+        edits = [e for e in (rev.get("edits") or []) if isinstance(e, dict) and e.get("locator")]
         return ReviewOutcome(
             round=rnd, score=float(rev.get("score_100") or 0),
             p0_count=len(rev.get("p0") or []), floor=floor100,
             floor_failed=not hg.get("all_pass", True),   # floor_score hard-gates: all_pass
-            findings_by_type={k: v for k, v in (rev.get("fixes_by_type") or {}).items() if v})
+            findings_by_type={"edits": edits} if edits else {})
 
     # the self-heal loop dispatches free-worker fix-agents on each failing round
     loop = _PaperSelfHeal(o, review_fn, target_score=SCORE_TARGET, max_rounds=3)
@@ -240,15 +266,47 @@ class _PaperSelfHeal(SelfHealLoop):
         self._orch = orch
 
     def _dispatch_fixers(self, outcome) -> list[str]:
-        fixed = []
-        for ftype, findings in outcome.findings_by_type.items():
-            prompt = (f"You are a FREE fix-agent. Edit ONLY paper_draft_v0.qmd to resolve these "
-                      f"{ftype} findings, keeping claims <= evidence and inventing no numbers:\n"
-                      + "\n".join(f"- {x}" for x in findings) + "\nEnd with CHILD_OK.")
-            _dispatch_worker(self._orch, f"fix-{ftype}-r{outcome.round}", prompt, ["paper_draft_v0.qmd"])
-            fixed.append(ftype)
+        """Apply codex's prescribed edits. Exact-locator edits are applied
+        DETERMINISTICALLY in Python (guaranteed to land — the most reliable
+        "executor"); only edits whose locator is not an exact substring fall to a
+        big-pickle worker for a fuzzy mechanical apply. The worker never reasons about
+        WHAT to fix — codex already decided that; it only writes prescribed text."""
+        edits = (outcome.findings_by_type or {}).get("edits") or []
+        if not edits:
+            return []
+        qmd = self._orch.run_dir / "paper_draft_v0.qmd"
+        text = qmd.read_text(encoding="utf-8") if qmd.exists() else ""
+        applied = 0
+        unapplied: list[dict[str, Any]] = []
+        for e in edits:
+            loc = str(e.get("locator") or "")
+            rep = str(e.get("replacement") or "")
+            act = e.get("action") or "replace"
+            if loc and loc in text:
+                if act == "replace":
+                    text = text.replace(loc, rep, 1)
+                elif act == "insert_after":
+                    text = text.replace(loc, loc + "\n" + rep, 1)
+                elif act == "delete":
+                    text = text.replace(loc, "", 1)
+                applied += 1
+            else:
+                unapplied.append(e)
+        qmd.write_text(text, encoding="utf-8")          # deterministic edits land here
+        if unapplied:                                   # fuzzy remainder -> mechanical worker
+            blocks = [f"EDIT [{e.get('severity', 'P1')}] action={e.get('action', 'replace')}\n"
+                      f"  LOCATOR (find this, allow a close match): {e.get('locator')}\n"
+                      f"  REPLACEMENT (write verbatim): {e.get('replacement', '')}"
+                      for e in unapplied]
+            prompt = (
+                "You are a MECHANICAL editor, NOT a writer. Apply these reviewer edits to "
+                "paper_draft_v0.qmd. For each: find the LOCATOR text and replace/insert-after/"
+                "delete per its action, writing REPLACEMENT verbatim. Do NOT rephrase, re-pool, "
+                "summarise, or invent. Touch ONLY text named by a locator. Save the file.\n\n"
+                + "\n\n".join(blocks) + "\n\nEnd with CHILD_OK.")
+            _dispatch_worker(self._orch, f"apply-edits-r{outcome.round}", prompt, ["paper_draft_v0.qmd"])
         _render(self._orch.run_dir, self._orch.dossier.data["contract"])
-        return fixed
+        return [f"deterministic:{applied}", f"worker:{len(unapplied)}"]
 
 
 def build_paper_phases() -> list[Phase]:
