@@ -89,16 +89,33 @@ def _code_prompt(contract: dict[str, Any], skills: str) -> str:
         "End with CHILD_OK.")
 
 
-def _fix_prompt(contract: dict[str, Any], problems: list[dict[str, Any]]) -> str:
+def _review_prompt(contract: dict[str, Any], problems: list[dict[str, Any]], skills: str) -> str:
+    """BRAIN (codex) review: read the FAILING analysis.py + the run log + the gate problems
+    and write a CONCRETE fix prescription the free worker can apply mechanically."""
     bullets = "\n".join(f"- [{p.get('id')}] {p.get('description')}" for p in problems)
     return _contract_brief(contract) + (
-        "\nThe deterministic gates FAILED on your analysis. Fix `real_experiments/analysis.py` "
-        "so they pass — by doing the analysis CORRECTLY, never by fabricating numbers or "
-        "faking the result shape:\n" + bullets + "\n"
-        "Common causes: did not actually read the downloaded files; ran an UNWEIGHTED fit "
-        "when the spec declares a survey design (apply the weights/strata/psu); missing "
-        "required real_results fields; numbers in the manuscript not in numeric_index. "
-        "Rewrite analysis.py and stop. End with CHILD_OK.")
+        f"\nYou are the REVIEW brain (Hermes two-layer §3.6). Read these skills:\n{skills}\n"
+        "The deterministic gates FAILED on the worker's analysis. READ the actual files:\n"
+        "- `real_experiments/analysis.py` (the code the worker wrote)\n"
+        "- `real_experiments/analysis_stderr.txt` and `analysis_stdout.txt` (the run log)\n"
+        "- `real_experiments/analysis_spec.json` and `data/manifest.json`\n"
+        "Gate failures:\n" + bullets + "\n\n"
+        "Diagnose the REAL cause (e.g. the worker did not actually read the downloaded files; "
+        "ran an UNWEIGHTED fit when the spec declares a survey design; a pandas/statsmodels API "
+        "error in the log; a timeout because it processed too much; missing real_results fields; "
+        "numbers not in numeric_index). Write `real_experiments/fix_prescription.md`: a SHORT, "
+        "CONCRETE prescription — the exact changes the worker must make to analysis.py (specific "
+        "functions/columns/weights/imports, or a corrected code snippet). NEVER prescribe "
+        "fabricating numbers or faking the result shape. Only write that one file. End with CHILD_OK.")
+
+
+def _apply_prompt(contract: dict[str, Any]) -> str:
+    """WORKER applies the brain's prescription to analysis.py — typing, not reasoning."""
+    return _contract_brief(contract) + (
+        "\nThe reviewer wrote a fix prescription at `real_experiments/fix_prescription.md`. "
+        "READ it and rewrite `real_experiments/analysis.py` to do EXACTLY what it says — do "
+        "not add your own ideas, do not fabricate numbers. Keep the rest of the analysis intact. "
+        "Only write analysis.py. End with CHILD_OK.")
 
 
 def run(run_dir: Path, contract: dict[str, Any], *, brain: Dispatch, worker: Dispatch,
@@ -121,25 +138,31 @@ def run(run_dir: Path, contract: dict[str, Any], *, brain: Dispatch, worker: Dis
             return {"ok": False, "problems": fetch_problems, "real_results": None,
                     "stage": "fetch"}
 
-    # 2. the BRAIN writes the spec AND the analysis code. Writing a correct (survey-weighted)
-    # analysis is REASONING, not mechanical execution — the free worker cannot do it (a live
-    # NHANES run proved it: the worker wrote no analysis.py at all). So code = brain.
+    # 2. the BRAIN reasons the SPEC (map the contract to this dataset's real variables +
+    # survey design); the free WORKER drafts the analysis CODE from the spec+skills.
     manifest = schema.read_json(run_dir, schema.MANIFEST) or {}
     brain(_spec_prompt(contract, manifest, skills), [schema.ANALYSIS_SPEC])
-    brain(_code_prompt(contract, skills), [schema.ANALYSIS_CODE])
+    worker(_code_prompt(contract, skills), [schema.ANALYSIS_CODE])
 
-    # 3. deterministic execute + gates, with a brain heal loop on the analysis code
+    # 3. the HERMES TWO-LAYER self-correction loop (DESIGN §3.6): execute + gate; on failure
+    # the strong BRAIN (codex) REVIEWS the actual code + run log + gate problems and writes a
+    # concrete fix PRESCRIPTION; the free WORKER applies it. The brain reasons, the worker
+    # types — switching the whole job to the brain would abandon the two-layer model.
     problems: list[dict[str, Any]] = []
+    history: list[dict[str, Any]] = []
     for rnd in range(max_heal_rounds + 1):
         runner.run_analysis(run_dir)
         problems = gates.run_all(run_dir)
+        history.append({"round": rnd, "problem_ids": [p.get("id") for p in problems]})
         if not problems:
             break
         if rnd < max_heal_rounds:
-            brain(_fix_prompt(contract, problems), [schema.ANALYSIS_CODE])
+            brain(_review_prompt(contract, problems, skills), [schema.FIX_PRESCRIPTION])  # review+prescribe
+            worker(_apply_prompt(contract), [schema.ANALYSIS_CODE])                       # apply the fix
 
     rr = schema.read_json(run_dir, schema.REAL_RESULTS)
-    return {"ok": not problems, "problems": problems, "real_results": rr, "stage": "analysis"}
+    return {"ok": not problems, "problems": problems, "real_results": rr,
+            "stage": "analysis", "history": history}
 
 
 def metrics_block(real_results: dict[str, Any]) -> str:

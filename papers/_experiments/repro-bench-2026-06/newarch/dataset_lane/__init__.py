@@ -13,4 +13,4 @@ with ZERO change to this package — only different agent artifacts.
 
 Nothing in this package names a dataset, a column, or a study.
 """
-from . import fetch, gates, lane, runner, schema  # noqa: F401
+from . import fetch, gates, lane, runner, schema, skill_upgrade  # noqa: F401

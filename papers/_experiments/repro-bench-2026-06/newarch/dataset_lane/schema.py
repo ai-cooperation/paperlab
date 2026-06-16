@@ -35,6 +35,8 @@ ANALYSIS_STDOUT = "real_experiments/analysis_stdout.txt"
 ANALYSIS_STDERR = "real_experiments/analysis_stderr.txt"
 EXECUTION_RECORD = "real_experiments/execution_record.json"
 REAL_RESULTS = "real_experiments/real_results.json"
+FIX_PRESCRIPTION = "real_experiments/fix_prescription.md"   # BRAIN-written review of a failed run
+SKILL_LESSON = "skill_lesson.json"                          # self-upgrade: distilled lesson
 
 LANE_NAME = "dataset_agent_analysis"
 

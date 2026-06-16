@@ -136,6 +136,15 @@ def _phase_data_dataset(o: Orchestrator, contract: dict[str, Any]) -> None:
 
     skills = _skill("dataset-fetch", "survey-weighted-analysis", "number-trace-writing")
     res = dataset_lane.lane.run(o.run_dir, contract, brain=brain, worker=worker, skills=skills)
+    # Self-upgrade SKILL loop: distil this run's failures into a general skill lesson so the
+    # next run avoids them (the "Skill" half of Hermes+Skill). Best-effort, never blocks.
+    try:
+        learned = dataset_lane.skill_upgrade.distill_and_persist(
+            o.run_dir, res.get("history") or [], contract, brain=brain, bundle_dir=SKILLS)
+        if learned:
+            o.dossier.data.setdefault("learned", []).append(learned)
+    except Exception:  # noqa: BLE001
+        pass
     if not res.get("ok"):
         reasons = "; ".join(p.get("description", "") for p in (res.get("problems") or [])[:3])
         raise OrchestratorBlocked("data", reason=f"dataset lane blocked ({res.get('stage')}): {reasons}")

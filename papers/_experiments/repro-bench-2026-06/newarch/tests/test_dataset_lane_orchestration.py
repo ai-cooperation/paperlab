@@ -58,12 +58,12 @@ def test_lane_happy_path_yields_ok(tmp_path, monkeypatch):
             schema.write_json(tmp_path, schema.DOWNLOAD_PLAN, [{"url": "u", "filename": "core.csv"}])
         elif schema.ANALYSIS_SPEC in writes:
             schema.write_json(tmp_path, schema.ANALYSIS_SPEC, {"survey": True})
-        elif schema.ANALYSIS_CODE in writes:                 # code is the BRAIN's job (reasoning)
-            (tmp_path / schema.ANALYSIS_CODE).write_text("# analysis", encoding="utf-8")
         return True
 
-    def worker(prompt, writes):
+    def worker(prompt, writes):                              # the WORKER drafts the analysis code
         calls["worker"] += 1
+        if schema.ANALYSIS_CODE in writes:
+            (tmp_path / schema.ANALYSIS_CODE).write_text("# analysis", encoding="utf-8")
         return True
 
     # stub the deterministic fetch (no network) + runner (no subprocess)
@@ -88,7 +88,92 @@ def test_lane_happy_path_yields_ok(tmp_path, monkeypatch):
 
     assert res["ok"] is True and res["problems"] == []
     assert res["real_results"]["models"][0]["estimate"] == 1.4
-    assert calls["brain"] >= 3                              # resolve + spec + code (all reasoning)
+    assert calls["brain"] >= 2 and calls["worker"] >= 1    # brain: resolve+spec; worker: drafts code
+    assert "history" in res                                 # two-layer loop records its rounds
+
+
+def test_two_layer_heal_brain_reviews_worker_applies(tmp_path, monkeypatch):
+    """The Hermes two-layer loop: worker drafts -> gate fails -> BRAIN reviews+prescribes ->
+    WORKER applies -> gate passes. Both layers are exercised; the brain does not write code."""
+    seen = {"review": 0, "apply": 0, "rounds": 0}
+
+    def brain(prompt, writes):
+        if schema.DOWNLOAD_PLAN in writes:
+            schema.write_json(tmp_path, schema.DOWNLOAD_PLAN, [{"url": "u", "filename": "c.csv"}])
+        elif schema.ANALYSIS_SPEC in writes:
+            schema.write_json(tmp_path, schema.ANALYSIS_SPEC, {})
+        elif schema.FIX_PRESCRIPTION in writes:            # BRAIN review -> prescription
+            seen["review"] += 1
+            (tmp_path / schema.FIX_PRESCRIPTION).write_text("apply the survey weights", encoding="utf-8")
+        return True
+
+    def worker(prompt, writes):
+        if schema.ANALYSIS_CODE in writes:
+            (tmp_path / schema.ANALYSIS_CODE).write_text("# code", encoding="utf-8")
+            if (tmp_path / schema.FIX_PRESCRIPTION).is_file():
+                seen["apply"] += 1                          # WORKER applied a prescription
+        return True
+
+    def fake_fetch(rd, contract, **kw):
+        return _build_good_manifest(Path(rd))
+
+    def fake_runner(rd, **kw):
+        seen["rounds"] += 1
+        rr = _good_real_results(Path(rd))
+        if seen["rounds"] == 1:
+            rr["models"] = []                               # first run: gate fails (no models)
+        schema.write_json(rd, schema.REAL_RESULTS, rr)
+        out = Path(rd) / schema.REAL_RESULTS
+        schema.write_json(rd, schema.EXECUTION_RECORD,
+                          {"analysis_script_sha256": "S",
+                           "manifest_sha256": (schema.read_json(rd, schema.MANIFEST) or {}).get("manifest_sha256"),
+                           "real_results_sha256": "R", "real_results_mtime_unix": out.stat().st_mtime,
+                           "returncode": 0, "started_at_unix": out.stat().st_mtime - 1,
+                           "finished_at_unix": out.stat().st_mtime})
+        return {}
+
+    monkeypatch.setattr(lane.fetch, "fetch", fake_fetch)
+    monkeypatch.setattr(lane.runner, "run_analysis", fake_runner)
+    res = lane.run(tmp_path, {"data_source": {"type": "dataset", "url": "u", "name": "Fict"}},
+                   brain=brain, worker=worker, max_heal_rounds=2)
+    assert res["ok"] is True
+    assert seen["review"] >= 1 and seen["apply"] >= 1       # brain reviewed, worker applied
+    assert seen["rounds"] >= 2                              # failed once, fixed, passed
+
+
+def test_skill_upgrade_distils_and_persists(tmp_path):
+    from dataset_lane import skill_upgrade
+    bundle = tmp_path / "bundle"
+    (bundle / "dataset-fetch").mkdir(parents=True)
+    (bundle / "dataset-fetch" / "SKILL.md").write_text("---\nname: dataset-fetch\n---\n# x\n", encoding="utf-8")
+    history = [{"round": 0, "problem_ids": ["DS_FETCH_NO_DATA"]}, {"round": 1, "problem_ids": []}]
+
+    def brain(prompt, writes):
+        schema.write_json(tmp_path, schema.SKILL_LESSON,
+                          {"skill": "dataset-fetch", "title": "verify-urls-return-data",
+                           "lesson": "curl -I every candidate URL; keep only 200 non-HTML."})
+        return True
+
+    learned = skill_upgrade.distill_and_persist(tmp_path, history, {"data_source": {"type": "dataset"}},
+                                                brain=brain, bundle_dir=bundle)
+    assert learned and learned["skill"] == "dataset-fetch"
+    md = (bundle / "dataset-fetch" / "SKILL.md").read_text(encoding="utf-8")
+    assert "verify-urls-return-data" in md and "self-upgrade" in md.lower() or "self-upgrade" in md
+    # idempotent: a second identical distil does not duplicate
+    assert skill_upgrade.distill_and_persist(tmp_path, history, {"data_source": {}}, brain=brain, bundle_dir=bundle) is None
+
+
+def test_skill_upgrade_noop_on_clean_run(tmp_path):
+    from dataset_lane import skill_upgrade
+    called = {"brain": 0}
+
+    def brain(prompt, writes):
+        called["brain"] += 1
+        return True
+
+    out = skill_upgrade.distill_and_persist(tmp_path, [{"round": 0, "problem_ids": []}],
+                                            {}, brain=brain, bundle_dir=tmp_path)
+    assert out is None and called["brain"] == 0             # clean run: nothing to learn, no brain call
 
 
 def test_lane_blocks_when_fetch_finds_no_data(tmp_path):
