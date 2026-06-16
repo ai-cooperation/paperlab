@@ -87,9 +87,26 @@ def _dispatch_worker(o: Orchestrator, label: str, prompt: str, writes: list[str]
 
 
 # ── phases ───────────────────────────────────────────────────────────────────
+def _is_dataset_lane(contract: dict[str, Any]) -> bool:
+    """A real-data analysis (not literature/meta) of an arbitrary public dataset that is
+    NOT the registered HUPD lane -> the general agent-driven dataset lane."""
+    ds = contract.get("data_source") or {}
+    name = str(ds.get("name") or "").lower()
+    return str(ds.get("type") or "").lower() == "dataset" and "hupd" not in name
+
+
 def _phase_data(o: Orchestrator) -> None:
-    """Deterministic lane: pool real effects + build verified refs + draw figures."""
+    """Phase 1 (data): dispatch by data_source.type. meta/literature -> the deterministic
+    OpenAlex lane; an arbitrary public DATASET -> the general agent-driven dataset lane."""
     contract = o.dossier.data["contract"]
+    if _is_dataset_lane(contract):
+        _phase_data_dataset(o, contract)
+    else:
+        _phase_data_meta(o, contract)
+
+
+def _phase_data_meta(o: Orchestrator, contract: dict[str, Any]) -> None:
+    """Deterministic lane: pool real effects + build verified refs + draw figures."""
     result = PD.run_meta_analysis_lane(o.run_dir, contract)
     kept = PD.expand_references_from_analysis(o.run_dir, contract, result)
     meta_figures.generate(o.run_dir)
@@ -103,6 +120,46 @@ def _phase_data(o: Orchestrator) -> None:
         "figures": [{"name": p.stem} for p in (o.run_dir / "figures").glob("*.svg")],
     })
     o.dossier.pack_ext_set("metrics_block", PD.meta_metrics_block(result))
+
+
+def _phase_data_dataset(o: Orchestrator, contract: dict[str, Any]) -> None:
+    """General dataset lane: the agent FETCHES the real data + WRITES+RUNS the analysis;
+    deterministic gates verify (no hallucination); then related-work refs come from a topic
+    literature search (the dataset gives the result, the literature gives the context)."""
+    import dataset_lane
+
+    def brain(prompt: str, writes: list[str]) -> bool:
+        return _dispatch_brain(o, "dataset_brain", prompt, writes)
+
+    def worker(prompt: str, writes: list[str]) -> bool:
+        return _dispatch_worker(o, "dataset_worker", prompt, writes)
+
+    skills = _skill("dataset-fetch", "survey-weighted-analysis", "number-trace-writing")
+    res = dataset_lane.lane.run(o.run_dir, contract, brain=brain, worker=worker, skills=skills)
+    if not res.get("ok"):
+        reasons = "; ".join(p.get("description", "") for p in (res.get("problems") or [])[:3])
+        raise OrchestratorBlocked("data", reason=f"dataset lane blocked ({res.get('stage')}): {reasons}")
+
+    # related-work bibliography from a topic literature search (NOT from the dataset)
+    try:
+        import openalex_analysis
+        lit = openalex_analysis.run(PD._literature_query(contract), o.run_dir)
+    except Exception:  # noqa: BLE001 - no corpus just means seed-ref-only bibliography
+        lit = {}
+    kept = PD.expand_references_from_analysis(o.run_dir, contract, lit)
+
+    rr = res.get("real_results") or {}
+    o.dossier.set("evidence", {
+        **o.dossier.data.get("evidence", {}),
+        "lane": "dataset_agent_analysis",
+        "dataset_models": rr.get("models"),
+        "survey_design": rr.get("survey_design"),
+        "sample_flow": rr.get("sample_flow"),
+        "references": {"bib_count": kept},
+        "real_results": "real_experiments/real_results.json",
+        "figures": [{"name": p.stem} for p in (o.run_dir / "figures").glob("*.svg")],
+    })
+    o.dossier.pack_ext_set("metrics_block", dataset_lane.lane.metrics_block(rr))
 
 
 def _phase_gap(o: Orchestrator) -> None:
@@ -213,6 +270,15 @@ def _phase_render_gates(o: Orchestrator) -> None:
     }
     report = run_gates(PaperPack(), gd, only={"C", "D", "F"})
     o.dossier.data.setdefault("gates", {})["render"] = report.as_dict()
+    # Dataset lane: every manuscript number must trace to the analysis output (no
+    # hallucinated statistics). The meta lane has its own claim-evidence path; this adds
+    # the number-trace gate for agent-run dataset analyses.
+    if _is_dataset_lane(o.dossier.data["contract"]) and draft.exists():
+        import dataset_lane
+        rr = gd["real_results"] or {}
+        yrs = {str(y) for y in range(1990, 2031)}        # bare years are not analysis numbers
+        traced = dataset_lane.gates.number_trace(gd["qmd_text"], rr, whitelist=yrs)
+        o.dossier.data["gates"]["number_trace"] = [p["id"] for p in traced]
     o.dossier.save()
 
 

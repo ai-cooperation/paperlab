@@ -129,3 +129,32 @@ def run(run_dir: Path, contract: dict[str, Any], *, brain: Dispatch, worker: Dis
 
     rr = schema.read_json(run_dir, schema.REAL_RESULTS)
     return {"ok": not problems, "problems": problems, "real_results": rr, "stage": "analysis"}
+
+
+def metrics_block(real_results: dict[str, Any]) -> str:
+    """The ONLY admissible numbers for the manuscript (analogous to meta_metrics_block):
+    the dataset analysis's models, sample flow, and survey design — transcribed verbatim,
+    never re-derived. Domain-agnostic (reads whatever the analysis produced)."""
+    rr = real_results or {}
+    sd = rr.get("survey_design") or {}
+    lines = [
+        "REAL DATASET-ANALYSIS RESULTS — the ONLY admissible numbers. Transcribe exact "
+        "values; do NOT invent, re-estimate, or re-pool anything.",
+        f"Source: {rr.get('source')} | rows analysed: {rr.get('rows')}",
+        f"Sample flow (verbatim): {json.dumps(rr.get('sample_flow') or {}, ensure_ascii=False)}",
+    ]
+    if sd.get("weighted"):
+        lines.append(
+            "Complex-survey design (weighted): "
+            f"weight={sd.get('weight_variable')}, strata={sd.get('strata_variable')}, "
+            f"psu={sd.get('psu_variable')}, design_df={sd.get('design_df')}. Report estimates "
+            "as survey-weighted; describe associations, not effects beyond the design.")
+    lines.append("\nModel estimates (verbatim; cite each by outcome/exposure):")
+    for m in (rr.get("models") or [])[:30]:
+        ci = (f" [{m.get('ci_low')}, {m.get('ci_high')}]" if m.get("ci_low") is not None else "")
+        lines.append(
+            f"- {m.get('family')}: {m.get('outcome')} ~ {m.get('exposure')} | "
+            f"estimate={m.get('estimate')}{ci} | p={m.get('p_value')} | "
+            f"n_unweighted={m.get('n_unweighted')} | n_weighted={m.get('n_weighted')}")
+    return "\n".join(lines)
+

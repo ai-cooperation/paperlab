@@ -77,6 +77,24 @@ def capabilities() -> dict[str, Any]:
                               "individual-patient-data MA", "meta-regression on trial moderators",
                               "RoB 2 / GRADE", "full-text PRISMA screening"],
         },
+        # General public-DATASET analysis (data_source.type="dataset"): the agent fetches
+        # the real files from the source URL and writes+runs the analysis; deterministic
+        # gates verify (data really fetched, code really ran, every number traces). NOT a
+        # per-dataset whitelist — ANY public dataset with a resolvable URL is in scope.
+        "datasets": {
+            "automated": {
+                "lane": "dataset_agent_analysis",
+                "scope": "any public dataset with a resolvable download URL (CSV/XPT/SAS/"
+                         "parquet/zip/...); agent-fetched + agent-analysed",
+                "methods": ["logistic regression", "linear regression",
+                            "complex-survey-weighted GLM", "splines", "subgroup", "sensitivity"],
+                "guarantees": ["real download (sha256 provenance)",
+                               "code-executed results (not LLM prose)",
+                               "survey weights actually applied when declared",
+                               "every manuscript number traces to the analysis output"],
+            },
+            "registered_fast_lanes": ["HUPD/hupd"],   # pre-verified; everything else is agent-driven
+        },
     }
 
 
