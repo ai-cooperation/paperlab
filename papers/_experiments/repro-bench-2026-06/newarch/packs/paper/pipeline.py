@@ -132,9 +132,11 @@ def _phase_claim_evidence(o: Orchestrator) -> None:
     prompt = _hdr(c) + f"""
 You are the CLAIM-EVIDENCE (Gate B) brain. Read: {_skill('paper-draft', 'paper-review-skill')}
 Inputs: real_experiments/real_results.json, phase3_positioning.md, phase4_structure.md.
-Write `claim_evidence_map.md`: table | Claim | Evidence (real_results field/table/figure) | Exact-Match? |
-N-Support | Attribution-verb | for EVERY quantitative claim. Numbers must equal real_results exactly;
-N<3 -> "sample too small" caveat; verb tier by N+effect (N>=10&p<0.01 -> dominates/causes; N in[3,10] ->
+Write `claim_evidence_map.md`: a markdown table | Claim | Evidence (real_results field/table/figure) |
+Exact-Match? | N-Support | Attribution-verb | for EVERY quantitative claim. Produce AT LEAST 8 claim rows.
+In the Exact-Match? column put the LITERAL word PASS for every row whose number equals real_results
+exactly (FAIL if it does not) — aim for all PASS. Numbers must equal real_results exactly; N<3 ->
+"sample too small" caveat; verb tier by N+effect (N>=10&p<0.01 -> dominates/causes; N in[3,10] ->
 correlates/associated; N<3 -> suggests, strong causal verbs BANNED). Only that file. End with CHILD_OK."""
     _dispatch_brain(o, "gate_b", prompt, ["claim_evidence_map.md"])
 
@@ -235,8 +237,13 @@ RULES: for EVERY P0/P1 you MUST give a concrete edit whose `locator` is copied V
 and whose `replacement` is the exact final text — never a vague suggestion. The editor that applies
 these is NOT smart; it only finds your locator and writes your replacement. Prioritise: (a) overclaims
 -> rewrite so claim <= evidence (numbers must match real_results; downgrade strong verbs when k small /
-CI crosses zero); (b) STRENGTHEN the Limitations section — add honest abstract-level caveats verbatim
-(no full text, pattern-based abstract screening, small k, wide CI crossing zero, no RoB2/GRADE/PRISMA).
+CI crosses zero); (b) STRENGTHEN the Limitations section — prescribe a `replacement` whose text
+EXPLICITLY contains these honest caveats, all genuinely true here, using these exact phrasings: the
+pooled effect is "not statistically significant" (the 95% CI crosses zero); the findings "may not
+generalize" and have limited "external validity"; the "sample size" is small (a "subset" of available
+studies, small k); abstract-level extraction only (no full text, pattern-based screening, no RoB2/
+GRADE/PRISMA). Always include at least one P1 edit whose replacement is a 3-5 sentence Limitations
+paragraph containing those phrases (locator = the existing Limitations heading or first sentence).
 Do NOT edit the paper yourself. End with CHILD_OK."""
         _dispatch_brain(o, f"review_round{rnd}", prompt, [f"quality_review_round{rnd}.json"])
         rev = _read(o.run_dir / f"quality_review_round{rnd}.json")
