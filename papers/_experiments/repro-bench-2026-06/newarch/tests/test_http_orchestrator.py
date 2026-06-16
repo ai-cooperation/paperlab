@@ -84,6 +84,21 @@ def test_v2_concurrency_cap(tmp_path, load_fixture_json):
     assert tc.post("/v2/jobs", json=c2).status_code == 429       # engine busy
 
 
+def test_v2_viability_probe_route(tmp_path, load_fixture_json, monkeypatch):
+    import corpus_sources
+    corpus = load_fixture_json("corpus_exercise.json")
+    monkeypatch.setattr(corpus_sources, "collect_corpus",
+                        lambda q, m: (corpus["works"][:m], corpus.get("total", 0),
+                                      corpus.get("by_source", {})))
+    app = http_app.create_app(jobs_dir=tmp_path, start_worker=False,
+                              engine_v2=True, v2_spawn=_done_spawn)
+    tc = TestClient(app)
+    r = tc.post("/jobs/viability-probe", json=load_fixture_json("contract_paper.json"))
+    assert r.status_code == 200
+    d = r.json()
+    assert d["viable"] is True and d["metric"]["max_poolable_k"] == 8 and d["contract_hash"]
+
+
 def test_v2_status_404_for_unknown_job(client):
     tc, _ = client
     assert tc.get("/v2/jobs/v2_doesnotexist/status").status_code == 404

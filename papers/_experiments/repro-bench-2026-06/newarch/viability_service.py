@@ -37,16 +37,18 @@ def corpus_cache_path(jobs_dir: Path, h: str) -> Path:
 
 def collect_cached(jobs_dir: Path, contract: dict[str, Any], *,
                    max_works: int = DEFAULT_MAX_WORKS,
-                   collector=corpus_sources.collect_corpus) -> tuple[dict[str, Any], str, bool]:
+                   collector=None) -> tuple[dict[str, Any], str, bool]:
     """Return (corpus, contract_hash, was_cached). Collects via the SAME query the
     meta lane uses (`_literature_query`) + caches in the lane's cache format so
-    `meta_analysis.run` reuses it (query + max_works must match to hit the cache)."""
+    `meta_analysis.run` reuses it (query + max_works must match to hit the cache).
+    `collector` is resolved at call time so it stays monkeypatchable in tests."""
+    collect = collector or corpus_sources.collect_corpus
     h = contract_hash(contract)
     cache = corpus_cache_path(jobs_dir, h)
     if cache.is_file():
         return json.loads(cache.read_text(encoding="utf-8")), h, True
     query = paper_driver._literature_query(contract)
-    works, total, by_source = collector(query, max_works)
+    works, total, by_source = collect(query, max_works)
     corpus = {"query": query, "max_works": max_works, "works": works,
               "total": total, "by_source": by_source}
     cache.parent.mkdir(parents=True, exist_ok=True)
@@ -54,8 +56,7 @@ def collect_cached(jobs_dir: Path, contract: dict[str, Any], *,
     return corpus, h, False
 
 
-def probe(jobs_dir: Path, contract: dict[str, Any], *,
-          collector=corpus_sources.collect_corpus) -> dict[str, Any]:
+def probe(jobs_dir: Path, contract: dict[str, Any], *, collector=None) -> dict[str, Any]:
     """Run the viability probe (collect/cache + handle_viability) and return the
     lockable verdict + the a-side-authoritative contract_hash."""
     pack = _pack_for(contract)
