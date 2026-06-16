@@ -73,10 +73,10 @@ def _phase3_gaps(run_dir: Path) -> list[str]:
     in_matrix = False
     for line in md.read_text(encoding="utf-8", errors="ignore").splitlines():
         s = line.strip()
-        if s.startswith("## ") and "Gap Matrix" in s:
+        if s.startswith("#") and "gap matrix" in s.lower():   # any heading level, case-insensitive
             in_matrix = True
             continue
-        if in_matrix and s.startswith("## "):
+        if in_matrix and s.startswith("#"):                  # next heading ends the section
             break
         if in_matrix and s.startswith("|"):
             first = s.strip("|").split("|")[0].strip()
@@ -87,17 +87,26 @@ def _phase3_gaps(run_dir: Path) -> list[str]:
 
 def _key_result(run_dir: Path) -> dict[str, Any]:
     """The ACTUAL finding (real_results) for a result card + the pooled-k for data
-    feasibility — language-neutral numbers the page shows even for an English paper."""
+    feasibility — language-neutral numbers the page shows even for an English paper.
+
+    GENERAL across synthesis scales: pick the PRIMARY pooled scale the SAME way the
+    engine does — the scale with the most pooled effects (meta_analysis.py picks
+    `max(poolable, key=len)`), never hardcode SMD. There is no `primary` flag in
+    real_results, so we re-derive it. Returns {} for non-meta runs (no `meta.pooled`)
+    so the card simply hides instead of showing a wrong/blank number."""
     rr = _read_json_safe(Path(run_dir) / "real_experiments" / "real_results.json")
     meta = rr.get("meta", {}) if isinstance(rr, dict) else {}
-    pooled = (meta.get("pooled") or {}).get("smd") or {}
+    pooled = meta.get("pooled") or {}
     prisma = meta.get("prisma") or {}
-    if not pooled:
+    scales = {s: v for s, v in pooled.items() if isinstance(v, dict) and v.get("pooled_effect") is not None}
+    if not scales:
         return {}
-    return {"scale": pooled.get("scale"), "k": pooled.get("k"),
-            "pooled_effect": pooled.get("pooled_effect"),
-            "ci_low": pooled.get("ci_low"), "ci_high": pooled.get("ci_high"),
-            "i2_percent": pooled.get("i2_percent"),
+    primary = max(scales, key=lambda s: scales[s].get("k") or 0)   # most effects = primary
+    p = scales[primary]
+    return {"scale": p.get("scale") or primary, "k": p.get("k"),
+            "pooled_effect": p.get("pooled_effect"),
+            "ci_low": p.get("ci_low"), "ci_high": p.get("ci_high"),
+            "i2_percent": p.get("i2_percent"),
             "studies_with_effects": prisma.get("studies_with_effects"),
             "identified": prisma.get("identified")}
 
