@@ -12,6 +12,8 @@ Usage: python v2_worker.py <run_dir>   (run_dir holds research_contract.json + d
 from __future__ import annotations
 
 import json
+import os
+import signal
 import sys
 import time
 import traceback
@@ -19,6 +21,17 @@ from pathlib import Path
 
 from framework import Dossier, LiveDispatcher
 from packs.paper import pipeline
+
+# Wall-clock watchdog: max_steps is not a time limit (codex). A run that wedges past
+# this fires SIGALRM -> TimeoutError -> the dossier is marked failed (never silent).
+MAX_WALL_S = int(os.environ.get("V2_MAX_WALL_S", str(120 * 60)))   # default 2h
+
+
+def _install_watchdog() -> None:
+    def _on_alarm(signum, frame):  # noqa: ANN001
+        raise TimeoutError(f"wall-clock watchdog: run exceeded {MAX_WALL_S}s")
+    signal.signal(signal.SIGALRM, _on_alarm)
+    signal.alarm(MAX_WALL_S)
 
 
 def _mark(run_dir: Path, run_status: str, **fields) -> None:
@@ -28,6 +41,7 @@ def _mark(run_dir: Path, run_status: str, **fields) -> None:
 
 def main(run_dir_arg: str) -> int:
     run_dir = Path(run_dir_arg)
+    _install_watchdog()
     _mark(run_dir, "running", started_at=int(time.time()))
     try:
         contract = json.loads((run_dir / "research_contract.json").read_text(encoding="utf-8"))

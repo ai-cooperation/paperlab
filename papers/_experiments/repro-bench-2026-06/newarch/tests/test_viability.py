@@ -41,6 +41,10 @@ def test_mindfulness_master_auto_pivots_with_steering_log(tmp_path, load_fixture
     assert dec.verdict.contract_hash == contract_hash(contract)
     assert d.data["status"]["blocked"] is False               # master proceeds
     assert d.data["pack_ext"]["research_steering_log"]["why_pivoted"]
+    # the auto-pivot ACTUALLY mutates the contract (codex: was logged-only) + re-hashes
+    assert d.data["contract"]["value_framing"] == "direction_and_uncertainty"
+    assert contract_hash(d.data["contract"]) != dec.verdict.contract_hash
+    assert d.data["pack_ext"]["research_steering_log"]["contract_hash_after"]
 
 
 # ── phd: non-viable -> paused_for_user, NO auto-run ──────────────────────────

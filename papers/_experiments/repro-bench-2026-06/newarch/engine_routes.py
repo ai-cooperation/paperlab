@@ -140,8 +140,26 @@ def register(app: FastAPI, jobs_dir: Path, *,
         (run_dir / "research_contract.json").write_text(
             json.dumps(contract, ensure_ascii=False, indent=2), encoding="utf-8")
         Dossier.create(run_dir, job_id, contract, mode=_pack_for(contract).name)
+        try:                                          # reuse the viability-probe corpus (no re-collect)
+            import viability_service
+            viability_service.seed_run_corpus(jobs_dir, contract, run_dir)
+        except Exception:  # noqa: BLE001 - a missing cache just means run_paper collects fresh
+            pass
         spawn(run_dir)                                # detach the full pipeline; return immediately
         return {"job_id": job_id, "engine": "v2", "status": "accepted", "status_url": status_url}
+
+    @app.post("/jobs/viability-probe")
+    async def viability_probe(request: Request) -> dict[str, Any]:
+        # Collect/cache the corpus by contract_hash + run handle_viability; returns the
+        # lockable verdict + the a-side-authoritative contract_hash (b stores it). The
+        # grill calls this early; submit re-uses the cached corpus. (~1-2 min on a cold
+        # scope; instant on a cache hit.)
+        contract = await _json(request)
+        import viability_service
+        try:
+            return viability_service.probe(jobs_dir, contract)
+        except Exception as exc:  # noqa: BLE001 - surface a structured error, never fake viable
+            raise HTTPException(status_code=502, detail=f"viability probe failed: {exc}") from exc
 
     @app.get("/v2/jobs/{job_id}/status")
     def get_v2_status(job_id: str) -> dict[str, Any]:

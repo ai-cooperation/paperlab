@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .domain_pack import DomainPack, ViabilityVerdict
+from .domain_pack import contract_hash as _hash
 from .dossier import Dossier
 
 AUTONOMOUS_LEVELS = {"master"}
@@ -66,10 +67,22 @@ def handle_viability(pack: DomainPack, contract: dict[str, Any], sources: dict[s
 
     if level in AUTONOMOUS_LEVELS:
         pivot = verdict.candidate_pivots[0] if verdict.candidate_pivots else "reframe to the evidence"
+        # ACTUALLY mutate the contract (codex 2026-06-16: a logged-only pivot lied that
+        # status=auto_pivot meant a change). The deterministic, honest pivot for a thin
+        # pooled estimate is a FRAMING downgrade — write the result as direction-and-
+        # uncertainty, not a definitive estimate — applied to the contract + re-hashed.
+        pivoted = {**(dossier.data.get("contract") or contract),
+                   "value_framing": "direction_and_uncertainty",
+                   "pivot_applied": pivot}
+        new_hash = _hash(pivoted)
         log = _steering_log(verdict, pivot)
+        log["contract_hash_after"] = new_hash
+        log["applied_change"] = "value_framing -> direction_and_uncertainty"
+        dossier.set("contract", pivoted)             # the contract IS changed now
         (dossier.run_dir / "research_steering_log.md").write_text(
             f"# Research steering log (autonomous master pivot)\n\n"
             f"- discovery: {log['discovery']}\n- why pivoted: {log['why_pivoted']}\n"
+            f"- applied change: {log['applied_change']}\n- hash {verdict.contract_hash} -> {new_hash}\n"
             f"- discarded options: {log['discarded']}\n- transparency: {log['transparency']}\n",
             encoding="utf-8")
         dossier.pack_ext_set("research_steering_log", log)

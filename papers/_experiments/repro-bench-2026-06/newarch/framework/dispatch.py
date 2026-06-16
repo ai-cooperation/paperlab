@@ -12,7 +12,10 @@ isolated read/write file scopes. Two implementations:
 from __future__ import annotations
 
 import json
+import os
+import signal
 import subprocess
+import urllib.request
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -168,31 +171,56 @@ class LiveDispatcher(Dispatcher):
             parts.append("\nEnd with the token CHILD_OK.")
         return "\n".join(parts)
 
+    def _gateway_healthy(self) -> bool:  # pragma: no cover - live only
+        """The free worker lives behind the local gateway; if it's down, drafts
+        silently block forever (codex). Probe it and fail LOUD instead."""
+        try:
+            urllib.request.urlopen("http://127.0.0.1:8898/v1/models", timeout=5)
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
     def delegate(self, packet: WorkerPacket) -> WorkerResult:  # pragma: no cover - live only
         cwd = str(self.run_dir) if self.run_dir else None
         prompt = self._packet_prompt(packet)
-        if packet.worker_class in BRAIN_CLASSES:
+        is_brain = packet.worker_class in BRAIN_CLASSES
+        if is_brain:
             cmd = [self.codex_bin, "exec", "--skip-git-repo-check",
                    "--sandbox", "workspace-write", prompt]
             timeout = self.brain_timeout_s
         else:
+            if not self._gateway_healthy():
+                return WorkerResult(task_id=packet.task_id, status="error",
+                                    blockers=["big-pickle gateway 127.0.0.1:8898 unreachable — "
+                                              "fail loud (would otherwise silently block)"])
             # ORIGINAL pipeline's proven big-pickle invocation (run_newarch.hermes_short):
-            # --provider custom routes to the local gateway; --toolsets file,terminal
-            # gives the worker the tools to actually write its output file.
+            # --provider custom -> local gateway; --toolsets file,terminal -> can write files.
             cmd = [self.hermes_bin, "-z", prompt, "--provider", LIVE_WORKER_PROVIDER,
                    "-m", self.worker_model, "--ignore-rules", "--toolsets", LIVE_WORKER_TOOLSETS]
             timeout = self.worker_timeout_s
+        # Own process group so a timeout kills codex/hermes AND their grandchildren (codex).
         try:
-            proc = subprocess.run(cmd, text=True, capture_output=True,
-                                  timeout=timeout, cwd=cwd, stdin=subprocess.DEVNULL)
-        except (subprocess.TimeoutExpired, OSError) as exc:
+            proc = subprocess.Popen(cmd, text=True, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                    cwd=cwd, start_new_session=True)
+        except OSError as exc:
             return WorkerResult(task_id=packet.task_id, status="error",
-                                blockers=[f"{packet.worker_class} dispatch failed: {exc}"])
-        out = (proc.stdout or "") + (proc.stderr or "")
-        if "CHILD_OK" in out or (packet.worker_class in BRAIN_CLASSES and proc.returncode == 0):
+                                blockers=[f"{packet.worker_class} spawn failed: {exc}"])
+        try:
+            out, _ = proc.communicate(timeout=timeout)
+            rc = proc.returncode
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)   # kill the whole group
+            except (ProcessLookupError, PermissionError):
+                proc.kill()
+            proc.wait()
+            return WorkerResult(task_id=packet.task_id, status="error",
+                                blockers=[f"{packet.worker_class} timed out after {timeout}s (group killed)"])
+        out = out or ""
+        if "CHILD_OK" in out or (is_brain and rc == 0):
             return WorkerResult(task_id=packet.task_id, status="CHILD_OK",
                                 changed_files=list(packet.allowed_files_write),
                                 output={"stdout_tail": out[-2000:]})
-        reason = next((ln for ln in out.splitlines() if "BLOCKED" in ln),
-                      f"rc={proc.returncode}, no CHILD_OK")
+        reason = next((ln for ln in out.splitlines() if "BLOCKED" in ln), f"rc={rc}, no CHILD_OK")
         return WorkerResult(task_id=packet.task_id, status="blocked", blockers=[reason])
