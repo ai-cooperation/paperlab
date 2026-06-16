@@ -157,14 +157,18 @@ Delivery still reports `blocked` (strict 80-AND-no-P0 gate; honest — quality n
 - Running `pipeline.run_paper` under the FastAPI service needs op-hardening (absolute codex/hermes paths,
   gateway 127.0.0.1:8898 health check, process-group kill on timeout, child reaper, `max_live_v2_jobs=1`,
   wall-clock watchdog). See [BSIDE_WEB_INTEGRATION_PLAN.md](BSIDE_WEB_INTEGRATION_PLAN.md) §3d.
-- **Self-heal loop is blind to RENDER quality** (why the fig-crossref defect surfaced only at the terminal
-  gate, 2026-06-16): the 3-round self-heal review (codex review → prescribe → big-pickle apply) scores the
-  QMD **source** (prose/claims/limitations/numbers). A broken crossref is invisible in source — both the
-  `@fig-forest` ref AND the `{#fig-forest}` label are present; the breakage only appears when Quarto COMPILES
-  the PDF. The ONLY step that compiles + inspects the rendered PDF is the FINAL `delivery_audit`, so
-  render-quality defects (unresolved crossrefs, missing/duplicate floats) escape the loop until the very end.
-  **Prescribed fix (do at next rerun, needs a run to verify convergence): fold a render+crossref audit into
-  the self-heal loop** — after each round's render, grep the PDF for `?@(tbl|fig)-`; any hit becomes a P0 the
-  loop sees → codex prescribes → big-pickle (or deterministic re-inject) fixes → re-render → converge BEFORE
-  the terminal gate. (The specific inject_figures placement bug is now fixed at the source, so this class no
-  longer recurs for figures; the loop-integration is defence-in-depth for other render defects.)
+- **Self-heal loop was blind to RENDER quality** (why the fig-crossref defect surfaced only at the terminal
+  gate, 2026-06-16) — NOW ADDRESSED. The 3-round self-heal review scores the QMD **source**
+  (prose/claims/numbers); a broken crossref is invisible there (both the `@fig-forest` ref AND the
+  `{#fig-forest}` label are present), it only appears when Quarto COMPILES the PDF. Previously the ONLY step
+  that compiled + inspected the PDF was the terminal `delivery_audit`. **Fix shipped (commit, engine-build):**
+  (1) the root cause is fixed BY-CONSTRUCTION — `tables.inject_figures` now places floats in the body, so the
+  defect does not occur; (2) a minimal **format-repair verify stage** (`format_repair.py`, Phase 9b
+  `format_repair` after review_heal) renders the PDF, verifies the figure cross-references resolve, and
+  re-renders AT MOST ONCE; (3) the review judgment now also reads the compiled-PDF crossref signal
+  (`broken_crossrefs`) so it checks the deliverable, not just the source. **Deliberately minimal — NOT a
+  stack of mechanical auto-repairs** (per the 2026-06-16 steer "不可以用太多機械式審查的腳本，會修改不完":
+  a pile of auto-repair scripts never converges). It owns exactly one render fact (do the figure crossrefs
+  resolve) and reports honestly if a regression survives the single re-render. E2E-verified on ac-2012
+  (buggy run copy → 9 broken `?@` → 0; repaired=false because by-construction already clears it). Full live
+  convergence in the running pipeline is confirmed at the next prod /v2 rerun.

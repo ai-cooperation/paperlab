@@ -22,10 +22,9 @@ from typing import Any
 
 import delivery_audit
 import floor_score
+import format_repair
 import meta_figures
 import paper_driver as PD
-import render_springer
-import tables
 from framework import (
     Dispatcher,
     Orchestrator,
@@ -184,12 +183,9 @@ Limitations that this is abstract-level (no full text). Only write paper_draft_v
 
 
 def _render(run_dir: Path, contract: dict[str, Any]) -> bool:
-    try:
-        tables.inject(run_dir, contract)
-        tables.inject_figures(run_dir)
-    except Exception:  # noqa: BLE001
-        pass
-    return render_springer.render(run_dir, contract)
+    # canonical render lives in format_repair so the pipeline and the format-repair loop
+    # render identically (re-inject tables + figures with the FIXED placement, then compile).
+    return format_repair.render(run_dir, contract)
 
 
 def _phase_render_gates(o: Orchestrator) -> None:
@@ -224,11 +220,19 @@ def _phase_review_heal(o: Orchestrator) -> None:
         # a concrete, executable edit (verbatim locator + exact replacement). The
         # free worker that applies them is NOT smart — it only finds the locator and
         # writes the replacement. The intelligence is all here, in codex.
+        # JUDGMENT checks the RENDERED PDF too, not just the source: a broken crossref is
+        # invisible in the qmd (ref + label both present) — only the compiled PDF shows it.
+        rdefs = format_repair.broken_crossrefs(o.run_dir)
+        rdef_note = ("\nThe COMPILED PDF has UNRESOLVED figure cross-references "
+                     "(`?@fig-`/`?@tbl-`) — flag this; the figures must reference-resolve."
+                     ) if rdefs else ""
         prompt = _hdr(c) + f"""
 You are the REVIEW brain (independent — you did NOT write this). Read:
-{_skill('paper-draft', 'paper-review-skill', 'elite-reviewer-audit', 'paper-logic-audit')}
+{_skill('paper-draft', 'paper-review-skill', 'elite-reviewer-audit', 'paper-logic-audit', 'figure-table-checker')}
 Review paper_draft_v0.qmd vs real_experiments/real_results.json + claim_evidence_map.md as a tough
-Q1 reviewer on the 7 dimensions. Write `quality_review_round{rnd}.json` with this EXACT shape:
+Q1 reviewer on the 7 dimensions. Also VERIFY the deliverable renders: every @fig-/@tbl- reference must
+resolve (no `?@` in the PDF) and figures/tables must be present.{rdef_note}
+Write `quality_review_round{rnd}.json` with this EXACT shape:
 {{"score_100": <int 0-100>, "p0": [<short labels>], "p1": [<short labels>],
   "edits": [
     {{"severity": "P0|P1|P2|P3",
@@ -250,6 +254,7 @@ GRADE/PRISMA). Always include at least one P1 edit whose replacement is a 3-5 se
 paragraph containing those phrases (locator = the existing Limitations heading or first sentence).
 Do NOT edit the paper yourself. End with CHILD_OK."""
         _dispatch_brain(o, f"review_round{rnd}", prompt, [f"quality_review_round{rnd}.json"])
+        o.dossier.pack_ext_set("render_defects", [d.get("id") for d in rdefs])
         rev = _read(o.run_dir / f"quality_review_round{rnd}.json")
         fs = floor_score.floor_scores(o.run_dir)
         floor100 = round(float(fs.get("mean_6_floor") or 0) * 10, 1)
@@ -320,6 +325,16 @@ class _PaperSelfHeal(SelfHealLoop):
         return [f"deterministic:{applied}", f"worker:{len(unapplied)}"]
 
 
+def _phase_format_repair(o: Orchestrator) -> None:
+    """Phase 9b: render the PDF and VERIFY the figure/table cross-references resolve
+    (the one render fact the source-only review can't see), re-rendering at most ONCE.
+    The real fix is by-construction (tables.inject_figures places floats in the body);
+    this is the cheap last check, deliberately NOT a stack of mechanical auto-repairs."""
+    result = format_repair.verify_and_repair(o.run_dir, o.dossier.data["contract"])
+    o.dossier.data.setdefault("gates", {})["format_repair"] = result
+    o.dossier.save()
+
+
 def build_paper_phases() -> list[Phase]:
     return [
         Phase("data", _phase_data, checkpoint_artifacts=["real_experiments/real_results.json", "references.bib"]),
@@ -329,6 +344,7 @@ def build_paper_phases() -> list[Phase]:
         Phase("write", _phase_write, checkpoint_artifacts=["paper_draft_v0.qmd"]),
         Phase("render_gates", _phase_render_gates, checkpoint_artifacts=["paper_draft_v0.pdf"]),
         Phase("review_heal", _phase_review_heal, checkpoint_artifacts=["paper_draft_v0.qmd"]),
+        Phase("format_repair", _phase_format_repair, checkpoint_artifacts=["paper_draft_v0.pdf"]),
     ]
 
 
