@@ -10,7 +10,12 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import FastAPI, Header, HTTPException, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+
+# the live progress page is served from this origin and fetches the read-only GET
+# status/paper cross-origin — the browser needs Access-Control-Allow-Origin (CORS).
+WEB_ORIGINS = ["https://paperlab.cooperation.tw"]
 
 import capabilities
 import job_runner
@@ -153,6 +158,11 @@ def create_app(jobs_dir: Path = DEFAULT_HTTP_JOBS_DIR, start_worker: bool = True
                engine_v2: bool = False, v2_spawn: Any = None,
                v2_max_concurrent: int = 1) -> FastAPI:
     app = FastAPI(title="Paper Job Service", version=job_runner.RUNNER_VERSION)
+    # Let the public live progress page (paperlab.cooperation.tw) fetch the read-only
+    # GET status/paper across origin. Scoped to that origin + GET only — the b-side
+    # Worker POSTs server-to-server (token), so POST routes stay non-CORS.
+    app.add_middleware(CORSMiddleware, allow_origins=WEB_ORIGINS,
+                       allow_methods=["GET", "OPTIONS"], allow_headers=["*"])
     resolved_jobs_dir = jobs_dir.expanduser().resolve()
 
     # Engine-v2 routes mount ALONGSIDE the old pipeline for A/B (P7: never churn prod
