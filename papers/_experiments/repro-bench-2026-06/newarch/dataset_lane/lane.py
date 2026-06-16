@@ -32,16 +32,22 @@ def _contract_brief(contract: dict[str, Any]) -> str:
         "real_results.json.\n")
 
 
-def _resolve_prompt(contract: dict[str, Any], skills: str) -> str:
+def _resolve_prompt(contract: dict[str, Any], skills: str, feedback: str = "") -> str:
     ds = contract.get("data_source") or {}
     return _contract_brief(contract) + (
         f"\nYou are the DATA-RESOLUTION brain. Read these skills:\n{skills}\n"
         f"Resolve the dataset at {ds.get('url')} into the ACTUAL downloadable data files "
-        "needed for this study (the agent may read the landing page / data dictionary to "
-        "find the real file URLs). Write `data/download_plan.json` = a JSON list of "
-        '{"url": "<direct file url>", "filename": "<name>"}. List ONLY real file URLs from '
-        "the source — no invented or example URLs. Python downloads them; you do not. "
-        "Only write that one file. End with CHILD_OK.")
+        "needed for this study. Use your terminal to FIND and VERIFY the real file URLs — "
+        "do NOT guess a URL pattern from memory (data portals change their paths). Steps: "
+        "curl/read the landing page or data-files index to discover the real links; then for "
+        "each candidate run `curl -sIL <url>` and KEEP IT ONLY IF it returns HTTP 200 with a "
+        "binary/data content-type (NOT text/html — an HTML page is a 404, not data). "
+        'Write `data/download_plan.json` = a JSON list of {"url": "<verified direct url>", '
+        '"filename": "<name>"}. List ONLY URLs you verified return real data. Python downloads '
+        "them; you do not." + (f"\n\nPREVIOUS ATTEMPT FAILED: {feedback} The URLs you listed did "
+        "not return real data files (they 404'd to HTML). Find the CORRECT current file URLs by "
+        "reading the source's actual data-files page this time." if feedback else "") +
+        "\nOnly write that one file. End with CHILD_OK.")
 
 
 def _spec_prompt(contract: dict[str, Any], manifest: dict[str, Any], skills: str) -> str:
@@ -101,23 +107,28 @@ def run(run_dir: Path, contract: dict[str, Any], *, brain: Dispatch, worker: Dis
     {ok, problems, real_results}. Raises nothing; the caller decides on `ok`."""
     run_dir = Path(run_dir)
 
-    # 1. resolve + deterministic fetch (one re-resolve heal if the gate rejects the data)
-    for attempt in range(2):
-        brain(_resolve_prompt(contract, skills), [schema.DOWNLOAD_PLAN])
+    # 1. resolve + deterministic fetch (re-resolve heal if the gate rejects the data —
+    # feed the specific failure back so the brain fixes the URLs instead of re-guessing)
+    fetch_problems: list[dict[str, Any]] = []
+    for attempt in range(3):
+        feedback = "; ".join(p.get("description", "") for p in fetch_problems[:2]) if attempt else ""
+        brain(_resolve_prompt(contract, skills, feedback), [schema.DOWNLOAD_PLAN])
         fetch.fetch(run_dir, contract)
         fetch_problems = gates.fetch_gate(run_dir)
         if not fetch_problems:
             break
-        if attempt == 1:
+        if attempt == 2:
             return {"ok": False, "problems": fetch_problems, "real_results": None,
                     "stage": "fetch"}
 
-    # 2. agent writes the spec, then the analysis code
+    # 2. the BRAIN writes the spec AND the analysis code. Writing a correct (survey-weighted)
+    # analysis is REASONING, not mechanical execution — the free worker cannot do it (a live
+    # NHANES run proved it: the worker wrote no analysis.py at all). So code = brain.
     manifest = schema.read_json(run_dir, schema.MANIFEST) or {}
     brain(_spec_prompt(contract, manifest, skills), [schema.ANALYSIS_SPEC])
-    worker(_code_prompt(contract, skills), [schema.ANALYSIS_CODE])
+    brain(_code_prompt(contract, skills), [schema.ANALYSIS_CODE])
 
-    # 3. deterministic execute + gates, with a worker heal loop on the analysis code
+    # 3. deterministic execute + gates, with a brain heal loop on the analysis code
     problems: list[dict[str, Any]] = []
     for rnd in range(max_heal_rounds + 1):
         runner.run_analysis(run_dir)
@@ -125,7 +136,7 @@ def run(run_dir: Path, contract: dict[str, Any], *, brain: Dispatch, worker: Dis
         if not problems:
             break
         if rnd < max_heal_rounds:
-            worker(_fix_prompt(contract, problems), [schema.ANALYSIS_CODE])
+            brain(_fix_prompt(contract, problems), [schema.ANALYSIS_CODE])
 
     rr = schema.read_json(run_dir, schema.REAL_RESULTS)
     return {"ok": not problems, "problems": problems, "real_results": rr, "stage": "analysis"}

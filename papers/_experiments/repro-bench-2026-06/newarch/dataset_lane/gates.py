@@ -19,6 +19,10 @@ def _p0(cid: str, msg: str, **extra: Any) -> dict[str, Any]:
     return {"id": cid, "severity": "P0", "type": "dataset_gate", "description": msg, **extra}
 
 
+def _ext_of(fn: str) -> str:
+    return fn.rsplit(".", 1)[-1].lower() if "." in fn else ""
+
+
 # ── 1. real data was actually fetched ────────────────────────────────────────
 def fetch_gate(run_dir: Path) -> list[dict[str, Any]]:
     run_dir = Path(run_dir)
@@ -27,17 +31,34 @@ def fetch_gate(run_dir: Path) -> list[dict[str, Any]]:
         return [_p0("DS_FETCH_NO_MANIFEST", "no data/manifest.json — nothing was fetched")]
     arts = manifest.get("artifacts") or []
     out: list[dict[str, Any]] = []
-    real = [a for a in arts if a.get("bytes", 0) > 0 and not a.get("is_html")]
+    # a "real" file: non-empty, not HTML, and not a content/extension mismatch
+    real = [a for a in arts if a.get("bytes", 0) > 0 and not a.get("is_html")
+            and not str(a.get("detected_format") or "").endswith("-invalid")]
     if not real:
         out.append(_p0("DS_FETCH_NO_DATA",
-                       "no non-empty data file fetched (only errors / an HTML landing page) — "
-                       f"errors: {manifest.get('errors')}"))
+                       "no non-empty REAL data file fetched (got HTML/error pages or content that "
+                       f"does not match its extension) — errors: {manifest.get('errors')}"))
     for a in arts:
         fn = str(a.get("filename") or "").lower()
         if any(m in fn for m in schema.SYNTHETIC_MARKERS):
             out.append(_p0("DS_FETCH_SYNTHETIC", f"file name suggests fabricated data: {fn}", file=fn))
         if a.get("bytes", 0) > 0 and not a.get("sha256"):
             out.append(_p0("DS_FETCH_NO_HASH", f"fetched file has no checksum: {fn}", file=fn))
+        if str(a.get("detected_format") or "").endswith("-invalid"):
+            out.append(_p0("DS_FETCH_FORMAT_MISMATCH",
+                           f"{fn}: content is not the {_ext_of(fn)} it claims to be "
+                           "(e.g. an HTML page saved as .xpt) — wrong download URL", file=fn))
+    # mass-fabrication tell: many files with the SAME bytes+hash are the same page (a 404
+    # returned for every wrong URL), not distinct real data.
+    dupes: dict[tuple, int] = {}
+    for a in arts:
+        if a.get("bytes", 0) > 0:
+            dupes[(a.get("bytes"), a.get("sha256"))] = dupes.get((a.get("bytes"), a.get("sha256")), 0) + 1
+    worst = max(dupes.values()) if dupes else 0
+    if worst >= 3 and worst >= 0.5 * len([a for a in arts if a.get("bytes", 0) > 0]):
+        out.append(_p0("DS_FETCH_DUPLICATE",
+                       f"{worst} fetched files are byte-identical — the URLs likely all returned the "
+                       "same error page, not distinct real data"))
     # manifest integrity: re-hash the body (minus the hash field) and compare
     body = {k: manifest[k] for k in manifest if k != "manifest_sha256"}
     if manifest.get("manifest_sha256") != schema.sha256_bytes(_canon(body)):

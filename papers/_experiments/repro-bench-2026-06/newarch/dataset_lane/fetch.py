@@ -27,16 +27,25 @@ def _ext(name: str) -> str:
 
 
 def _detect_format(filename: str, head: bytes, content_type: str) -> str:
-    ext = _ext(filename)
-    if ext in _TABULAR or ext in _ARCHIVE:
-        return ext
-    sniff = head[:512].lstrip().lower()
-    if sniff.startswith(b"<!doctype html") or sniff.startswith(b"<html") or b"text/html" in content_type.encode():
-        return "html"
+    """Sniff by CONTENT first, extension only as a fallback. A server that returns an
+    HTML 'not found' page for a wrong .XPT URL must NOT be recorded as real 'xpt' data —
+    trusting the extension is exactly how 55 CDC 404 pages once passed the fetch gate."""
+    sniff = head[:1024].lstrip().lower()
+    if (sniff.startswith(b"<!doctype html") or sniff.startswith(b"<html") or b"<head" in sniff[:200]
+            or b"text/html" in content_type.encode()):
+        return "html"                                    # an error/landing page, whatever it is named
     if head[:4] == b"PK\x03\x04":
         return "zip"
     if head[:2] == b"\x1f\x8b":
         return "gz"
+    if b"HEADER RECORD" in head[:120] and b"LIBRARY HEADER" in head[:120]:
+        return "xpt"                                     # SAS XPORT magic
+    ext = _ext(filename)
+    # a file CLAIMING a binary tabular extension but whose bytes are ascii text is suspect
+    if ext == "xpt" and b"HEADER RECORD" not in head[:120]:
+        return "xpt-invalid"
+    if ext in _TABULAR or ext in _ARCHIVE:
+        return ext
     return ext or "unknown"
 
 

@@ -58,11 +58,12 @@ def test_lane_happy_path_yields_ok(tmp_path, monkeypatch):
             schema.write_json(tmp_path, schema.DOWNLOAD_PLAN, [{"url": "u", "filename": "core.csv"}])
         elif schema.ANALYSIS_SPEC in writes:
             schema.write_json(tmp_path, schema.ANALYSIS_SPEC, {"survey": True})
+        elif schema.ANALYSIS_CODE in writes:                 # code is the BRAIN's job (reasoning)
+            (tmp_path / schema.ANALYSIS_CODE).write_text("# analysis", encoding="utf-8")
         return True
 
     def worker(prompt, writes):
         calls["worker"] += 1
-        (tmp_path / schema.ANALYSIS_CODE).write_text("# analysis", encoding="utf-8")
         return True
 
     # stub the deterministic fetch (no network) + runner (no subprocess)
@@ -87,7 +88,7 @@ def test_lane_happy_path_yields_ok(tmp_path, monkeypatch):
 
     assert res["ok"] is True and res["problems"] == []
     assert res["real_results"]["models"][0]["estimate"] == 1.4
-    assert calls["brain"] >= 2 and calls["worker"] >= 1   # resolve + spec, code
+    assert calls["brain"] >= 3                              # resolve + spec + code (all reasoning)
 
 
 def test_lane_blocks_when_fetch_finds_no_data(tmp_path):

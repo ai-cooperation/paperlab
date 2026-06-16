@@ -203,6 +203,38 @@ def test_fetch_records_real_bytes_from_injected_downloader(tmp_path):
     assert gates.fetch_gate(tmp_path) == []
 
 
+def test_detect_format_sniffs_content_not_extension():
+    # live bug: a CDC 404 HTML page saved as DEMO_G.XPT once passed as real 'xpt' data
+    html = b"<!DOCTYPE html>\n<html lang='en'><head><title>Page Not Found</title>"
+    assert fetch._detect_format("DEMO_G.XPT", html, "text/html") == "html"
+    real_xpt = b"HEADER RECORD*******LIBRARY HEADER RECORD!!!!!!!000000"
+    assert fetch._detect_format("DEMO_G.XPT", real_xpt, "") == "xpt"
+    assert fetch._detect_format("DEMO_G.XPT", b"just,a,csv\n1,2,3\n", "") == "xpt-invalid"
+
+
+def test_fetch_gate_blocks_html_pages_named_xpt(tmp_path):
+    # 3 identical HTML "404" pages saved with .XPT names — must NOT pass as real data
+    arts = [{"filename": f"X{i}.XPT", "bytes": 500, "sha256": "h" * 64, "is_html": True,
+             "detected_format": "html"} for i in range(3)]
+    body = {"artifacts": arts, "errors": [], "n_files": 3, "data_source": {}}
+    body["manifest_sha256"] = schema.sha256_bytes(gates._canon(body))
+    schema.write_json(tmp_path, schema.MANIFEST, body)
+    schema.write_json(tmp_path, schema.SOURCE_LOCK, {"status": "available", "manifest_sha256": body["manifest_sha256"]})
+    ids = {p["id"] for p in gates.fetch_gate(tmp_path)}
+    assert "DS_FETCH_NO_DATA" in ids
+
+
+def test_fetch_gate_blocks_format_mismatch_and_duplicates(tmp_path):
+    arts = [{"filename": f"D{i}.xpt", "bytes": 20905, "sha256": "same" + "0" * 60,
+             "is_html": False, "detected_format": "xpt-invalid"} for i in range(5)]
+    body = {"artifacts": arts, "errors": [], "n_files": 5, "data_source": {}}
+    body["manifest_sha256"] = schema.sha256_bytes(gates._canon(body))
+    schema.write_json(tmp_path, schema.MANIFEST, body)
+    schema.write_json(tmp_path, schema.SOURCE_LOCK, {"status": "available", "manifest_sha256": body["manifest_sha256"]})
+    ids = {p["id"] for p in gates.fetch_gate(tmp_path)}
+    assert "DS_FETCH_NO_DATA" in ids and "DS_FETCH_FORMAT_MISMATCH" in ids and "DS_FETCH_DUPLICATE" in ids
+
+
 def test_runner_records_execution(tmp_path):
     (tmp_path / schema.EXP_DIR).mkdir(parents=True, exist_ok=True)
     (tmp_path / schema.ANALYSIS_CODE).write_text("print('ran')\n", encoding="utf-8")
