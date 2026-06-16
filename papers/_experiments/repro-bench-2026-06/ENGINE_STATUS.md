@@ -1,0 +1,93 @@
+# Engine Status — as-built (a-side general engine)
+
+> Snapshot 2026-06-16. The domain-agnostic Hermes+Skill research engine (a-side) is
+> BUILT, TESTED, and LIVE-VALIDATED on ac-2012 — it produces a real paper that BEATS
+> the golden baseline. This file is the single source of truth for "what exists now".
+> Companions: [ENGINE_GENERAL_SPEC.md](ENGINE_GENERAL_SPEC.md) (PRD), [ENGINE_BUILD_PLAN.md](ENGINE_BUILD_PLAN.md)
+> (TDD phases + status), [HERMES_NATIVE_ORCHESTRATOR_DESIGN.md](HERMES_NATIVE_ORCHESTRATOR_DESIGN.md)
+> (design), [BSIDE_WEB_INTEGRATION_PLAN.md](BSIDE_WEB_INTEGRATION_PLAN.md) (next: wire b-side + web).
+
+## 1. What is built (newarch/, branch `engine-build`, 16 commits, 154 tests pass)
+
+```
+framework/                  domain-agnostic, imports NO domain (test-enforced)
+  domain_pack.py            DomainPack ABC + value objects (Severity/Gate/GateResult/ViabilityVerdict)
+  gate_lifecycle.py         run_gates(pack, dossier) — register->run->enforce->block, fail-closed
+  dossier.py                reasoning-continuity checkpoint + atomic manifest + fresh-resume + projection
+  dispatch.py               WorkerPacket + Dispatcher; MockDispatcher / HermesDispatcher / LiveDispatcher
+  orchestrator.py           control-plane state machine: phases, fan-out, gates, checkpoint, watchdog
+  review.py                 SelfHealLoop — strong-brain review + deterministic floor, no silent pass
+  viability.py              handle_viability — master auto-pivot / phd pause + steering log
+  submission.py             viability-lock + deterministic contract derivation + submit_gate
+packs/paper/                the proven paper pack
+  pack.py                   PaperPack(DomainPack): PICOS grill, viability=poolable-k, gates A-F, QMD+PDF
+  gates.py                  Gates A-F real checks (B independent claim extraction; E value WARN)
+  logic_audit.py            vendored 7-scan logic audit (Gate F)
+  pipeline.py               THE 11-phase meta-analysis lane ON the framework (run_paper entry point)
+packs/insurance/            real-ish 2nd domain (proves the seam): findings-yield viability + KB gates
+paperctl.py                 thin CLI over the deterministic core (refs/data/figures/tables/render/gate/...)
+golden_proof.py             acceptance harness — grades any run dir vs golden (floor + review)
+engine_routes.py            HTTP: POST /v2/jobs (orchestrator) + GET /v2/jobs/{id}/status (projection)
+engine_project_page.html    reference live project page (polls the projection)
+```
+
+## 2. Division of labour (the architecture, validated)
+
+| concern | owner |
+|---|---|
+| facts: meta-analysis, refs, figures, tables, render, floor_score | deterministic (paperctl / direct) — never an LLM |
+| reasoning: gap / structure / claim-evidence / review judgment + **edit prescription** | codex BRAIN (LiveDispatcher reviewer class → `codex exec`) |
+| bulk: 7 section drafts + applying prescribed edits | free big-pickle WORKER (LiveDispatcher drafter class → hermes) |
+| loop, gates, state machine, refusal to ship bad artifacts | Python control plane (framework) |
+
+Governing rule holds: **Python owns facts+gates+loop; the brain reasons + prescribes; the worker just executes.**
+
+## 3. Live validation (ac-2012, exercise-depression frozen corpus, ~30 min/run once tuned)
+
+Full 11-phase pipeline end-to-end on the NEW framework (not the old `paper_driver` loop):
+data → gap → structure → claim_evidence → write(7 worker drafts + codex compose) → render+gates → review+self-heal.
+
+| run | change | floor /100 | review /100 |
+|---|---|---|---|
+| 1 | (wrong) free worker = deepseek-v4-flash-free | 59.3 | 64 |
+| 2 | correct big-pickle (`hermes -z … --provider custom -m big-pickle --toolsets file,terminal`) | 58.3 | 74 |
+| 3 | codex review PRESCRIBES `{locator,action,replacement}` edits in one call; worker only executes (deterministic apply + big-pickle fuzzy) | 60.1 | 76 |
+| 4 | steer prescriptions at floor_score's weak dims | **70.7** | **82** |
+
+**Golden bars: floor 62.2, review 57.1. Run 4 BEATS both (floor +8.5, review +25). `golden_proof: meets_floor=true, passed=true`.**
+Key dim recoveries (run 3→4): evidence_validity 3.5→7.5 (claim_evidence_map ≥8 rows marked PASS);
+limitation_honesty 4.8→7.2 (Limitations names the real true caveats: not-significant/CI-crosses-zero,
+may-not-generalize/external-validity, small sample/subset, abstract-level). These are honest content
+the paper warrants, scored by the deterministic floor — not keyword-gaming.
+Delivery still reports `blocked` (strict 80-AND-no-P0 gate; honest — quality nonetheless exceeds golden).
+
+## 4. Deployment (NON-DESTRUCTIVE — production untouched)
+
+- Engine code: `ac-2012:~/engine-live-newarch/` (a copy of prod `newarch` + the new framework overlaid).
+  **Prod `~/paper-job-service/newarch` and the live `paper-a.cooperation.tw` service were NOT touched.**
+- Run with prod venv `~/paper-job-service/newarch/.venv/bin/python3` (numpy/scipy/matplotlib/fastapi), cwd=engine-live-newarch.
+- Models: codex brain = alan.chen75@gmail.com (plus, until 2026-07-11) at `~/.codex/auth.json`; free worker =
+  big-pickle on the local gateway 127.0.0.1:8898. Exact invocations: memory `reference_bigpickle_codex_invocation`.
+- hermes binary the pipeline uses: `~/.hermes/hermes-agent/venv/bin/hermes`.
+
+## 5. As-built deltas from the original spec (record these)
+
+- **Worker substrate**: design says "big-pickle via hermes delegate_task". As-built LiveDispatcher shells
+  `hermes -z … --provider custom -m big-pickle` per call (the original pipeline's proven invocation); the
+  brain is the codex CLI (the design's §3.1 sanctioned path), not the hermes `openai-codex` provider
+  (which would need an interactive `hermes login` device flow — deferred).
+- **Self-heal**: design says fix-agents-by-failure-type. As-built: the review PRESCRIBES concrete edits;
+  apply is deterministic-first (Python find/replace) + big-pickle for fuzzy remainder. Stronger than the
+  spec — the worker needs no intelligence.
+- **Phases 5-6 (real experiment / GPU)**: not in the meta-analysis lane (the proven free path); VIP/GPU lane
+  later per SYSTEM_SPEC_v2 tiering.
+
+## 6. What's NOT done yet (→ next)
+
+- **b-side wiring**: `/v2/jobs` currently runs only the bounded intake phase; it must kick off the full
+  `pipeline.run_paper` for a real submit. The b-side (paper-mcp Worker) must call the a-side
+  (viability-probe + /v2/jobs) and gate submit on a viability-lock (framework.submission is the canonical
+  a-side logic; the TS Worker is a thin client). See BSIDE_WEB_INTEGRATION_PLAN.md.
+- **Live web progress**: projection API + reference page exist; the Hugo `/projects/{id}` page must adopt them.
+- **a-side /jobs/viability-probe** endpoint (wrap handle_viability) — not yet exposed.
+- IFRS pack (#3) — still speculative.

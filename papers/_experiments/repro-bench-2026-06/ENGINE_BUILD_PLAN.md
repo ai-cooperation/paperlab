@@ -1,9 +1,31 @@
 # Engine Build Plan — TDD-driven task list
 
-> Status: planning, 2026-06-15. Companion to [ENGINE_GENERAL_SPEC.md](ENGINE_GENERAL_SPEC.md) +
-> [HERMES_NATIVE_ORCHESTRATOR_DESIGN.md](HERMES_NATIVE_ORCHESTRATOR_DESIGN.md).
+> Status: **BUILT + LIVE-VALIDATED, 2026-06-16** (was: planning 2026-06-15). Companion to
+> [ENGINE_GENERAL_SPEC.md](ENGINE_GENERAL_SPEC.md) + [HERMES_NATIVE_ORCHESTRATOR_DESIGN.md](HERMES_NATIVE_ORCHESTRATOR_DESIGN.md);
+> as-built status in [ENGINE_STATUS.md](ENGINE_STATUS.md); next-step wiring in [BSIDE_WEB_INTEGRATION_PLAN.md](BSIDE_WEB_INTEGRATION_PLAN.md).
 > **TDD is the process** (owner): every task names its **test FIRST** (the RED test that defines
 > "done"), then the minimal implementation to GREEN, then refactor. No task is "done" without its test.
+>
+> ### Phase status (branch `engine-build`, 154 tests pass, framework+gates 87-100% cov)
+> | phase | status | note |
+> |---|---|---|
+> | P0 harness + fixtures | ✅ DONE | real corpora gzipped from ac-2012; golden_paper baseline |
+> | P1* DomainPack interface | ✅ DONE | paper + insurance packs; framework imports no domain |
+> | P1 extraction consistency | ✅ DONE | one authoritative poolable_k_by_scale (8/3/23 was strata + miscount) |
+> | P2 paperctl CLI | ✅ DONE | golden-pinned |
+> | P3 orchestrator control plane | ✅ DONE | dossier + checkpoint + fresh-resume; Mock/Hermes/Live dispatchers |
+> | P4 gates A-F | ✅ DONE | B independent claim-extraction; arXiv known-RED cleared |
+> | P5 review + self-heal | ✅ DONE | + as-built: review PRESCRIBES edits, worker executes |
+> | P6 viability + tier | ✅ DONE | master pivot / phd pause; floor=QUALITY_K |
+> | P7 HTTP integration | ✅ DONE | /v2/jobs + dossier-projection status (old pipeline untouched) |
+> | P10 golden Hermes proof | ✅ DONE + **EXCEEDED** | live run beats golden: floor 70.7>62.2, review 82>57.1 |
+> | P8 b-side viability-lock | ◑ a-side logic DONE | TS Worker thin client → BSIDE_WEB_INTEGRATION_PLAN |
+> | P9 live project page | ◑ projection + reference page DONE | Hugo adopt → BSIDE_WEB_INTEGRATION_PLAN |
+>
+> **Live proof (P10) result:** the full meta-analysis lane on the new framework (codex brain prescribes +
+> free big-pickle executes + deterministic gates/floor) produces a paper that BEATS the golden baseline on
+> both the un-gameable deterministic floor (70.7 vs 62.2) and the model review (82 vs 57.1). Remaining work
+> is integration (b-side + web), not the engine.
 
 ## Principles + coverage
 - **Test-first, always.** RED (failing test encoding the spec) → GREEN (minimal impl) → refactor.
