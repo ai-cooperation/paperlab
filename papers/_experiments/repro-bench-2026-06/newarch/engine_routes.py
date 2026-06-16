@@ -54,9 +54,59 @@ def _run_status(dossier_data: dict[str, Any]) -> str:
     return "submitted" if st.get("phase") in (None, "start") else "running"
 
 
+def _read_json_safe(path: Path) -> dict[str, Any]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _phase3_gaps(run_dir: Path) -> list[str]:
+    """Surface the gaps the engine actually WROTE (phase3_positioning.md Gap Matrix).
+    The run_paper lane writes the gap to a file, not to dossier.claims.research_gaps, so
+    the projection looked empty ('尚未判定') even though the engine produced a full gap
+    analysis. Parse the Gap column of the markdown table."""
+    md = Path(run_dir) / "phase3_positioning.md"
+    if not md.is_file():
+        return []
+    gaps: list[str] = []
+    in_matrix = False
+    for line in md.read_text(encoding="utf-8", errors="ignore").splitlines():
+        s = line.strip()
+        if s.startswith("## ") and "Gap Matrix" in s:
+            in_matrix = True
+            continue
+        if in_matrix and s.startswith("## "):
+            break
+        if in_matrix and s.startswith("|"):
+            first = s.strip("|").split("|")[0].strip()
+            if first and first.lower() != "gap" and set(first) - set("-: "):
+                gaps.append(first)
+    return gaps[:5]
+
+
+def _key_result(run_dir: Path) -> dict[str, Any]:
+    """The ACTUAL finding (real_results) for a result card + the pooled-k for data
+    feasibility — language-neutral numbers the page shows even for an English paper."""
+    rr = _read_json_safe(Path(run_dir) / "real_experiments" / "real_results.json")
+    meta = rr.get("meta", {}) if isinstance(rr, dict) else {}
+    pooled = (meta.get("pooled") or {}).get("smd") or {}
+    prisma = meta.get("prisma") or {}
+    if not pooled:
+        return {}
+    return {"scale": pooled.get("scale"), "k": pooled.get("k"),
+            "pooled_effect": pooled.get("pooled_effect"),
+            "ci_low": pooled.get("ci_low"), "ci_high": pooled.get("ci_high"),
+            "i2_percent": pooled.get("i2_percent"),
+            "studies_with_effects": prisma.get("studies_with_effects"),
+            "identified": prisma.get("identified")}
+
+
 def project_status(dossier_data: dict[str, Any], run_dir: Path) -> dict[str, Any]:
     """The projection the live page reads (§5.3): research plan, b-gap, a-gap, tier,
-    phase progress, terminal status + PDF link (codex: was too thin)."""
+    phase progress, terminal status + PDF link. Enriched to surface what the engine
+    actually PRODUCED (phase3 gaps, pooled result, pooled-k) — not just echo the input
+    contract (the page looked thin/incomplete for a finished 70.8 run)."""
     status = dossier_data.get("status", {})
     claims = dossier_data.get("claims", {})
     contract = dossier_data.get("contract", {})
@@ -64,6 +114,16 @@ def project_status(dossier_data: dict[str, Any], run_dir: Path) -> dict[str, Any
     ext = dossier_data.get("pack_ext", {})
     result = ext.get("run_result") or {}
     pdf = Path(run_dir) / "paper_draft_v0.pdf"
+
+    a_gap = claims.get("research_gaps") or _phase3_gaps(run_dir)
+    key_result = _key_result(run_dir)
+    # data feasibility: the run_paper lane has no intake-viability phase, but the meta
+    # analysis DID pool k effects — surface that real k so the page isn't blank ('—').
+    via_metric = viability.get("metric")
+    via_viable = viability.get("viable")
+    if via_metric is None and key_result.get("k"):
+        via_metric = {"max_poolable_k": key_result["k"]}
+        via_viable = True if via_viable is None else via_viable
     return {
         "engine": "v2",
         "job_id": dossier_data.get("run", {}).get("job_id"),
@@ -79,9 +139,10 @@ def project_status(dossier_data: dict[str, Any], run_dir: Path) -> dict[str, Any
         # b-gap = the grill's gap; for a live run_paper (no intake phase) fall back to
         # the contract's contribution/question so the page always shows the b-side gap.
         "b_gap": claims.get("b_gap") or contract.get("contribution") or contract.get("research_question"),
-        "a_gap": claims.get("research_gaps", []),
-        "viability": {"viable": viability.get("viable"), "metric": viability.get("metric"),
+        "a_gap": a_gap,
+        "viability": {"viable": via_viable, "metric": via_metric,
                       "pending_confirmation": dossier_data.get("pending_confirmation")},
+        "key_result": key_result or None,
         "summary": {"floor_100": result.get("floor_100"), "delivery": result.get("delivery"),
                     "phases_done": result.get("phases_done")},
         "artifacts": {"pdf": str(pdf) if pdf.is_file() else None},
