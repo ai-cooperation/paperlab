@@ -117,6 +117,18 @@ Existing-Work cell citing REAL references.bib entries (author/year), never inven
 Differentiation Statement; (4) 3 contribution points tied to gaps. Only write that one file.
 End with CHILD_OK."""
     _dispatch_brain(o, "phase3_gap", prompt, ["phase3_positioning.md"])
+    # Store STRUCTURED gaps in the dossier now (the robust path): the projection reads a
+    # structured field instead of re-parsing markdown at request time. Parsed once,
+    # deterministically; never blocks the run if the format drifts.
+    try:
+        from . import gaps as _gaps
+        md = (o.run_dir / "phase3_positioning.md").read_text(encoding="utf-8", errors="ignore")
+        parsed = _gaps.parse_gap_matrix(md)
+        if parsed:
+            o.dossier.set("claims", {**o.dossier.data.get("claims", {}), "research_gaps": parsed})
+            o.dossier.save()
+    except Exception:  # noqa: BLE001 - gap projection is best-effort, never fail the phase
+        pass
 
 
 def _phase_structure(o: Orchestrator) -> None:

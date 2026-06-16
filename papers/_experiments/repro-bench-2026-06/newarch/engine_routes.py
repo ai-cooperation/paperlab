@@ -61,8 +61,19 @@ def _read_json_safe(path: Path) -> dict[str, Any]:
         return {}
 
 
-# a Gap-table first-header may be localized; recognise these aliases (en + zh)
-_GAP_HEADER_ALIASES = ("gap", "缺口", "研究缺口", "研究空白")
+def _read_json_or_warn(path: Path) -> tuple[dict[str, Any], Optional[str]]:
+    """Distinguish MISSING (normal while a run is still producing it) from CORRUPT (a real
+    failure worth surfacing) — a done job with an unreadable result must not look like a
+    job that simply has no result."""
+    if not path.is_file():
+        return {}, None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return (data if isinstance(data, dict) else {}), None
+    except Exception as exc:  # noqa: BLE001
+        return {}, f"{path.name} 無法解析（{type(exc).__name__}）"
+
+
 # scales whose no-effect NULL is 0 (CI crossing 0 -> not significant). log_ratio is on
 # the log scale so its null is also 0. A raw ratio / prevalence / proportion scale would
 # need a different null, so significance is asserted ONLY for these — never guessed.
@@ -70,36 +81,14 @@ _ZERO_NULL_SCALES = {"smd", "md", "smcc", "rd", "log_ratio", "logor", "logrr", "
 
 
 def _phase3_gaps(run_dir: Path) -> list[dict[str, str]]:
-    """Surface the gaps the engine actually WROTE (phase3_positioning.md Gap Matrix).
-    The run_paper lane writes the gap to a FILE (not dossier.claims.research_gaps), so the
-    projection looked empty ('尚未判定') even though a full gap analysis exists. GENERAL:
-    find ANY markdown table whose first header is a Gap alias (en/zh) — do not depend on a
-    fixed English heading — and project {gap, description}."""
+    """FALLBACK for OLD runs whose dossier predates structured-gap storage: the pipeline
+    now stores structured gaps in dossier.claims.research_gaps up-front; for older runs we
+    re-parse the phase3 markdown with the SAME shared parser (no logic drift)."""
     md = Path(run_dir) / "phase3_positioning.md"
     if not md.is_file():
         return []
-    lines = md.read_text(encoding="utf-8", errors="ignore").splitlines()
-    gaps: list[dict[str, str]] = []
-    for i, line in enumerate(lines):
-        s = line.strip()
-        if not s.startswith("|"):
-            continue
-        header = [c.strip().lower() for c in s.strip("|").split("|")]
-        if not header or not any(header[0].startswith(a) for a in _GAP_HEADER_ALIASES):
-            continue
-        # found a gap table header; the next line is the |---| separator, then rows
-        for row in lines[i + 2:]:
-            r = row.strip()
-            if not r.startswith("|"):
-                break
-            cells = [c.strip() for c in r.strip("|").split("|")]
-            label = cells[0] if cells else ""
-            if not label or not (set(label) - set("-: ")):
-                continue
-            desc = cells[1] if len(cells) > 1 else ""
-            gaps.append({"gap": label, "description": desc})
-        break
-    return gaps[:5]
+    from packs.paper import gaps as _gaps
+    return _gaps.parse_gap_matrix(md.read_text(encoding="utf-8", errors="ignore"))
 
 
 def _key_result(rr: dict[str, Any]) -> dict[str, Any]:
@@ -141,7 +130,7 @@ def project_status(dossier_data: dict[str, Any], run_dir: Path) -> dict[str, Any
     ext = dossier_data.get("pack_ext", {})
     result = ext.get("run_result") or {}
     pdf = Path(run_dir) / "paper_draft_v0.pdf"
-    rr = _read_json_safe(Path(run_dir) / "real_experiments" / "real_results.json")
+    rr, rr_warn = _read_json_or_warn(Path(run_dir) / "real_experiments" / "real_results.json")
 
     a_gap = claims.get("research_gaps") or _phase3_gaps(run_dir)
     key_result = _key_result(rr)
@@ -180,6 +169,7 @@ def project_status(dossier_data: dict[str, Any], run_dir: Path) -> dict[str, Any
                     "phases_done": result.get("phases_done")},
         "artifacts": {"has_pdf": pdf.is_file()},   # bool flag — no server path leak; page derives /paper
         "error": ext.get("run_error"),
+        "data_warning": rr_warn,                    # set only when real_results exists but is unreadable
         "updated_at": status.get("finished_at") or status.get("started_at"),
     }
 
