@@ -78,6 +78,16 @@ function render(s) {
   $("via").textContent = (v.viable === false ? "non-viable" : v.viable === true ? "viable" : "—")
     + (v.metric && v.metric.max_poolable_k != null ? ` (k=${v.metric.max_poolable_k})` : "");
   $("blk").textContent = s.blocked ? ("BLOCKED: " + (s.blockers||[]).join("; ")) : "";
+  // terminal status + result (enriched projection: status / summary / artifacts)
+  $("status").textContent = s.status || "—";
+  const sum = s.summary || {}, pdf = (s.artifacts||{}).pdf;
+  const terminal = s.status === "done" || s.status === "blocked" || s.status === "failed";
+  $("result").innerHTML = terminal
+    ? `floor <b>${sum.floor_100 != null ? sum.floor_100 : "—"}</b>/100`
+      + ` · delivery <b>${sum.delivery || "—"}</b>`
+      + (pdf ? ` · <a href="${API}/v2/jobs/${JOB}/paper">download PDF</a>` : "")
+      + (s.error ? ` · <span style="color:#9a2b2b">error</span>` : "")
+    : `<span class="k">running…</span>`;
   $("steps").innerHTML = PHASES.map(p => {
     const done = PHASES.indexOf(p) <= PHASES.indexOf(s.phase);
     return `<span class="step ${done?"done":""}">${p}</span>`;
