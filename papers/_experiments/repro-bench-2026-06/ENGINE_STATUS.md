@@ -115,6 +115,36 @@ Delivery still reports `blocked` (strict 80-AND-no-P0 gate; honest — quality n
   `_rotate_codex_auth`): re-run the prod /v2 A/B → if it beats golden, flip
   `A_ENGINE_ENDPOINT=/v2/jobs` + `wrangler deploy`.
 
+## 6c. Golden A/B re-run (2026-06-16, codex quota restored) — content beats golden, fig-crossref defect found+fixed, STILL not flipped
+
+- The fail-loud fix VERIFIED in prod: the prior codex-exhausted run shows
+  `status=failed`, blocker "brain unavailable at phase3_gap: codex unavailable: …usage
+  limit", floor=null, no PDF — clean block, zero garbage (archived
+  `jobs/v2_2948a09a83a9.failed-codexquota-20260616`).
+- **Re-run end-to-end (all 7 phases)** through prod `/v2/jobs`: `golden_proof` →
+  **floor 68.3 > golden 62.2 (+6.1), review 78.0 > golden 57.1 (+20.9), content p0=0**
+  (`blocked_review.json`: p0_count=0, floor_failed=False). The new engine genuinely
+  produces a better paper than the golden baseline.
+- **BUT delivery correctly BLOCKED** — `delivery_audit.json` verdict=blocked,
+  **p0_count=1**: `RQ_CROSSREF` "10 broken table/figure cross-references in the PDF".
+  Confirmed in the rendered PDF text: `?@fig-forest` ×6 + `?@fig-prisma` ×4 (a reader
+  sees "?@fig-forest", not "Figure 1"). The strict gate did its job — refused to ship.
+- **Root cause** (`tables.py inject_figures`): it placed each figure float "right after
+  its first @ref". forest/prisma are first referenced in the `## Abstract` (before the
+  first level-1 `# ` heading) → the `{#fig-}` float landed in front matter, where Quarto
+  does NOT register crossref floats → every ref renders `?@fig-`. fig-method (first ref
+  in the body) was fine.
+- **FIXED via the architecture** (codex prescribed → big-pickle executed → I verified):
+  inject_figures now places the float after the first @ref AT/AFTER the first body
+  heading (abstract-only refs fall back to right after the first `# ` heading).
+  Deterministically verified WITHOUT a full rerun: fixed injector on the buggy QMD →
+  floats move to the body → real Quarto render → **broken `?@` markers 10 → 0**, figures
+  resolve as Figure 1/2/3. Mirrored to source + regression test
+  (`test_inject_figures_places_float_in_body_not_abstract`), 23 gate tests pass.
+- **NOT flipped** (user: only-fix-no-rerun, save codex quota): the fix is committed but
+  prod `tables.py` is unchanged. Flip still waits on a CLEAN prod /v2 rerun (redeploy the
+  fixed pack → rerun → expect delivery=pass, floor>62.2 → flip `A_ENGINE_ENDPOINT`).
+
 ## 7. Known gaps (codex review 2026-06-16 — fix during integration)
 
 - `framework.viability.handle_viability` master branch LOGS an auto-pivot + writes the steering log but
@@ -127,3 +157,14 @@ Delivery still reports `blocked` (strict 80-AND-no-P0 gate; honest — quality n
 - Running `pipeline.run_paper` under the FastAPI service needs op-hardening (absolute codex/hermes paths,
   gateway 127.0.0.1:8898 health check, process-group kill on timeout, child reaper, `max_live_v2_jobs=1`,
   wall-clock watchdog). See [BSIDE_WEB_INTEGRATION_PLAN.md](BSIDE_WEB_INTEGRATION_PLAN.md) §3d.
+- **Self-heal loop is blind to RENDER quality** (why the fig-crossref defect surfaced only at the terminal
+  gate, 2026-06-16): the 3-round self-heal review (codex review → prescribe → big-pickle apply) scores the
+  QMD **source** (prose/claims/limitations/numbers). A broken crossref is invisible in source — both the
+  `@fig-forest` ref AND the `{#fig-forest}` label are present; the breakage only appears when Quarto COMPILES
+  the PDF. The ONLY step that compiles + inspects the rendered PDF is the FINAL `delivery_audit`, so
+  render-quality defects (unresolved crossrefs, missing/duplicate floats) escape the loop until the very end.
+  **Prescribed fix (do at next rerun, needs a run to verify convergence): fold a render+crossref audit into
+  the self-heal loop** — after each round's render, grep the PDF for `?@(tbl|fig)-`; any hit becomes a P0 the
+  loop sees → codex prescribes → big-pickle (or deterministic re-inject) fixes → re-render → converge BEFORE
+  the terminal gate. (The specific inject_figures placement bug is now fixed at the source, so this class no
+  longer recurs for figures; the loop-integration is defence-in-depth for other render defects.)

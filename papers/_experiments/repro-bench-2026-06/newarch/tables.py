@@ -340,11 +340,34 @@ def inject_figures(run_dir: Path) -> int:
         #    duplicate floats (Fig 1 & 5, 2 & 6). Strip-then-inject-one is idempotent.
         text = re.sub(rf"!\[[^\]]*\]\(figures/{re.escape(fname)}\)\{{#[^}}]*\}}[ \t]*\n?", "", text)
         text = re.sub(rf"!\[[^\]]*\]\([^)]*\)\{{#{re.escape(canon)}[^}}]*\}}[ \t]*\n?", "", text)
-        # 3) inject EXACTLY ONE canonical labelled float, right after its first reference
+        # 3) inject EXACTLY ONE canonical labelled float, right after its first BODY
+        #    reference. The first @ref can fall in the Abstract (## Abstract, before the
+        #    first level-1 `# ` heading); a float placed there renders as a broken
+        #    ?@fig- because Quarto does NOT register crossref floats in front matter.
+        #    Observed live 2026-06-16: forest/prisma refs first appear in the abstract
+        #    -> 10 broken ?@fig- in the PDF; fig-method (first ref in the body) was fine.
+        #    Fix: place the float after the first @ref AT/AFTER the first body heading.
         embed = f"![{caption}](figures/{fname}){{#{canon}}}"
         ref = f"@{canon}"
-        idx = text.find(ref)
-        if idx != -1:                                        # after the referencing paragraph
+
+        body_heading = re.search(r"(?m)^# .*$", text)
+        body_start = body_heading.start() if body_heading else 0
+
+        first_ref_idx = text.find(ref)
+        idx = text.find(ref, body_start) if first_ref_idx != -1 else -1
+
+        if idx == -1 and first_ref_idx != -1 and body_heading:
+            # referenced ONLY in the abstract: still place the float in the body (right
+            # after the first body heading's line) so the crossref resolves.
+            heading_line_end = text.find("\n", body_start)
+            para_start = len(text) if heading_line_end == -1 else heading_line_end + 1
+            while para_start < len(text) and text[para_start] == "\n":
+                para_start += 1
+            idx = para_start
+        elif idx == -1 and first_ref_idx != -1:
+            idx = first_ref_idx                              # no body heading: original behaviour
+
+        if idx != -1:                                        # after the referencing/body paragraph
             end = text.find("\n\n", idx)
             end = len(text) if end == -1 else end
             text = text[:end] + f"\n\n{embed}\n" + text[end:]

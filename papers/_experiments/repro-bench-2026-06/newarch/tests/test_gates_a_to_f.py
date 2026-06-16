@@ -175,6 +175,39 @@ def test_gate_c_detects_duplicate_embeds_then_dedup_passes(tmp_path, fixtures_di
     assert res2.passed is True and res2.p0 is False
 
 
+def test_inject_figures_places_float_in_body_not_abstract(tmp_path):
+    """Regression (live 2026-06-16): when a figure's FIRST @ref is in the abstract
+    (## Abstract, before the first level-1 `# ` heading), its labelled float must STILL
+    be placed in the BODY. A float in front matter renders as a broken ?@fig- because
+    Quarto does not register crossref floats before the first level-1 heading (the real
+    run produced 10 such broken markers: forest x6 + prisma x4)."""
+    run_dir = tmp_path / "run"
+    (run_dir / "figures").mkdir(parents=True)
+    (run_dir / "figures" / "fig_forest_plot.png").write_bytes(b"")   # inject only checks existence
+    qmd = (
+        "---\ntitle: t\n---\n\n"
+        "## Abstract\n\n"
+        "The pooled estimate is summarized in @fig-forest.\n\n"      # FIRST ref: in the abstract
+        "# Introduction\n\n"
+        "The forest result is shown in @fig-forest.\n"               # body ref
+    )
+    (run_dir / "paper_draft_v0.qmd").write_text(qmd, encoding="utf-8")
+
+    tables.inject_figures(run_dir)
+    out = (run_dir / "paper_draft_v0.qmd").read_text(encoding="utf-8")
+
+    float_idx = out.find("{#fig-forest}")
+    intro_idx = out.find("# Introduction")
+    assert float_idx != -1, "float was not injected"
+    assert float_idx > intro_idx, "float must be in the body, not the abstract/front matter"
+    assert out.count("(figures/fig_forest_plot.png)") == 1           # exactly one embed (idempotent)
+
+    tables.inject_figures(run_dir)                                   # idempotent: still body, still one
+    out2 = (run_dir / "paper_draft_v0.qmd").read_text(encoding="utf-8")
+    assert out2.find("{#fig-forest}") > out2.find("# Introduction")
+    assert out2.count("(figures/fig_forest_plot.png)") == 1
+
+
 def test_gate_c_pass_golden_figures(golden_dir):
     figs = [{"name": p.stem, "svg": True, "png": True}
             for p in (golden_dir / "figures").glob("*.png")]
