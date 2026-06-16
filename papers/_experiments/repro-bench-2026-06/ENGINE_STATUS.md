@@ -91,3 +91,16 @@ Delivery still reports `blocked` (strict 80-AND-no-P0 gate; honest — quality n
 - **Live web progress**: projection API + reference page exist; the Hugo `/projects/{id}` page must adopt them.
 - **a-side /jobs/viability-probe** endpoint (wrap handle_viability) — not yet exposed.
 - IFRS pack (#3) — still speculative.
+
+## 7. Known gaps (codex review 2026-06-16 — fix during integration)
+
+- `framework.viability.handle_viability` master branch LOGS an auto-pivot + writes the steering log but
+  does NOT actually mutate the contract (PICOS/query unchanged) — implement the real pivot (apply candidate
+  + re-hash) or relabel as a logged suggestion.
+- `engine_routes.project_status` projection is too thin — no `status` (running/done/blocked/failed), no
+  `artifacts.pdf`, no `summary.floor_100`/`delivery`. Web needs the final PDF link + a terminal state.
+- `/v2/jobs` has no idempotency (old `/jobs` has `Idempotency-Key`); deterministic `_job_id` → a duplicate
+  submit clobbers the run dir. Add idempotent replay + a run-dir lock.
+- Running `pipeline.run_paper` under the FastAPI service needs op-hardening (absolute codex/hermes paths,
+  gateway 127.0.0.1:8898 health check, process-group kill on timeout, child reaper, `max_live_v2_jobs=1`,
+  wall-clock watchdog). See [BSIDE_WEB_INTEGRATION_PLAN.md](BSIDE_WEB_INTEGRATION_PLAN.md) §3d.
