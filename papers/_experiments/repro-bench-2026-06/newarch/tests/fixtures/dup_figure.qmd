@@ -1,0 +1,34 @@
+---
+title: "Duplicate-figure fixture (Gate C / inject_figures dedup)"
+format: pdf
+---
+
+<!--
+  Gate C / tables.inject_figures fixture. The codex writer double-embedded figures
+  (the real bug fixed 2026-06-15: strip all writer embeds, inject exactly one,
+  idempotent). Here EACH of the two figures is embedded TWICE. After dedup the qmd
+  must contain exactly ONE embed per figure (2 -> 1), and the embed count for
+  fig-method and fig-forest must each be 1.
+-->
+
+## Methods
+
+The overall pipeline is illustrated in @fig-method.
+
+![Overview of the abstract-level meta-analysis pipeline.](figures/fig_method_overview.png){#fig-method}
+
+Some intervening prose describing the method in more detail before the writer
+accidentally re-emits the same figure.
+
+![Overview of the abstract-level meta-analysis pipeline.](figures/fig_method_overview.png){#fig-method}
+
+## Results
+
+@fig-forest displays the forest plot of study-level effect sizes.
+
+![Forest plot of study-level effect sizes and the random-effects pooled estimate.](figures/fig_forest_plot.png){#fig-forest}
+
+A paragraph of results discussion separates the duplicated forest-plot embed from
+its first occurrence.
+
+![Forest plot of study-level effect sizes and the random-effects pooled estimate.](figures/fig_forest_plot.png){#fig-forest}

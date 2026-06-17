@@ -1,0 +1,1256 @@
+{
+  "status": "completed",
+  "simulated": false,
+  "source": "OpenAlex",
+  "source_type": "literature",
+  "lane": "meta_analysis",
+  "synthesis_type": "intervention",
+  "rows": 2400,
+  "meta": {
+    "topic": "exercise depression older adults",
+    "synthesis_type": "intervention",
+    "prisma": {
+      "identified": 66156,
+      "scanned": 2400,
+      "with_abstract": 2400,
+      "excluded_picos": 2293,
+      "studies_with_effects": 24,
+      "effects_extracted": 64,
+      "by_source": {
+        "europepmc": 2400
+      }
+    },
+    "picos": {
+      "exclude_terms": [
+        "pediatric",
+        "children",
+        "adolescent",
+        "youth",
+        "student",
+        "postpartum",
+        "prenatal"
+      ],
+      "require_any": [
+        "randomized",
+        "randomised",
+        "controlled trial",
+        "RCT"
+      ],
+      "require_all": [
+        [
+          "exercise",
+          "physical activity",
+          "aerobic",
+          "resistance training",
+          "walking",
+          "yoga",
+          "tai chi"
+        ],
+        [
+          "depression",
+          "depressive symptoms",
+          "depressive"
+        ],
+        [
+          "older adults",
+          "elderly",
+          "late-life",
+          "aged",
+          "seniors"
+        ]
+      ]
+    },
+    "effects": [
+      {
+        "n": null,
+        "title": "Psychological health outcomes of traditional Chinese exercises in older adults: a meta-analysis of randomized controlled trials",
+        "year": 2026,
+        "doi": "10.7717/peerj.20773",
+        "measure": "SMD",
+        "effect": -0.51,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 1271,
+        "evidence": "The meta-analysis revealed that, compared to control groups, TCEs are more effective in improving depression (SMD = -0.51, 95% CI [-0.72 to -0.29],  p   p  = 0.002), and subjective well-being among older adults (SMD = 1.07, 95% CI [0.18-1.96],  p  = 0.02)"
+      },
+      {
+        "n": null,
+        "title": "Psychological health outcomes of traditional Chinese exercises in older adults: a meta-analysis of randomized controlled trials",
+        "year": 2026,
+        "doi": "10.7717/peerj.20773",
+        "measure": "SMD",
+        "effect": 1.07,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 1373,
+        "evidence": "The meta-analysis revealed that, compared to control groups, TCEs are more effective in improving depression (SMD = -0.51, 95% CI [-0.72 to -0.29],  p   p  = 0.002), and subjective well-being among older adults (SMD = 1.07, 95% CI [0.18-1.96],  p  = 0.02)"
+      },
+      {
+        "n": null,
+        "title": "Psychological health outcomes of traditional Chinese exercises in older adults: a meta-analysis of randomized controlled trials",
+        "year": 2026,
+        "doi": "10.7717/peerj.20773",
+        "measure": "SMD",
+        "effect": 0.63,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 1478,
+        "evidence": "TCEs also showed positive effects on general self-efficacy (SMD = 0.63, 95% CI [-0.05 to 1.31],  p  = 0.07) and self-esteem (SMD = 0.54, 95% CI [-0.06 to 1.13],  p  = 0.08), although these effects are not statistically significant"
+      },
+      {
+        "n": null,
+        "title": "Psychological health outcomes of traditional Chinese exercises in older adults: a meta-analysis of randomized controlled trials",
+        "year": 2026,
+        "doi": "10.7717/peerj.20773",
+        "measure": "SMD",
+        "effect": 0.54,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 1543,
+        "evidence": "TCEs also showed positive effects on general self-efficacy (SMD = 0.63, 95% CI [-0.05 to 1.31],  p  = 0.07) and self-esteem (SMD = 0.54, 95% CI [-0.06 to 1.13],  p  = 0.08), although these effects are not statistically significant"
+      },
+      {
+        "n": null,
+        "title": "Exercise and nutritional intervention on improving mental health in older adults: A systematic review and meta-analysis",
+        "year": 2026,
+        "doi": "10.1016/j.genhosppsych.2026.01.015",
+        "measure": "SMD",
+        "effect": -0.44,
+        "ci_low": -0.72,
+        "ci_high": -0.0,
+        "scale": "smd",
+        "_start": 1554,
+        "evidence": "Regarding depression outcomes, combined interventions exhibited marked improvement relative to conventional care at 3 months (SMD = -0.44, 95% CI -0.72 to -0"
+      },
+      {
+        "n": null,
+        "title": "Exercise and nutritional intervention on improving mental health in older adults: A systematic review and meta-analysis",
+        "year": 2026,
+        "doi": "10.1016/j.genhosppsych.2026.01.015",
+        "measure": "SMD",
+        "effect": -0.68,
+        "ci_low": -1.06,
+        "ci_high": -0.3,
+        "scale": "smd",
+        "_start": 1635,
+        "evidence": "16; I 2  = 53.8%, Qpavle = 0.090) and 6 months (SMD = -0.68, 95% CI -1.06 to -0.30; I 2  = 0.0%, Qpavle = 0.589)"
+      },
+      {
+        "n": null,
+        "title": "Exercise and nutritional intervention on improving mental health in older adults: A systematic review and meta-analysis",
+        "year": 2026,
+        "doi": "10.1016/j.genhosppsych.2026.01.015",
+        "measure": "SMD",
+        "effect": -0.22,
+        "ci_low": -0.57,
+        "ci_high": 0.0,
+        "scale": "smd",
+        "_start": 1771,
+        "evidence": "No significant differences were detected relative to nutrition alone (SMD = -0.22, 95% CI -0.57 to 0"
+      },
+      {
+        "n": null,
+        "title": "Exercise and nutritional intervention on improving mental health in older adults: A systematic review and meta-analysis",
+        "year": 2026,
+        "doi": "10.1016/j.genhosppsych.2026.01.015",
+        "measure": "SMD",
+        "effect": -0.06,
+        "ci_low": -0.2,
+        "ci_high": 0.07,
+        "scale": "smd",
+        "_start": 1854,
+        "evidence": "12; I 2  = 81%, Qpavle = 0.022) or exercise alone (SMD = -0.06, 95% CI -0.20 to 0.07; I 2  = 10.9%, Qpavle = 0.344)"
+      },
+      {
+        "n": null,
+        "title": "The impact of community-based Tai Chi exercise on intrinsic capacity improvement in the elderly: a meta-analysis of randomized controlled trials",
+        "year": 2026,
+        "doi": "10.1093/postmj/qgaf171",
+        "measure": "SMD",
+        "effect": 1.11,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 868,
+        "evidence": "Results Tai Chi interventions significantly improved activities of daily living (SMD = 1.11), cognitive function (SMD = 0.44), motor function (SMD = -0.50), and depressive symptoms (SMD = -0.79)"
+      },
+      {
+        "n": null,
+        "title": "The impact of community-based Tai Chi exercise on intrinsic capacity improvement in the elderly: a meta-analysis of randomized controlled trials",
+        "year": 2026,
+        "doi": "10.1093/postmj/qgaf171",
+        "measure": "SMD",
+        "effect": 0.44,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 901,
+        "evidence": "Results Tai Chi interventions significantly improved activities of daily living (SMD = 1.11), cognitive function (SMD = 0.44), motor function (SMD = -0.50), and depressive symptoms (SMD = -0.79)"
+      },
+      {
+        "n": null,
+        "title": "The impact of community-based Tai Chi exercise on intrinsic capacity improvement in the elderly: a meta-analysis of randomized controlled trials",
+        "year": 2026,
+        "doi": "10.1093/postmj/qgaf171",
+        "measure": "SMD",
+        "effect": -0.5,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 930,
+        "evidence": "Results Tai Chi interventions significantly improved activities of daily living (SMD = 1.11), cognitive function (SMD = 0.44), motor function (SMD = -0.50), and depressive symptoms (SMD = -0.79)"
+      },
+      {
+        "n": null,
+        "title": "The impact of community-based Tai Chi exercise on intrinsic capacity improvement in the elderly: a meta-analysis of randomized controlled trials",
+        "year": 2026,
+        "doi": "10.1093/postmj/qgaf171",
+        "measure": "SMD",
+        "effect": -0.79,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 969,
+        "evidence": "Results Tai Chi interventions significantly improved activities of daily living (SMD = 1.11), cognitive function (SMD = 0.44), motor function (SMD = -0.50), and depressive symptoms (SMD = -0.79)"
+      },
+      {
+        "n": null,
+        "title": "Effects of digitalized traditional Chinese exercises on the physical and mental health and quality of life of older adults: a systematic review and meta-analysi",
+        "year": 2025,
+        "doi": "10.3389/fpubh.2025.1725847",
+        "measure": "SMD",
+        "effect": 0.88,
+        "ci_low": 0.68,
+        "ci_high": 1.08,
+        "scale": "smd",
+        "_start": 969,
+        "evidence": "Low to moderate-certainty evidence showed that digitalized TCEs significantly improved functional mobility (WMD = -0.81; 95% CI, -1.28 to -0.33;  p  = 0.0009; I 2  = 76%), balance function (SMD = 0.88; 95% CI, 0.68 to 1.08;  p   2  = 0%), and global cognition (WMD = 1.98; 95% CI, 1.44 to 2.52;  p   "
+      },
+      {
+        "n": null,
+        "title": "Effects of digitalized traditional Chinese exercises on the physical and mental health and quality of life of older adults: a systematic review and meta-analysi",
+        "year": 2025,
+        "doi": "10.3389/fpubh.2025.1725847",
+        "measure": "SMD",
+        "effect": 0.17,
+        "ci_low": 0.03,
+        "ci_high": 0.3,
+        "scale": "smd",
+        "_start": 1210,
+        "evidence": "In addition, moderate-certainty evidence indicated small but statistically significant improvements in quality of life (SMD = 0.17; 95% CI, 0.03 to 0.30;  p  = 0.01; I 2  = 3%)"
+      },
+      {
+        "n": null,
+        "title": "Effects of digitalized traditional Chinese exercises on the physical and mental health and quality of life of older adults: a systematic review and meta-analysi",
+        "year": 2025,
+        "doi": "10.3389/fpubh.2025.1725847",
+        "measure": "SMD",
+        "effect": -0.71,
+        "ci_low": -1.48,
+        "ci_high": 0.05,
+        "scale": "smd",
+        "_start": 1437,
+        "evidence": "However, digitalized TCEs did not significantly improve grip strength (WMD = -0.26; 95% CI, -1.15 to 0.62;  p  = 0.56; I 2  = 0%; low certainty evidence) or depression (SMD = -0.71; 95% CI, -1.48 to 0.05;  p  = 0.07; I 2  = 95%; very low certainty evidence)"
+      },
+      {
+        "n": null,
+        "title": "The effect of digital health interventions in older adults with frailty: a systematic review and meta-analysis",
+        "year": 2026,
+        "doi": "10.1016/j.ijnsa.2025.100470",
+        "measure": "SMD",
+        "effect": 0.12,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 1418,
+        "evidence": "Results 23 studies were conducted from 2007 to 2024 in 5 continents that investigated 3426 frail elderly participants were included in the review.The meta-analytic findings indicated superior efficacy in older adults with frailty for digital health interventions over control group on measures of the"
+      },
+      {
+        "n": null,
+        "title": "The effect of digital health interventions in older adults with frailty: a systematic review and meta-analysis",
+        "year": 2026,
+        "doi": "10.1016/j.ijnsa.2025.100470",
+        "measure": "SMD",
+        "effect": 0.3,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 1486,
+        "evidence": "Results 23 studies were conducted from 2007 to 2024 in 5 continents that investigated 3426 frail elderly participants were included in the review.The meta-analytic findings indicated superior efficacy in older adults with frailty for digital health interventions over control group on measures of the"
+      },
+      {
+        "n": null,
+        "title": "The effect of digital health interventions in older adults with frailty: a systematic review and meta-analysis",
+        "year": 2026,
+        "doi": "10.1016/j.ijnsa.2025.100470",
+        "measure": "SMD",
+        "effect": -0.52,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 1691,
+        "evidence": "Subgroup analysis stratified by control group type revealed that the digital intervention combined with exercise group significantly improved frailty status (SMD= -0.52, 95 % CI[-0.96, -0.08];  P  = 0.020), grip strength (WMD= 1.82, 95 % CI[0.53, 3.12];  P  = 0.006), and cognitive function (SMD= 0.2"
+      },
+      {
+        "n": null,
+        "title": "The effect of digital health interventions in older adults with frailty: a systematic review and meta-analysis",
+        "year": 2026,
+        "doi": "10.1016/j.ijnsa.2025.100470",
+        "measure": "SMD",
+        "effect": 0.2,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 1825,
+        "evidence": "Subgroup analysis stratified by control group type revealed that the digital intervention combined with exercise group significantly improved frailty status (SMD= -0.52, 95 % CI[-0.96, -0.08];  P  = 0.020), grip strength (WMD= 1.82, 95 % CI[0.53, 3.12];  P  = 0.006), and cognitive function (SMD= 0.2"
+      },
+      {
+        "n": null,
+        "title": "Taichi is medicine: Effects of Taichi exercise on knee fitness and psychological health in older adults with knee osteoarthritis (KOA): A randomized controlled ",
+        "year": 2025,
+        "doi": "10.1097/md.0000000000044612",
+        "measure": "MD",
+        "effect": 21.6,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "md",
+        "_start": 680,
+        "evidence": "Results This study revealed that The Taichi group showed a statistically significant improvement in knee function (mean difference = 21.6 points, 95% CI: 17.3-25.9, P = .001, Cohen d = 1.87), lower limb strength (mean difference = 24.4 kg, 95% CI: 16.5-32.2, P = .001, d = 1.01), and balance (mean di"
+      },
+      {
+        "n": null,
+        "title": "Taichi is medicine: Effects of Taichi exercise on knee fitness and psychological health in older adults with knee osteoarthritis (KOA): A randomized controlled ",
+        "year": 2025,
+        "doi": "10.1097/md.0000000000044612",
+        "measure": "MD",
+        "effect": 24.4,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "md",
+        "_start": 778,
+        "evidence": "Results This study revealed that The Taichi group showed a statistically significant improvement in knee function (mean difference = 21.6 points, 95% CI: 17.3-25.9, P = .001, Cohen d = 1.87), lower limb strength (mean difference = 24.4 kg, 95% CI: 16.5-32.2, P = .001, d = 1.01), and balance (mean di"
+      },
+      {
+        "n": null,
+        "title": "Taichi is medicine: Effects of Taichi exercise on knee fitness and psychological health in older adults with knee osteoarthritis (KOA): A randomized controlled ",
+        "year": 2025,
+        "doi": "10.1097/md.0000000000044612",
+        "measure": "MD",
+        "effect": 12.6,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "md",
+        "_start": 858,
+        "evidence": "Results This study revealed that The Taichi group showed a statistically significant improvement in knee function (mean difference = 21.6 points, 95% CI: 17.3-25.9, P = .001, Cohen d = 1.87), lower limb strength (mean difference = 24.4 kg, 95% CI: 16.5-32.2, P = .001, d = 1.01), and balance (mean di"
+      },
+      {
+        "n": null,
+        "title": "Taichi is medicine: Effects of Taichi exercise on knee fitness and psychological health in older adults with knee osteoarthritis (KOA): A randomized controlled ",
+        "year": 2025,
+        "doi": "10.1097/md.0000000000044612",
+        "measure": "MD",
+        "effect": -2.7,
+        "ci_low": -3.71,
+        "ci_high": -1.69,
+        "scale": "md",
+        "_start": 1018,
+        "evidence": "Psychological outcomes also improved significantly in the intervention group: depression (mean difference = -2.70, 95% CI: -3.71 to -1.69, P = .001, d = 1.06), anxiety (mean difference = -2.28, 95% CI: -3.26 to -1.30, P = .001, d = 0.75), and stress (mean difference = -2.79, 95% CI: -5.19 to -0.39, "
+      },
+      {
+        "n": null,
+        "title": "Long-Term Health and Cost Outcomes of a 24-Week Multicomponent Frailty Intervention in Older Adults",
+        "year": 2025,
+        "doi": "10.1001/jamanetworkopen.2025.43278",
+        "measure": "MD",
+        "effect": 6.53,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "md",
+        "_start": 1877,
+        "evidence": "Among 119 matched pairs (238 [68.9%] aged ≥75 years; 177 [74.4%] female), participants had longer composite outcome-free survival at 66 months (mean difference, 6.53 [95% CI, 1.38-11.68] months)"
+      },
+      {
+        "n": null,
+        "title": "Effects of exercise with music in frail older adults: a systematic review and meta-analysis",
+        "year": 2025,
+        "doi": "10.1136/bmjopen-2024-095602",
+        "measure": "SMD",
+        "effect": -0.4,
+        "ci_low": -0.65,
+        "ci_high": -0.15,
+        "scale": "smd",
+        "_start": 2458,
+        "evidence": "The pooled analysis suggested that exercise with music may have a positive effect on reducing frailty (standardised mean difference (SMD)=-0.20, 95% CI=-0.34 to -0.07, p=0.003, I 2 =0%; very low certainty) and decreasing depression levels (SMD=-0.40, 95% CI=-0.65 to -0.15, p=0.002, I 2 =0%; very low"
+      },
+      {
+        "n": 27,
+        "title": "A home-based 12-week chair exercise intervention for older adults with advanced cancer receiving chemotherapy: a randomized pilot feasibility trial",
+        "year": 2025,
+        "doi": "10.1007/s00520-025-09584-6",
+        "measure": "SMD",
+        "effect": 0.52,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 1378,
+        "evidence": "ChairEx participants reported improvements in IADLs (Cohen's d = 0.52), compared to UC (p = 0.026)"
+      },
+      {
+        "n": null,
+        "title": "The impact of high-intensity exercise on patients with depression: a systematic review and meta-analysis of randomized controlled trials",
+        "year": 2025,
+        "doi": "10.3389/fpubh.2025.1616925",
+        "measure": "SMD",
+        "effect": -0.44,
+        "ci_low": -0.69,
+        "ci_high": -0.18,
+        "scale": "smd",
+        "_start": 833,
+        "evidence": "Compared to controls, the intervention group showed greater improvement in depression severity, based on the Hamilton Rating Scale for Depression (HRSD) (SMD: -0.44; 95% CI: -0.69, -0.18;  p  = 0.0008) and overall depression scores (SMD: -0.23; 95% CI: -0.39, -0.07;  p  = 0.006)"
+      },
+      {
+        "n": null,
+        "title": "The impact of high-intensity exercise on patients with depression: a systematic review and meta-analysis of randomized controlled trials",
+        "year": 2025,
+        "doi": "10.3389/fpubh.2025.1616925",
+        "measure": "SMD",
+        "effect": -0.23,
+        "ci_low": -0.39,
+        "ci_high": -0.07,
+        "scale": "smd",
+        "_start": 912,
+        "evidence": "Compared to controls, the intervention group showed greater improvement in depression severity, based on the Hamilton Rating Scale for Depression (HRSD) (SMD: -0.44; 95% CI: -0.69, -0.18;  p  = 0.0008) and overall depression scores (SMD: -0.23; 95% CI: -0.39, -0.07;  p  = 0.006)"
+      },
+      {
+        "n": null,
+        "title": "The impact of high-intensity exercise on patients with depression: a systematic review and meta-analysis of randomized controlled trials",
+        "year": 2025,
+        "doi": "10.3389/fpubh.2025.1616925",
+        "measure": "SMD",
+        "effect": -0.17,
+        "ci_low": -0.39,
+        "ci_high": 0.06,
+        "scale": "smd",
+        "_start": 1027,
+        "evidence": "However, results from the Hamilton Depression Rating Scale (HAMD) (SMD: -0.17; 95% CI: -0.39, 0.06;  p  = 0.14) and Beck Depression Inventory (BDI-II) (SMD: 0.12; 95% CI: -0.10, 0.34;  p  = 0.28) were not significant"
+      },
+      {
+        "n": null,
+        "title": "The impact of high-intensity exercise on patients with depression: a systematic review and meta-analysis of randomized controlled trials",
+        "year": 2025,
+        "doi": "10.3389/fpubh.2025.1616925",
+        "measure": "SMD",
+        "effect": 0.12,
+        "ci_low": -0.1,
+        "ci_high": 0.34,
+        "scale": "smd",
+        "_start": 1112,
+        "evidence": "However, results from the Hamilton Depression Rating Scale (HAMD) (SMD: -0.17; 95% CI: -0.39, 0.06;  p  = 0.14) and Beck Depression Inventory (BDI-II) (SMD: 0.12; 95% CI: -0.10, 0.34;  p  = 0.28) were not significant"
+      },
+      {
+        "n": null,
+        "title": "From Dogs to Robots: Pet-Assisted Interventions for Depression in Older Adults-A Network Meta-Analysis of Randomized Controlled Trials",
+        "year": 2025,
+        "doi": "10.3390/healthcare14010038",
+        "measure": "SMD",
+        "effect": -2.04,
+        "ci_low": -3.03,
+        "ci_high": -1.04,
+        "scale": "smd",
+        "_start": 1070,
+        "evidence": "Live animal-assisted therapy produced the greatest reduction in depressive symptoms versus passive control (SMD -2.04; 95% CI -3.03 to -1.04)"
+      },
+      {
+        "n": null,
+        "title": "From Dogs to Robots: Pet-Assisted Interventions for Depression in Older Adults-A Network Meta-Analysis of Randomized Controlled Trials",
+        "year": 2025,
+        "doi": "10.3390/healthcare14010038",
+        "measure": "SMD",
+        "effect": -4.82,
+        "ci_low": -6.69,
+        "ci_high": -2.95,
+        "scale": "smd",
+        "_start": 1255,
+        "evidence": "Combining it with gait training (structured walking-based activity conducted with the animal) was associated with a reduction in depressive symptoms (SMD -4.82; 95% CI -6.69 to -2.95)"
+      },
+      {
+        "n": null,
+        "title": "From Dogs to Robots: Pet-Assisted Interventions for Depression in Older Adults-A Network Meta-Analysis of Randomized Controlled Trials",
+        "year": 2025,
+        "doi": "10.3390/healthcare14010038",
+        "measure": "SMD",
+        "effect": -1.21,
+        "ci_low": -2.79,
+        "ci_high": 0.38,
+        "scale": "smd",
+        "_start": 1365,
+        "evidence": "Robotic pets showed a directionally beneficial but non-significant effect (SMD -1.21; 95% CI -2.79 to 0.38)"
+      },
+      {
+        "n": null,
+        "title": "Effects of a mind-body exercise intervention on anxiety, depression and quality of life in elderly patients with chronic obstructive pulmonary disease: A system",
+        "year": 2025,
+        "doi": "10.1016/j.ctim.2025.103237",
+        "measure": "SMD",
+        "effect": -0.59,
+        "ci_low": -0.84,
+        "ci_high": -0.34,
+        "scale": "smd",
+        "_start": 989,
+        "evidence": "Results Mind-body exercise reduced anxiety (SMD = -0.59, 95 % CI: -0.84 to -0.34; high certainty) and depression (SMD = -0.34, 95 % CI: -0.54 to -0.14; high certainty)"
+      },
+      {
+        "n": null,
+        "title": "Effects of a mind-body exercise intervention on anxiety, depression and quality of life in elderly patients with chronic obstructive pulmonary disease: A system",
+        "year": 2025,
+        "doi": "10.1016/j.ctim.2025.103237",
+        "measure": "SMD",
+        "effect": -0.34,
+        "ci_low": -0.54,
+        "ci_high": -0.14,
+        "scale": "smd",
+        "_start": 1059,
+        "evidence": "Results Mind-body exercise reduced anxiety (SMD = -0.59, 95 % CI: -0.84 to -0.34; high certainty) and depression (SMD = -0.34, 95 % CI: -0.54 to -0.14; high certainty)"
+      },
+      {
+        "n": null,
+        "title": "Effects of a mind-body exercise intervention on anxiety, depression and quality of life in elderly patients with chronic obstructive pulmonary disease: A system",
+        "year": 2025,
+        "doi": "10.1016/j.ctim.2025.103237",
+        "measure": "SMD",
+        "effect": -0.79,
+        "ci_low": -1.14,
+        "ci_high": -0.44,
+        "scale": "smd",
+        "_start": 1144,
+        "evidence": "HRQOL improved significantly (SMD = -0.79, 95 % CI: -1.14 to -0.44; low certainty), with exploratory findings showing greater improvement in Southeast Asian patients (SMD = -3.41)"
+      },
+      {
+        "n": null,
+        "title": "Effects of a mind-body exercise intervention on anxiety, depression and quality of life in elderly patients with chronic obstructive pulmonary disease: A system",
+        "year": 2025,
+        "doi": "10.1016/j.ctim.2025.103237",
+        "measure": "SMD",
+        "effect": -3.41,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 1281,
+        "evidence": "HRQOL improved significantly (SMD = -0.79, 95 % CI: -1.14 to -0.44; low certainty), with exploratory findings showing greater improvement in Southeast Asian patients (SMD = -3.41)"
+      },
+      {
+        "n": null,
+        "title": "Exercise Interventions for Depression, Anxiety, and Quality of Life in Older Adults With Cancer: A Systematic Review and Meta-Analysis",
+        "year": 2025,
+        "doi": "10.1001/jamanetworkopen.2024.57859",
+        "measure": "SMD",
+        "effect": -0.53,
+        "ci_low": -0.79,
+        "ci_high": -0.28,
+        "scale": "smd",
+        "_start": 1733,
+        "evidence": "Meta-analyses observed an association of exercise with a significant reduction in levels of depression (SMD = -0.53; 95% CI, -0.79 to -0.28) and anxiety (SMD = -0.39; 95% CI, -0.66 to -0.12) and improvements in overall HRQOL (SMD = 0.63; 95% CI, 0.10 to 1.17)"
+      },
+      {
+        "n": null,
+        "title": "Exercise Interventions for Depression, Anxiety, and Quality of Life in Older Adults With Cancer: A Systematic Review and Meta-Analysis",
+        "year": 2025,
+        "doi": "10.1001/jamanetworkopen.2024.57859",
+        "measure": "SMD",
+        "effect": -0.39,
+        "ci_low": -0.66,
+        "ci_high": -0.12,
+        "scale": "smd",
+        "_start": 1783,
+        "evidence": "Meta-analyses observed an association of exercise with a significant reduction in levels of depression (SMD = -0.53; 95% CI, -0.79 to -0.28) and anxiety (SMD = -0.39; 95% CI, -0.66 to -0.12) and improvements in overall HRQOL (SMD = 0.63; 95% CI, 0.10 to 1.17)"
+      },
+      {
+        "n": null,
+        "title": "Exercise Interventions for Depression, Anxiety, and Quality of Life in Older Adults With Cancer: A Systematic Review and Meta-Analysis",
+        "year": 2025,
+        "doi": "10.1001/jamanetworkopen.2024.57859",
+        "measure": "SMD",
+        "effect": 0.63,
+        "ci_low": 0.1,
+        "ci_high": 1.17,
+        "scale": "smd",
+        "_start": 1855,
+        "evidence": "Meta-analyses observed an association of exercise with a significant reduction in levels of depression (SMD = -0.53; 95% CI, -0.79 to -0.28) and anxiety (SMD = -0.39; 95% CI, -0.66 to -0.12) and improvements in overall HRQOL (SMD = 0.63; 95% CI, 0.10 to 1.17)"
+      },
+      {
+        "n": null,
+        "title": "Exercise Interventions for Depression, Anxiety, and Quality of Life in Older Adults With Cancer: A Systematic Review and Meta-Analysis",
+        "year": 2025,
+        "doi": "10.1001/jamanetworkopen.2024.57859",
+        "measure": "SMD",
+        "effect": -0.89,
+        "ci_low": -1.51,
+        "ci_high": -0.27,
+        "scale": "smd",
+        "_start": 2011,
+        "evidence": "Subgroup analyses revealed that mind-body exercise interventions were significantly associated with improved depression (SMD = -0.89; 95% CI, -1.51 to -0.27) and anxiety levels (SMD = -0.77; 95% CI, -1.54 to -0.01) compared with conventional exercise interventions"
+      },
+      {
+        "n": null,
+        "title": "Use of multicomponent structured exercise to improve depression in older adults: A systematic review and meta-analysis",
+        "year": 2025,
+        "doi": "10.1016/j.jesf.2025.01.006",
+        "measure": "SMD",
+        "effect": -0.49,
+        "ci_low": -0.84,
+        "ci_high": -0.14,
+        "scale": "smd",
+        "_start": 906,
+        "evidence": "MSE showed a significant intervention effect on buffering older adults' depression (SMD, -0.49; 95 % CI, -0.84 to -0.14) but with considerable heterogeneity (I 2  = 92 %) and low certainty of evidence"
+      },
+      {
+        "n": null,
+        "title": "Comparative Efficacy of Various Interventions to Reduce Perceived Stress Among Older Adults: A Systematic Review and Network Meta-Analysis",
+        "year": 2025,
+        "doi": "10.1111/wvn.70004",
+        "measure": "SMD",
+        "effect": -0.3,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 1068,
+        "evidence": "The included interventions had benefits on cortisol levels (SMD = -0.30; 95% CI [-0.54, -0.06]; p = 0.01)"
+      },
+      {
+        "n": null,
+        "title": "Comparative Efficacy of Various Interventions to Reduce Perceived Stress Among Older Adults: A Systematic Review and Network Meta-Analysis",
+        "year": 2025,
+        "doi": "10.1111/wvn.70004",
+        "measure": "SMD",
+        "effect": -1.84,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 1182,
+        "evidence": "Moreover, exercise showed positive effects on reducing depression (SMD = -1.84; 95% CI [-3.69, 0.01]; p = 0.05), and it was ranked as the most promising method for depression or anxiety"
+      },
+      {
+        "n": null,
+        "title": "Comparative Efficacy of Various Interventions to Reduce Perceived Stress Among Older Adults: A Systematic Review and Network Meta-Analysis",
+        "year": 2025,
+        "doi": "10.1111/wvn.70004",
+        "measure": "SMD",
+        "effect": -0.77,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 1376,
+        "evidence": "Health education also reduced anxiety symptoms compared to control group (SMD = -0.77; 95% CI [-1.27, -0.26]; p = 0.03)"
+      },
+      {
+        "n": 396,
+        "title": "Effect of AI-Based Natural Language Feedback on Engagement and Clinical Outcomes in Fully Self-Guided Internet-Based Cognitive Behavioral Therapy for Depression",
+        "year": 2026,
+        "doi": "10.2196/76902",
+        "measure": "OR",
+        "effect": 1.23,
+        "ci_low": 1.09,
+        "ci_high": 1.39,
+        "scale": "log_ratio",
+        "_start": 2296,
+        "evidence": "Results In intention-to-treat analyses, no significant between-group differences were observed in mean PHQ-9 scores at week 7 or month 3, whereas engagement analyses showed a significant group × week interaction, with AI-iCBT participants demonstrating consistently higher odds of weekly participatio"
+      },
+      {
+        "n": 40,
+        "title": "Personalized machine learning guided intervention for optimizing lifestyle behaviors in depression: a pilot study",
+        "year": 2026,
+        "doi": "10.1038/s44277-026-00062-3",
+        "measure": "SMD",
+        "effect": -0.89,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 988,
+        "evidence": "Intervention completers (n = 40) showed significant reduction in depression symptoms (primary outcome self-rated PHQ9 -3.5 ± 3.8, Cohen's d = -0.89, CI [-1.25 -0.53], p < 0.001; clinician-rated HDRS -7.2 ± 6.8, d = -1.03, CI [-1.41 -0.65], p < 1E-6) with benefits sustained up to 12-week follow-up"
+      },
+      {
+        "n": null,
+        "title": "The effectiveness of Tai Chi in improving depressive mood among young individuals aged 15-24 years: a systematic review and meta-analysis",
+        "year": 2025,
+        "doi": "10.3389/fpubh.2025.1517350",
+        "measure": "SMD",
+        "effect": -0.8,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 1203,
+        "evidence": "The meta-analysis results indicated that Tai Chi therapy effectively reduced depression scale scores in young individuals aged 15-24 years with depressive mood compared to the control group [SMD = -0.80, 95% CI (-1.14, -0.46),  p   I   2  = 79.3%)"
+      },
+      {
+        "n": null,
+        "title": "The effectiveness of Tai Chi in improving depressive mood among young individuals aged 15-24 years: a systematic review and meta-analysis",
+        "year": 2025,
+        "doi": "10.3389/fpubh.2025.1517350",
+        "measure": "SMD",
+        "effect": -1.11,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 1359,
+        "evidence": "Subgroup analyses showed that the intervention effect was optimal when the duration was 12 weeks [SMD = -1.11, 95% CI (-1.77, -0.45),  p   3 h per week [SMD = -2.03, 95% CI (-3.63, -0.43),  p   p  = 0.042)"
+      },
+      {
+        "n": null,
+        "title": "The effectiveness of Tai Chi in improving depressive mood among young individuals aged 15-24 years: a systematic review and meta-analysis",
+        "year": 2025,
+        "doi": "10.3389/fpubh.2025.1517350",
+        "measure": "SMD",
+        "effect": -2.03,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 1414,
+        "evidence": "Subgroup analyses showed that the intervention effect was optimal when the duration was 12 weeks [SMD = -1.11, 95% CI (-1.77, -0.45),  p   3 h per week [SMD = -2.03, 95% CI (-3.63, -0.43),  p   p  = 0.042)"
+      },
+      {
+        "n": null,
+        "title": "Treatments for Depression for Older Adults Living in Long-Term Care: A Systematic Review and Network Meta-Analysis",
+        "year": 2025,
+        "doi": "10.1016/j.jamda.2024.105435",
+        "measure": "SMD",
+        "effect": -6.85,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 1093,
+        "evidence": "Compared with usual care, horticulture therapy (SMD, -6.85; 95% Credibility Interval, -8.49 to -5.22) and cognitive behavioral therapy (SMD, -1.98; 95% Credibility Interval, -2.91 to -1.05) were the most efficacious treatments"
+      },
+      {
+        "n": null,
+        "title": "Treatments for Depression for Older Adults Living in Long-Term Care: A Systematic Review and Network Meta-Analysis",
+        "year": 2025,
+        "doi": "10.1016/j.jamda.2024.105435",
+        "measure": "SMD",
+        "effect": -1.98,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 1181,
+        "evidence": "Compared with usual care, horticulture therapy (SMD, -6.85; 95% Credibility Interval, -8.49 to -5.22) and cognitive behavioral therapy (SMD, -1.98; 95% Credibility Interval, -2.91 to -1.05) were the most efficacious treatments"
+      },
+      {
+        "n": null,
+        "title": "Effects of Exercise on Depression and Anxiety in Lung Cancer Survivors: A Systematic Review and Meta-Analysis of Randomized Controlled Trials",
+        "year": 2025,
+        "doi": "10.3390/curroncol32060304",
+        "measure": "SMD",
+        "effect": -0.54,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 515,
+        "evidence": "Exercise significantly alleviated depression (SMD, -0.54;  p  = 0.002) and anxiety (SMD, -0.66;  p  = 0.0002) in lung cancer survivors"
+      },
+      {
+        "n": null,
+        "title": "Effects of Exercise on Depression and Anxiety in Lung Cancer Survivors: A Systematic Review and Meta-Analysis of Randomized Controlled Trials",
+        "year": 2025,
+        "doi": "10.3390/curroncol32060304",
+        "measure": "SMD",
+        "effect": -0.66,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 553,
+        "evidence": "Exercise significantly alleviated depression (SMD, -0.54;  p  = 0.002) and anxiety (SMD, -0.66;  p  = 0.0002) in lung cancer survivors"
+      },
+      {
+        "n": null,
+        "title": "Effect of a hearing loss care education program for older adults targeted at visiting nurses: A cluster randomized controlled trial",
+        "year": 2026,
+        "doi": "10.1371/journal.pone.0339478",
+        "measure": "OR",
+        "effect": 8.35,
+        "ci_low": 3.6,
+        "ci_high": 19.34,
+        "scale": "log_ratio",
+        "_start": 1386,
+        "evidence": "As part of the primary outcome, a significant increase in the implementation of \"hearing screening\" was observed in the intervention group (odds ratio 8.35, 95% confidence interval 3.60-19.34, p < 0.001)"
+      },
+      {
+        "n": null,
+        "title": "Impact of exercise type, duration, and intensity on depressive symptoms in older adults: a systematic review and meta-analysis",
+        "year": 2024,
+        "doi": "10.3389/fpsyg.2024.1484172",
+        "measure": "SMD",
+        "effect": -0.82,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 1427,
+        "evidence": "The findings demonstrated a notable improvement in depression symptoms among older persons as an immediate result of engaging in physical exercise [SMD = -0.82, 95% CI (-1.19, -0.45)]"
+      },
+      {
+        "n": null,
+        "title": "Impact of exercise type, duration, and intensity on depressive symptoms in older adults: a systematic review and meta-analysis",
+        "year": 2024,
+        "doi": "10.3389/fpsyg.2024.1484172",
+        "measure": "SMD",
+        "effect": -0.25,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 1536,
+        "evidence": "The subgroup analysis showed that moderate-intensity physical exercise [SMD = -0.25, 95% CI (-0.47, -0.03)], high-intensity physical exercise [SMD = -0.94, 95% CI (-1.37, -0.51)], resistance exercise [SMD = -0.70, 95% CI (-1.20, -0.20)], and group exercise [SMD = -0.97, 95% CI (-1.89, -0.05)], and t"
+      },
+      {
+        "n": null,
+        "title": "Impact of exercise type, duration, and intensity on depressive symptoms in older adults: a systematic review and meta-analysis",
+        "year": 2024,
+        "doi": "10.3389/fpsyg.2024.1484172",
+        "measure": "SMD",
+        "effect": -0.94,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 1607,
+        "evidence": "The subgroup analysis showed that moderate-intensity physical exercise [SMD = -0.25, 95% CI (-0.47, -0.03)], high-intensity physical exercise [SMD = -0.94, 95% CI (-1.37, -0.51)], resistance exercise [SMD = -0.70, 95% CI (-1.20, -0.20)], and group exercise [SMD = -0.97, 95% CI (-1.89, -0.05)], and t"
+      },
+      {
+        "n": null,
+        "title": "Impact of exercise type, duration, and intensity on depressive symptoms in older adults: a systematic review and meta-analysis",
+        "year": 2024,
+        "doi": "10.3389/fpsyg.2024.1484172",
+        "measure": "SMD",
+        "effect": -0.7,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 1665,
+        "evidence": "The subgroup analysis showed that moderate-intensity physical exercise [SMD = -0.25, 95% CI (-0.47, -0.03)], high-intensity physical exercise [SMD = -0.94, 95% CI (-1.37, -0.51)], resistance exercise [SMD = -0.70, 95% CI (-1.20, -0.20)], and group exercise [SMD = -0.97, 95% CI (-1.89, -0.05)], and t"
+      },
+      {
+        "n": null,
+        "title": "Motivational Barriers and Facilitators for Older Adults' Engagement in Exercise during Depressive Episodes: A Network Meta-Analysis of Randomized Controlled Tri",
+        "year": 2024,
+        "doi": "10.3390/healthcare12151498",
+        "measure": "SMD",
+        "effect": -1.17,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 1100,
+        "evidence": "The results of 31 RCTs with 3238 participants indicated that qigong (SMD -1.17, -2.28 to -0.06), Otago Exercise (SMD -1.15, -2.29 to -0.01), and yoga (SMD -0.88, -1.55 to -0.21) significantly alleviate depressive symptoms in older adults"
+      },
+      {
+        "n": null,
+        "title": "Motivational Barriers and Facilitators for Older Adults' Engagement in Exercise during Depressive Episodes: A Network Meta-Analysis of Randomized Controlled Tri",
+        "year": 2024,
+        "doi": "10.3390/healthcare12151498",
+        "measure": "SMD",
+        "effect": -1.15,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 1144,
+        "evidence": "The results of 31 RCTs with 3238 participants indicated that qigong (SMD -1.17, -2.28 to -0.06), Otago Exercise (SMD -1.15, -2.29 to -0.01), and yoga (SMD -0.88, -1.55 to -0.21) significantly alleviate depressive symptoms in older adults"
+      },
+      {
+        "n": null,
+        "title": "Motivational Barriers and Facilitators for Older Adults' Engagement in Exercise during Depressive Episodes: A Network Meta-Analysis of Randomized Controlled Tri",
+        "year": 2024,
+        "doi": "10.3390/healthcare12151498",
+        "measure": "SMD",
+        "effect": -0.88,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 1182,
+        "evidence": "The results of 31 RCTs with 3238 participants indicated that qigong (SMD -1.17, -2.28 to -0.06), Otago Exercise (SMD -1.15, -2.29 to -0.01), and yoga (SMD -0.88, -1.55 to -0.21) significantly alleviate depressive symptoms in older adults"
+      },
+      {
+        "n": null,
+        "title": "Motivational Barriers and Facilitators for Older Adults' Engagement in Exercise during Depressive Episodes: A Network Meta-Analysis of Randomized Controlled Tri",
+        "year": 2024,
+        "doi": "10.3390/healthcare12151498",
+        "measure": "SMD",
+        "effect": -0.82,
+        "ci_low": null,
+        "ci_high": null,
+        "scale": "smd",
+        "_start": 1279,
+        "evidence": "Walking (SMD -0.82, -1.34 to -0.31) and strength training (SMD -0.67, -1.05 to -0.30) also showed significant effects"
+      },
+      {
+        "n": 11,
+        "title": "Multi-domain intervention program on cognitive function in community-dwelling older adults: Pilot study",
+        "year": 2025,
+        "doi": "10.5281/zenodo.14200027",
+        "measure": "RR",
+        "effect": 0.5,
+        "ci_low": 0.4,
+        "ci_high": 0.8,
+        "scale": "log_ratio",
+        "_start": 1313,
+        "evidence": "The intervention was significant in SMC (RR: 0.5; 95%CI 0.4-0.8), and the control showed a substantial decrease in OCF compared with the intervention group [F(1) = 8.4; p = 0.009; դp = 0.30]"
+      }
+    ],
+    "background_works": [
+      {
+        "title": "Global consensus on optimal exercise recommendations for enhancing healthy longevity in older adults (ICFSR)",
+        "doi": "10.1016/j.jnha.2024.100401",
+        "year": 2025,
+        "cited_by": 143
+      },
+      {
+        "title": "The efficacy, mechanisms and implementation of physical activity as an adjunctive treatment in mental disorders: a meta-review of outcomes, neurobiology and key",
+        "doi": "10.1002/wps.21314",
+        "year": 2025,
+        "cited_by": 33
+      },
+      {
+        "title": "Physical Activity to Counter Age-Related Cognitive Decline: Benefits of Aerobic, Resistance, and Combined Training-A Narrative Review",
+        "doi": "10.1186/s40798-025-00857-2",
+        "year": 2025,
+        "cited_by": 21
+      },
+      {
+        "title": "Impact of physical exercise on the regulation of brain-derived neurotrophic factor in people with neurodegenerative diseases",
+        "doi": "10.3389/fneur.2024.1505879",
+        "year": 2024,
+        "cited_by": 15
+      },
+      {
+        "title": "Healthy ageing in older adults with cardiovascular disease",
+        "doi": "10.1093/eurheartj/ehaf231",
+        "year": 2025,
+        "cited_by": 13
+      },
+      {
+        "title": "The Interconnected Complexity of Diabetes and Depression",
+        "doi": "10.2337/dsi24-0014",
+        "year": 2025,
+        "cited_by": 13
+      },
+      {
+        "title": "Prevalence and Factors Associated With Depression and Depressive Symptoms Among Chinese Older Persons: An Integrative Review",
+        "doi": "10.1111/inm.13484",
+        "year": 2025,
+        "cited_by": 12
+      },
+      {
+        "title": "Exercise and Nutrition for Sarcopenia: A Systematic Review and Meta-Analysis with Subgroup Analysis by Population Characteristics",
+        "doi": "10.3390/nu17142342",
+        "year": 2025,
+        "cited_by": 11
+      },
+      {
+        "title": "A comprehensive review on the impact of polyphenol supplementation and exercise on depression and brain function parameters",
+        "doi": "10.1186/s12993-025-00273-2",
+        "year": 2025,
+        "cited_by": 11
+      },
+      {
+        "title": "Brain-Derived Neurotrophic Factor (BDNF) as a Marker of Physical Exercise or Activity Effectiveness in Fatigue, Pain, Depression, and Sleep Disturbances: A Scop",
+        "doi": "10.3390/biomedicines13020332",
+        "year": 2025,
+        "cited_by": 10
+      },
+      {
+        "title": "The Effect of Young People-Assisted, Individualized, Motion-Based Video Games on Physical, Cognitive, and Social Frailty Among Community-Dwelling Older Adults W",
+        "doi": "10.2196/57352",
+        "year": 2024,
+        "cited_by": 10
+      },
+      {
+        "title": "5. Facilitating Positive Health Behaviors and Well-being to Improve Health Outcomes: Standards of Care in Diabetes-2026",
+        "doi": "10.2337/dc26-s005",
+        "year": 2026,
+        "cited_by": 9
+      },
+      {
+        "title": "Exploring the benefits of traditional Chinese exercises (Tai Chi and Qigong) on the anxiety and depression of older adults: A systematic review and meta-analysi",
+        "doi": "10.1097/md.0000000000041908",
+        "year": 2025,
+        "cited_by": 9
+      },
+      {
+        "title": "Impact of Internet Usage on Depression Among Older Adults: Comprehensive Study",
+        "doi": "10.2196/65399",
+        "year": 2025,
+        "cited_by": 9
+      },
+      {
+        "title": "The effectiveness of multicomponent exercise in older adults with cognitive frailty: a systematic review and meta-analysis",
+        "doi": "10.1186/s13690-024-01441-y",
+        "year": 2024,
+        "cited_by": 9
+      },
+      {
+        "title": "Age-dependent mechanisms of exercise in the treatment of depression: a comprehensive review of physiological and psychological pathways",
+        "doi": "10.3389/fpsyg.2025.1562434",
+        "year": 2025,
+        "cited_by": 9
+      },
+      {
+        "title": "Comparative effectiveness of different dual task mode interventions on cognitive function in older adults with mild cognitive impairment or dementia: a systemat",
+        "doi": "10.1007/s40520-025-03016-5",
+        "year": 2025,
+        "cited_by": 9
+      },
+      {
+        "title": "Correlation between the physical activity volume and cognitive and mental capacity among older adult people in China: a cross-sectional study based on the 2020 ",
+        "doi": "10.3389/fpubh.2024.1462570",
+        "year": 2024,
+        "cited_by": 9
+      },
+      {
+        "title": "Effects of aerobic exercise in addition to core stabilization exercises on functional capacity, physical performance and fall risk in geriatric individuals with",
+        "doi": "10.1186/s13102-025-01271-7",
+        "year": 2025,
+        "cited_by": 8
+      },
+      {
+        "title": "Domain-specific physical activity and mental health: an updated systematic review and multilevel meta-analysis in a combined sample of 3.3 million people",
+        "doi": "10.1136/bjsports-2025-109806",
+        "year": 2026,
+        "cited_by": 8
+      },
+      {
+        "title": "Short bouts of accumulated exercise: Review and consensus statement on definition, efficacy, feasibility, practical applications, and future directions",
+        "doi": "10.1016/j.jshs.2025.101088",
+        "year": 2025,
+        "cited_by": 8
+      },
+      {
+        "title": "Depressive symptoms among the oldest-old in China: a study on rural-urban differences",
+        "doi": "10.1186/s12889-024-21069-5",
+        "year": 2024,
+        "cited_by": 8
+      },
+      {
+        "title": "Depression and cardiovascular disease: mind the gap in the guidelines",
+        "doi": "10.1093/eurheartj/ehaf479",
+        "year": 2025,
+        "cited_by": 8
+      },
+      {
+        "title": "Impact of aerobic exercise on chronic inflammation in older adults: a systematic review and meta-analysis",
+        "doi": "10.1186/s13102-025-01279-z",
+        "year": 2025,
+        "cited_by": 7
+      },
+      {
+        "title": "Chronic Obstructive Pulmonary Disease and Depression-The Vicious Mental Cycle",
+        "doi": "10.3390/healthcare13141699",
+        "year": 2025,
+        "cited_by": 7
+      },
+      {
+        "title": "Epidemiological Assessment of Depression, Activities of Daily Living and Associated Factors in Elderly Individuals Aged 65 Years and Older: Evidence from a Popu",
+        "doi": "10.3390/jcm14082853",
+        "year": 2025,
+        "cited_by": 7
+      },
+      {
+        "title": "Cardiac Amyloidosis in Older Adults With a Focus on Frailty: JACC: Advances Expert Consensus",
+        "doi": "10.1016/j.jacadv.2025.101784",
+        "year": 2025,
+        "cited_by": 7
+      },
+      {
+        "title": "14. Children and Adolescents: Standards of Care in Diabetes-2026",
+        "doi": "10.2337/dc26-s014",
+        "year": 2026,
+        "cited_by": 7
+      },
+      {
+        "title": "The interaction of physical activity and sleep quality with depression and anxiety in older adults",
+        "doi": "10.3389/fpubh.2025.1674459",
+        "year": 2025,
+        "cited_by": 6
+      },
+      {
+        "title": "Resilience and Intrinsic Capacity in Older Adults: A Review of Recent Literature",
+        "doi": "10.3390/jcm14217729",
+        "year": 2025,
+        "cited_by": 6
+      }
+    ],
+    "by_measure_counts": {
+      "smd": 56,
+      "md": 5,
+      "log_ratio": 3
+    },
+    "pooled": {
+      "smd": {
+        "k": 8,
+        "scale": "smd",
+        "method": "DerSimonian-Laird random effects (smd)",
+        "pooled_effect": -0.4327,
+        "ci_low": -0.9057,
+        "ci_high": 0.0402,
+        "i2_percent": 95.4,
+        "tau2": 0.4254,
+        "q": 150.871
+      },
+      "log_ratio": {
+        "k": 3,
+        "scale": "log_ratio",
+        "method": "DerSimonian-Laird random effects (log_ratio)",
+        "pooled_effect": 1.55,
+        "ci_low": 0.5988,
+        "ci_high": 4.0121,
+        "i2_percent": 95.5,
+        "tau2": 0.6415,
+        "q": 44.72
+      }
+    },
+    "sensitivity": {
+      "egger": {
+        "intercept": -8.152,
+        "t": -1.776,
+        "df": 6,
+        "interpretation": "no strong funnel asymmetry detected"
+      },
+      "leave_one_out": [
+        {
+          "omitted": "Psychological health outcomes of traditional Chinese exercises in older adults: ",
+          "pooled_effect": -0.4327,
+          "ci_low": -0.9057,
+          "ci_high": 0.0402,
+          "k": 8
+        },
+        {
+          "omitted": "Exercise and nutritional intervention on improving mental health in older adults",
+          "pooled_effect": -0.4368,
+          "ci_low": -0.9649,
+          "ci_high": 0.0914,
+          "k": 7
+        },
+        {
+          "omitted": "The impact of community-based Tai Chi exercise on intrinsic capacity improvement",
+          "pooled_effect": -0.4327,
+          "ci_low": -0.9057,
+          "ci_high": 0.0402,
+          "k": 8
+        },
+        {
+          "omitted": "Effects of digitalized traditional Chinese exercises on the physical and mental ",
+          "pooled_effect": -0.5198,
+          "ci_low": -0.6766,
+          "ci_high": -0.3631,
+          "k": 7
+        },
+        {
+          "omitted": "The effect of digital health interventions in older adults with frailty: a syste",
+          "pooled_effect": -0.4327,
+          "ci_low": -0.9057,
+          "ci_high": 0.0402,
+          "k": 8
+        },
+        {
+          "omitted": "Effects of exercise with music in frail older adults: a systematic review and me",
+          "pooled_effect": -0.4477,
+          "ci_low": -1.0002,
+          "ci_high": 0.1048,
+          "k": 7
+        },
+        {
+          "omitted": "A home-based 12-week chair exercise intervention for older adults with advanced ",
+          "pooled_effect": -0.4327,
+          "ci_low": -0.9057,
+          "ci_high": 0.0402,
+          "k": 8
+        },
+        {
+          "omitted": "The impact of high-intensity exercise on patients with depression: a systematic ",
+          "pooled_effect": -0.4408,
+          "ci_low": -0.9892,
+          "ci_high": 0.1076,
+          "k": 7
+        },
+        {
+          "omitted": "From Dogs to Robots: Pet-Assisted Interventions for Depression in Older Adults-A",
+          "pooled_effect": -0.2826,
+          "ci_low": -0.7589,
+          "ci_high": 0.1937,
+          "k": 7
+        },
+        {
+          "omitted": "Effects of a mind-body exercise intervention on anxiety, depression and quality ",
+          "pooled_effect": -0.4155,
+          "ci_low": -0.9516,
+          "ci_high": 0.1206,
+          "k": 7
+        },
+        {
+          "omitted": "Exercise Interventions for Depression, Anxiety, and Quality of Life in Older Adu",
+          "pooled_effect": -0.4258,
+          "ci_low": -0.9671,
+          "ci_high": 0.1156,
+          "k": 7
+        },
+        {
+          "omitted": "Use of multicomponent structured exercise to improve depression in older adults:",
+          "pooled_effect": -0.4293,
+          "ci_low": -0.9571,
+          "ci_high": 0.0984,
+          "k": 7
+        },
+        {
+          "omitted": "Comparative Efficacy of Various Interventions to Reduce Perceived Stress Among O",
+          "pooled_effect": -0.4327,
+          "ci_low": -0.9057,
+          "ci_high": 0.0402,
+          "k": 8
+        },
+        {
+          "omitted": "Personalized machine learning guided intervention for optimizing lifestyle behav",
+          "pooled_effect": -0.4327,
+          "ci_low": -0.9057,
+          "ci_high": 0.0402,
+          "k": 8
+        },
+        {
+          "omitted": "The effectiveness of Tai Chi in improving depressive mood among young individual",
+          "pooled_effect": -0.4327,
+          "ci_low": -0.9057,
+          "ci_high": 0.0402,
+          "k": 8
+        },
+        {
+          "omitted": "Treatments for Depression for Older Adults Living in Long-Term Care: A Systemati",
+          "pooled_effect": -0.4327,
+          "ci_low": -0.9057,
+          "ci_high": 0.0402,
+          "k": 8
+        },
+        {
+          "omitted": "Effects of Exercise on Depression and Anxiety in Lung Cancer Survivors: A System",
+          "pooled_effect": -0.4327,
+          "ci_low": -0.9057,
+          "ci_high": 0.0402,
+          "k": 8
+        },
+        {
+          "omitted": "Impact of exercise type, duration, and intensity on depressive symptoms in older",
+          "pooled_effect": -0.4327,
+          "ci_low": -0.9057,
+          "ci_high": 0.0402,
+          "k": 8
+        },
+        {
+          "omitted": "Motivational Barriers and Facilitators for Older Adults' Engagement in Exercise ",
+          "pooled_effect": -0.4327,
+          "ci_low": -0.9057,
+          "ci_high": 0.0402,
+          "k": 8
+        }
+      ]
+    },
+    "note": "abstract-level extraction (no full text); pattern-based screening; rapid evidence synthesis, not a full PRISMA systematic review"
+  },
+  "gpu_used": false,
+  "simulation_markers": 0,
+  "wall_seconds": 0.2
+}

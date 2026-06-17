@@ -46,7 +46,7 @@ class HttpAppTest(unittest.TestCase):
         self.assertEqual(payload["research_contract"]["contribution"], "benchmark: A fail-closed, reproducible real-data patent benchmark.")
         self.assertTrue(payload["research_contract"]["data_source"]["probe_required"])
         self.assertEqual(payload["routing_decision"]["level"], "master")
-        self.assertEqual(payload["routing_decision"]["content_threshold"], 6.0)
+        self.assertEqual(payload["routing_decision"]["content_threshold"], 7.5)  # member tier policy
         self.assertEqual(payload["routing_decision"]["review_depth"], "7dim")
         self.assertFalse(payload["routing_decision"]["needs_real_experiment_lane"])
 
@@ -59,10 +59,10 @@ class HttpAppTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         decision = response.json()["routing_decision"]
         self.assertEqual(decision["level"], "phd")
-        self.assertEqual(decision["content_threshold"], 7.0)
+        self.assertEqual(decision["content_threshold"], 8.0)  # vip phd tier policy
         self.assertEqual(decision["review_depth"], "7dim+elite")
         self.assertTrue(decision["needs_real_experiment_lane"])
-        self.assertEqual(decision["model_chain"], ["agy", "codex"])
+        self.assertEqual(decision["model_chain"], ["big-pickle"])  # Route A: hermes+big-pickle
 
     def test_post_jobs_requires_and_reuses_idempotency_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -102,7 +102,7 @@ class HttpAppTest(unittest.TestCase):
                         "run_dir": str(job_dir / "run"),
                         "level": "master",
                         "content_score": 6.58,
-                        "content_threshold": 6.0,
+                        "content_threshold": 7.5,
                         "meets_threshold": True,
                         "desk_reject": 0.389,
                         "above_5_5": True,
@@ -122,7 +122,7 @@ class HttpAppTest(unittest.TestCase):
         self.assertEqual(status.status_code, 200)
         self.assertEqual(status.json()["status"], "done")
         self.assertEqual(status.json()["level"], "master")
-        self.assertEqual(status.json()["content_threshold"], 6.0)
+        self.assertEqual(status.json()["content_threshold"], 7.5)
         self.assertEqual(result.status_code, 200)
         self.assertEqual(result.json()["content_score"], 6.58)
         self.assertTrue(result.json()["meets_threshold"])
@@ -188,7 +188,7 @@ class HttpAppTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertEqual(payload["status"], "unavailable")
-        self.assertIn("probe-verified", payload["reason"])
+        self.assertIn("url", payload["reason"])  # generalised grill probe: dataset needs a url
 
 
 if __name__ == "__main__":

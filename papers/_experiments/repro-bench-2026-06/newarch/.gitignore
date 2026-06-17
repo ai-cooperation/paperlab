@@ -1,0 +1,8 @@
+# test harness artifacts
+.coverage
+.coverage.*
+.pytest_cache/
+htmlcov/
+coverage.xml
+__pycache__/
+*.pyc

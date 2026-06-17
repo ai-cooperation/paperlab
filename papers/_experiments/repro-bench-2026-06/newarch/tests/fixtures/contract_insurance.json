@@ -1,0 +1,37 @@
+{
+  "job_id": "ins_2026-06-15_asia-health",
+  "project_id": "ins_2026-06-15_asia-health",
+  "source": "insurance-mcp",
+  "level": "vip",
+  "tier": "paid",
+  "topic": "亞洲健康險商品策略與競品動態",
+  "research_question": "過去一季亞洲市場健康險的商品策略、競品動態與監管變化有哪些值得關注的觀察？",
+  "contribution": "彙整 KB 已爬新聞 + 月度蒸餾 wiki + 過往報告，產出一份市場概況/競品/觀察洞察/歷史對照/策略建議的 VIP 研究報告。",
+  "data_source": {
+    "type": "kb-report",
+    "name": "insurance-kb-v2",
+    "sources": ["crawled_news_index", "monthly_wiki", "past_reports", "web_exa_ddg"],
+    "probe_required": true
+  },
+  "synthesis": {
+    "type": "kb-findings",
+    "scope": {
+      "region": ["台灣", "日本", "韓國", "香港", "東南亞"],
+      "timeframe": "2026-Q2",
+      "audience": "保險業策略/商品團隊",
+      "depth": "deep",
+      "target_findings": 10
+    }
+  },
+  "section_template": [
+    "市場概況",
+    "競品動態",
+    "觀察洞察",
+    "歷史對照",
+    "策略建議",
+    "風險限制",
+    "參考資料"
+  ],
+  "deliverable": "docx",
+  "output_language": "zh-TW"
+}

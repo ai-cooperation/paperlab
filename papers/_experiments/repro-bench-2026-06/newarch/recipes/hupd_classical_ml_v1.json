@@ -1,0 +1,14 @@
+{
+  "recipe_id": "hupd_classical_ml_v1",
+  "description": "CPU-only classical-ML text classification benchmark on HUPD",
+  "datasets": ["HUPD", "Harvard USPTO Patent Dataset"],
+  "tasks": ["acceptance", "cpc_section"],
+  "models": ["LogisticRegression", "LinearSVC", "RandomForest", "GradientBoosting", "MultinomialNB"],
+  "features": ["tfidf", "bow"],
+  "metrics": ["macro_f1", "accuracy", "f1_weighted", "auc"],
+  "ablations": ["training_size_curve", "feature_dimension"],
+  "eval_protocol": { "cv_folds": [5], "bootstrap_iters_max": 2000, "sig_test": ["mcnemar"] },
+  "min_rows": 500,
+  "min_classes": 2,
+  "expected_real_results_keys": ["status", "benchmark", "statistical_tests", "tasks", "models", "features"]
+}
