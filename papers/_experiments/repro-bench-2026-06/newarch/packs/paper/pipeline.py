@@ -166,7 +166,8 @@ def _phase_data_meta(o: Orchestrator, contract: dict[str, Any]) -> None:
         "pooled": (result.get("meta") or {}).get("pooled"),
         "references": {"bib_count": kept, "doi_real_rate": _doi_real_rate(o.run_dir)},
         "real_results": "real_experiments/real_results.json",
-        "figures": [{"name": p.stem} for p in (o.run_dir / "figures").glob("*.svg")],
+        "figures": [{"name": p.stem, "svg": True, "png": p.with_suffix(".png").exists()}
+                    for p in (o.run_dir / "figures").glob("*.svg")],
     })
     o.dossier.pack_ext_set("metrics_block", PD.meta_metrics_block(result))
 
@@ -282,7 +283,8 @@ def _phase_data_dataset(o: Orchestrator, contract: dict[str, Any]) -> None:
         "sample_flow": rr.get("sample_flow"),
         "references": {"bib_count": kept, "doi_real_rate": _doi_real_rate(o.run_dir)},
         "real_results": "real_experiments/real_results.json",
-        "figures": [{"name": p.stem} for p in (o.run_dir / "figures").glob("*.svg")],
+        "figures": [{"name": p.stem, "svg": True, "png": p.with_suffix(".png").exists()}
+                    for p in (o.run_dir / "figures").glob("*.svg")],
     })
     o.dossier.pack_ext_set("metrics_block", dataset_lane.lane.metrics_block(rr))
 
@@ -452,13 +454,19 @@ def _phase_render_gates(o: Orchestrator) -> None:
     # number_trace). Verified clean on an honest paper (0 flags). Meta keeps RECORDED until
     # its matrix path's precision is verified on a fresh meta run (enforce-then-false-block
     # is worse than record).
+    # HARD-enforce the BLOCK gates for the dataset lane (all precision-verified on an honest
+    # paper: B negation-aware claims, C figures paired, D readability, F logic-only — numbers
+    # owned by number_trace). E is WARN. A genuinely bad paper (placeholder text, missing
+    # figure, real contradiction, overclaim) blocks; an honest one passes.
     if _is_dataset_lane(o.dossier.data["contract"]):
-        _b = next((r for r in report.results if r.gate == "B"), None)
-        if _b is not None and not _b.passed:
-            o.dossier.save()
-            o.dossier.update_status(blocked=True, blockers=["claim_evidence_B"])
-            raise OrchestratorBlocked("render_gates", reason="Gate B (claim exceeds evidence): "
-                                      + (_b.details or "qualitative overclaim"))
+        for _gn, _bl in (("B", "claim_evidence_B"), ("C", "figures_C"),
+                         ("D", "readability_D"), ("F", "logic_F")):
+            _g = next((r for r in report.results if r.gate == _gn), None)
+            if _g is not None and not _g.passed:
+                o.dossier.save()
+                o.dossier.update_status(blocked=True, blockers=[_bl])
+                raise OrchestratorBlocked("render_gates",
+                                          reason=f"Gate {_gn}: " + (_g.details or "failed"))
     # Dataset lane: every manuscript number must trace to the analysis output (no
     # hallucinated statistics). The meta lane has its own claim-evidence path; this adds
     # the number-trace gate for agent-run dataset analyses.

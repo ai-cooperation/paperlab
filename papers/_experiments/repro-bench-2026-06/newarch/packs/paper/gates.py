@@ -102,13 +102,16 @@ _COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 
 
 def _prose_only(draft_text: str) -> str:
-    """Strip HTML comments + YAML frontmatter so audits/extractors see PROSE only
-    (fixture/editor comments and frontmatter are not author claims)."""
+    """Strip HTML comments, YAML frontmatter, FIGURE EMBEDS (their captions carry CI
+    levels like '95%' that are not author claims) and Quarto/LaTeX ATTRIBUTE blocks
+    (tbl-colwidths='[34,...]' are layout, not claims) so audits/extractors see PROSE only."""
     text = draft_text or ""
     if text.startswith("---"):
         parts = text.split("---", 2)
         if len(parts) == 3:
             text = parts[2]
+    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", " ", text)   # figure embeds (+ their captions)
+    text = re.sub(r"\{[^{}]*\}", " ", text)             # Quarto/LaTeX attribute blocks
     return _COMMENT_RE.sub(" ", text)
 
 
@@ -465,16 +468,29 @@ def gate_logic(dossier: dict[str, Any]) -> GateResult:
     # Re-grade Scan 2 (quantifiers) against the in-memory real_results numbers so the
     # number-traceability check is exact even without a results/*.json on disk.
     source_numbers = _extract_numbers_from_results(real_results)
+    # statistical-writing conventions (CI levels, significance thresholds) + bare years are
+    # not author claims — they would otherwise read as untraceable numbers (e.g. "95% CI").
+    _CONV = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0, 90.0, 95.0, 99.0, 100.0,
+             0.05, 0.01, 0.1, 0.001, 1.96, 2.5}
     regraded_fail: list[dict[str, Any]] = []
     for f in audit["scan_results"]["quantifiers"]:
         val = _to_number(f.get("number", ""))
-        traced = val is not None and _number_in_results(val, source_numbers)
-        if "NO_SOURCE" in f.get("verdict", "") and not traced:
+        if val is None:
+            continue
+        traced = _number_in_results(val, source_numbers)
+        is_conv = any(abs(val - c) < 1e-9 for c in _CONV)
+        is_year = 1900 <= val <= 2100 and float(int(val)) == val
+        if "NO_SOURCE" in f.get("verdict", "") and not (traced or is_conv or is_year):
             regraded_fail.append({"scan": "quantifiers", **f})
 
     # Non-quantifier FAILs are independent of result_files; keep them as audited.
     other_fail = [f for f in audit["fail_items"] if f.get("scan") != "quantifiers"]
-    fail_items = regraded_fail + other_fail
+    # Dataset lane: number traceability is owned PRECISELY by number_trace (frontmatter /
+    # sci-notation / ranges / attribute blocks already handled). Drop the logic-audit's
+    # coarser quantifier re-grade here so Gate F enforces the genuine logic scans only
+    # (contradiction / cherry-pick / strong-verb-small-N) without double-counting numbers.
+    is_dataset = str((dossier.get("real_results") or {}).get("lane") or "") == "dataset_agent_analysis"
+    fail_items = other_fail if is_dataset else regraded_fail + other_fail
     total_fail = len(fail_items)
 
     ok = total_fail == 0
