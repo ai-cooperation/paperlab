@@ -58,9 +58,14 @@ def _hdr(c: dict[str, Any]) -> str:
 
 
 def _dispatch_brain(o: Orchestrator, label: str, prompt: str, writes: list[str],
-                    timeout: int = 1200) -> bool:
+                    timeout: int = 1200, worker_fallback: bool = True) -> bool:
     """One codex-brain reasoning unit via the dispatcher; verify the artifact exists,
-    retry once with a forceful nudge if the brain returned OK but wrote nothing."""
+    retry once with a forceful nudge if the brain returned OK but wrote nothing.
+
+    DEGRADATION LADDER: if codex is UNAVAILABLE (usage limit / quota), don't crash the
+    whole run — fall back to the FREE worker (big-pickle) to finish the task. The output
+    is lower quality (and the deterministic floor will reflect that), but the run COMPLETES
+    and delivers instead of being stuck with no output. The degradation is recorded."""
     o.dispatcher.run_dir = o.run_dir  # type: ignore[attr-defined]
     for attempt in range(2):
         p = prompt if attempt == 0 else (
@@ -71,10 +76,28 @@ def _dispatch_brain(o: Orchestrator, label: str, prompt: str, writes: list[str],
         res = o.fan_out([pkt])[0]
         if all((o.run_dir / w).exists() for w in writes):
             return True
-        if res.status == "error":          # brain unavailable (codex quota/auth) -> fail loud now
+        if res.status == "error":          # codex unavailable (usage limit / quota)
+            if worker_fallback and _worker_fallback(o, label, p, writes):
+                return True                # big-pickle finished it (degraded) — run continues
             raise OrchestratorBlocked(label, reason=f"brain unavailable at {label}: {'; '.join(res.blockers)}")
-    # the brain ran but wrote no output (twice) -> block; never proceed to a garbage paper
+    # the brain ran but wrote no output (twice) -> last-resort free-worker fallback, else block
+    if worker_fallback and _worker_fallback(o, label, prompt, writes):
+        return True
     raise OrchestratorBlocked(label, reason=f"brain produced no output at {label} after 2 attempts: {writes}")
+
+
+def _worker_fallback(o: Orchestrator, label: str, prompt: str, writes: list[str]) -> bool:
+    """codex (brain) unavailable -> the FREE worker (big-pickle) finishes the task so the
+    run completes (lower quality, never stuck). Records the degradation in the dossier."""
+    pkt = WorkerPacket(task_id=f"{label}-fallback", role=label, worker_class="drafter",
+                       task_goal=prompt, allowed_files_write=writes)
+    o.dispatcher.run_dir = o.run_dir  # type: ignore[attr-defined]
+    o.fan_out([pkt])
+    if all((o.run_dir / w).exists() for w in writes):
+        o.dossier.data.setdefault("degraded", []).append(
+            {"phase": label, "reason": "codex usage limit -> big-pickle fallback (lower quality)"})
+        return True
+    return False
 
 
 def _dispatch_worker(o: Orchestrator, label: str, prompt: str, writes: list[str],
@@ -361,9 +384,17 @@ Do NOT edit the paper yourself. End with CHILD_OK."""
             floor_failed=not hg.get("all_pass", True),   # floor_score hard-gates: all_pass
             findings_by_type={"edits": edits} if edits else {})
 
-    # the self-heal loop dispatches free-worker fix-agents on each failing round
+    # the self-heal loop dispatches free-worker fix-agents on each failing round.
+    # GRACEFUL DEGRADATION: review is the final POLISH — a rendered draft + a deterministic
+    # floor already exist. If review cannot complete (e.g. codex usage limit even after the
+    # big-pickle fallback), DELIVER the draft with a recorded note instead of crashing the
+    # whole run. Never stuck with no output.
     loop = _PaperSelfHeal(o, review_fn, target_score=SCORE_TARGET, max_rounds=3)
-    loop.run()
+    try:
+        loop.run()
+    except OrchestratorBlocked as exc:
+        o.dossier.data.setdefault("degraded", []).append(
+            {"phase": "review_heal", "reason": f"review incomplete ({exc}); delivered the rendered draft"})
     o.dossier.pack_ext_set("final_score", floor_score.floor_scores(o.run_dir).get("mean_6_floor"))
 
 

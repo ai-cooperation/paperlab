@@ -227,10 +227,12 @@ class LiveDispatcher(Dispatcher):
         out = out or ""
         low = out.lower()
         if is_brain and any(m in low for m in CODEX_ERROR_MARKERS):
-            line = next((ln for ln in out.splitlines() if "ERROR" in ln or "limit" in ln.lower()),
-                        "codex quota/auth error")
+            # report the line carrying the ACTUAL marker — NOT just any line containing
+            # "limit" (that once grabbed a prompt echo of "...the Limitations section...").
+            err = next((ln for ln in out.splitlines() if any(m in ln.lower() for m in CODEX_ERROR_MARKERS)),
+                       "codex usage limit / quota")
             return WorkerResult(task_id=packet.task_id, status="error",
-                                blockers=[f"codex unavailable: {line.strip()[:160]}"])
+                                blockers=[f"codex unavailable (usage limit/quota): {err.strip()[:160]}"])
         if "CHILD_OK" in out or (is_brain and rc == 0):
             return WorkerResult(task_id=packet.task_id, status="CHILD_OK",
                                 changed_files=list(packet.allowed_files_write),

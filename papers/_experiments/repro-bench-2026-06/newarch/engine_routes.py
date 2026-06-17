@@ -170,6 +170,7 @@ def project_status(dossier_data: dict[str, Any], run_dir: Path) -> dict[str, Any
         "artifacts": {"has_pdf": pdf.is_file()},   # bool flag — no server path leak; page derives /paper
         "error": ext.get("run_error"),
         "data_warning": rr_warn,                    # set only when real_results exists but is unreadable
+        "degraded": dossier_data.get("degraded") or None,  # phases that fell back (codex limit -> big-pickle)
         "updated_at": status.get("finished_at") or status.get("started_at"),
     }
 
