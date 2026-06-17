@@ -315,11 +315,44 @@ _FIGSPEC = [
      "Overview of the abstract-level meta-analysis pipeline."),
 ]
 
+# The dataset-analysis lane's figures (dataset_lane.figures): forest of model coefficients,
+# spline dose-response, and sample-construction flow. Same machinery, different filenames —
+# every dataset run produces these from its GENERIC real_results schema, so this spec is as
+# general as _FIGSPEC (a run without a spline simply has no fig_dose_response.png and the
+# injector skips it). Keep the canonical labels in sync with _DATASET_FIG_HINT in pipeline.
+DATASET_FIGSPEC = [
+    ("fig-forest", "fig_model_forest.png",
+     "Model coefficient estimates with 95% confidence intervals across specifications."),
+    ("fig-dose", "fig_dose_response.png",
+     "Estimated association across the exposure range (natural cubic spline, 95% CI)."),
+    ("fig-flow", "fig_sample_flow.png", "Sample construction flow."),
+]
 
-def inject_figures(run_dir: Path) -> int:
+
+def figspec_for(contract: dict[str, Any] | None) -> list[tuple[str, str, str]]:
+    """Pick the figure spec by lane. Mirrors pipeline._is_dataset_lane (kept local to
+    avoid a tables<-pipeline import cycle): an arbitrary public DATASET (not HUPD) uses
+    the dataset figures; everything else uses the meta-analysis figures."""
+    ds = (contract or {}).get("data_source") or {}
+    name = str(ds.get("name") or "").lower()
+    is_dataset = str(ds.get("type") or "").lower() == "dataset" and "hupd" not in name
+    return DATASET_FIGSPEC if is_dataset else _FIGSPEC
+
+
+def available_fig_refs(run_dir: Path, figspec: list[tuple[str, str, str]]) -> list[str]:
+    """The `@fig-*` refs whose figure file actually EXISTS in figures/ — so the writer is
+    told to reference only figures that will be embedded (no dangling ?@fig- for a figure
+    the analysis did not produce, e.g. no spline -> no dose-response figure)."""
+    figdir = Path(run_dir) / "figures"
+    return [f"@{canon}" for canon, fname, _ in figspec if (figdir / fname).is_file()]
+
+
+def inject_figures(run_dir: Path, figspec: list[tuple[str, str, str]] | None = None) -> int:
     """Normalize the writer's varied @fig-* references to canonical labels and
     guarantee each pre-generated figure is embedded as a labelled float (own
-    paragraph). Returns the number of embeds inserted."""
+    paragraph). Returns the number of embeds inserted. `figspec` selects the lane's
+    figures (default: the meta-analysis _FIGSPEC)."""
+    figspec = figspec if figspec is not None else _FIGSPEC
     run_dir = Path(run_dir)
     qmd = run_dir / "paper_draft_v0.qmd"
     figdir = run_dir / "figures"
@@ -327,10 +360,13 @@ def inject_figures(run_dir: Path) -> int:
         return 0
     text = qmd.read_text(encoding="utf-8", errors="ignore")
     n = 0
-    for canon, fname, caption in _FIGSPEC:
-        if not (figdir / fname).is_file():
-            continue
+    for canon, fname, caption in figspec:
         stem = canon.split("-", 1)[1]                       # forest / prisma / method
+        if not (figdir / fname).is_file():
+            # the analysis did not produce this figure (e.g. no spline -> no dose-response):
+            # neutralize any dangling @fig-stem ref so the PDF has no broken ?@fig-.
+            text = re.sub(rf"\(?\s*@fig-{stem}[A-Za-z_]*\s*\)?", "the results", text)
+            continue
         # 1) normalize varied @-refs (@fig-forest_plot, @fig-forestplot...) -> @fig-forest
         text = re.sub(rf"@fig-{stem}[A-Za-z_]*", f"@{canon}", text)
         # 2) DEDUP (the real fix): strip EVERY float embed the writer added for this figure —

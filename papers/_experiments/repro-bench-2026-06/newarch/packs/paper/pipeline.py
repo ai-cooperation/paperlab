@@ -187,6 +187,15 @@ def _phase_data_dataset(o: Orchestrator, contract: dict[str, Any]) -> None:
         rr_path.write_text(saved, encoding="utf-8")   # restore the dataset analysis result
     kept = PD.expand_references_from_analysis(o.run_dir, contract, lit)
 
+    # Deterministic figures from the analysis output: a forest of model coefficients, a
+    # spline dose-response, and the sample-construction flow — machine-drawn so a figure
+    # can never disagree with the numbers (the sibling of meta_figures for this lane).
+    # General: keyed off the GENERIC real_results schema (models[]/spline/sample_flow),
+    # zero dataset-specific strings. The review loop no longer has to invent text-box
+    # placeholders for absent figures (the defect that capped this lane's floor).
+    import dataset_lane.figures as ds_figures
+    ds_figures.generate(o.run_dir)
+
     rr = res.get("real_results") or {}
     o.dossier.set("evidence", {
         **o.dossier.data.get("evidence", {}),
@@ -252,21 +261,62 @@ correlates/associated; N<3 -> suggests, strong causal verbs BANNED). Only that f
     _dispatch_brain(o, "gate_b", prompt, ["claim_evidence_map.md"])
 
 
+def _fig_hint(o: Orchestrator, c: dict[str, Any]) -> str:
+    """The exact `@fig-*` refs the writer may use — lane-aware AND limited to figures that
+    were actually produced (figures are drawn in the data phase, before writing), so the
+    writer never references a figure the analysis did not generate."""
+    import tables
+    refs = tables.available_fig_refs(o.run_dir, tables.figspec_for(c))
+    return "/".join(refs) if refs else "@fig-forest"
+
+
+def _paper_kind(c: dict[str, Any]) -> str:
+    """Lane-aware description of WHAT is being written, so the meta-analysis framing
+    (and its abstract-level/PRISMA limitations) does not leak into a dataset study."""
+    return ("an empirical study analysing a public dataset with the documented real results"
+            if _is_dataset_lane(c) else "an abstract-level random-effects meta-analysis paper")
+
+
+def _limitations_hint(c: dict[str, Any]) -> str:
+    """The honest limitation framing for the lane (meta = abstract-level screening; dataset
+    = observational/associational), so the writer states caveats that are actually true."""
+    return ("the design is observational and the estimates are associational, not causal"
+            if _is_dataset_lane(c) else "this is abstract-level (no full text)")
+
+
+def _limitations_caveats(c: dict[str, Any]) -> str:
+    """The EXACT honest-caveat phrasings the review brain must put in Limitations — lane
+    aware, so a dataset study does not get meta-analysis caveats (RoB2/GRADE/PRISMA) that
+    are not true of it, and a meta-analysis does not get panel caveats."""
+    if _is_dataset_lane(c):
+        return ('the design is "observational" and the estimates are "associational, not '
+                'causal"; the findings "may not generalize" and have limited "external '
+                'validity"; the analytic sample is a harmonized "subset" of available '
+                'country-year data with small-k subgroups; the panel is "unweighted" and the '
+                'variables are broad "aggregate indicators" that do not identify a mechanism')
+    return ('the pooled effect is "not statistically significant" (the 95% CI crosses zero); '
+            'the findings "may not generalize" and have limited "external validity"; the '
+            '"sample size" is small (a "subset" of available studies, small k); abstract-level '
+            'extraction only (no full text, pattern-based screening, no RoB2/GRADE/PRISMA)')
+
+
 def _phase_write(o: Orchestrator) -> None:
     """7 free-worker section drafts -> codex composition into paper_draft_v0.qmd."""
     c = o.dossier.data["contract"]
     metrics = o.dossier.data.get("pack_ext", {}).get("metrics_block", "")
+    fig_hint = _fig_hint(o, c)
+    kind = _paper_kind(c)
     (o.run_dir / "sections").mkdir(exist_ok=True)
     # free workers draft each section (the bulk; offloaded to the free worker tier)
     packets = [WorkerPacket(
         task_id=f"draft-{s.replace(' ', '_')}", role=f"section:{s}", worker_class="drafter",
         task_goal=_hdr(c) + f"""
-You draft ONLY the "{s}" section of an abstract-level random-effects meta-analysis paper. Read:
+You draft ONLY the "{s}" section of {kind}. Read:
 {_skill('paper-draft', 'academic-writing')}
 Inputs: phase3_positioning.md (gap), phase4_structure.md (outline), claim_evidence_map.md (allowed
 claims), references.bib. Write `sections/{s.replace(' ', '_')}.md` — prose for the {s} section only,
-academic English, citing references.bib by @key. Reference figures ONLY as @fig-forest/@fig-prisma/
-@fig-method (no image embeds, no {{#fig-}} labels). Use ONLY these admissible numbers, verbatim:
+academic English, citing references.bib by @key. Reference figures ONLY as {fig_hint}
+(no image embeds, no {{#fig-}} labels). Use ONLY these admissible numbers, verbatim:
 
 {metrics}
 
@@ -280,13 +330,13 @@ Only write that one file. End with CHILD_OK.""",
                if (o.run_dir / "sections" / f"{s.replace(' ', '_')}.md").exists()]
     compose = _hdr(c) + f"""
 You are the COMPOSITION brain. Read: {_skill('paper-draft', 'academic-writing', 'qmd-writer', 'journal-templates')}
-Assemble these section drafts into a complete Quarto `paper_draft_v0.qmd` (>=4500 words):
+Assemble these section drafts into a complete Quarto `paper_draft_v0.qmd` (>=4500 words) for {kind}:
 {chr(10).join('- ' + d for d in drafted)}
 Plus an Abstract you write. Frontmatter: title, author "Cooperation.TW / Paper Lab", bibliography
 references.bib, colorlinks/link-citations/citecolor blue. Cite >=20 references. Reference figures ONLY by
-@fig-forest/@fig-prisma/@fig-method in prose (NO image embeds, NO {{#fig-}} labels — the pipeline injects
+{fig_hint} in prose (NO image embeds, NO {{#fig-}} labels — the pipeline injects
 each figure once). Fix any number that does not match real_experiments/real_results.json. State in
-Limitations that this is abstract-level (no full text). Only write paper_draft_v0.qmd. End with CHILD_OK."""
+Limitations that {_limitations_hint(c)}. Only write paper_draft_v0.qmd. End with CHILD_OK."""
     _dispatch_brain(o, "phase8_compose", compose, ["paper_draft_v0.qmd"], timeout=1200)
 
 
@@ -363,13 +413,10 @@ and whose `replacement` is the exact final text — never a vague suggestion. Th
 these is NOT smart; it only finds your locator and writes your replacement. Prioritise: (a) overclaims
 -> rewrite so claim <= evidence (numbers must match real_results; downgrade strong verbs when k small /
 CI crosses zero); (b) STRENGTHEN the Limitations section — prescribe a `replacement` whose text
-EXPLICITLY contains these honest caveats, all genuinely true here, using these exact phrasings: the
-pooled effect is "not statistically significant" (the 95% CI crosses zero); the findings "may not
-generalize" and have limited "external validity"; the "sample size" is small (a "subset" of available
-studies, small k); abstract-level extraction only (no full text, pattern-based screening, no RoB2/
-GRADE/PRISMA). Always include at least one P1 edit whose replacement is a 3-5 sentence Limitations
-paragraph containing those phrases (locator = the existing Limitations heading or first sentence).
-Do NOT edit the paper yourself. End with CHILD_OK."""
+EXPLICITLY contains these honest caveats, all genuinely true here, using these exact phrasings:
+{_limitations_caveats(c)}. Always include at least one P1 edit whose replacement is a 3-5 sentence
+Limitations paragraph containing those phrases (locator = the existing Limitations heading or first
+sentence). Do NOT edit the paper yourself. End with CHILD_OK."""
         _dispatch_brain(o, f"review_round{rnd}", prompt, [f"quality_review_round{rnd}.json"])
         o.dossier.pack_ext_set("render_defects", [d.get("id") for d in rdefs])
         rev = _read(o.run_dir / f"quality_review_round{rnd}.json")
