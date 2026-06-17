@@ -903,6 +903,7 @@ def build_refs_from_doi_list(run_dir: Path, candidates: list[dict[str, Any]]) ->
         is_arxiv = doi.lower().startswith("10.48550")
         status, m = doi_audit.fetch_crossref_meta(doi)
         time.sleep(0.12)  # polite
+        abstract = (m or {}).get("abstract") or ""    # skill: bib carries an abstract when CrossRef has one
         if status == "404":
             if is_arxiv:
                 arxiv += 1
@@ -955,9 +956,11 @@ def build_refs_from_doi_list(run_dir: Path, candidates: list[dict[str, Any]]) ->
         if journal:
             fields.append(f"  journal = {{{_bib_escape(journal)}}}")
         fields.append(f"  doi = {{{_bib_escape(doi)}}}")
+        if abstract:
+            fields.append(f"  abstract = {{{_bib_escape(abstract[:1500])}}}")
         entries.append("@article{" + key + ",\n" + ",\n".join(fields) + "\n}\n")
         meta.append({"key": key, "doi": doi, "title": title, "authors": authors,
-                     "year": year, "journal": journal, "status": st})
+                     "year": year, "journal": journal, "abstract": abstract, "status": st})
 
     (run_dir / "references.bib").write_text("\n".join(entries), encoding="utf-8")
     (run_dir / "metadata.json").write_text(

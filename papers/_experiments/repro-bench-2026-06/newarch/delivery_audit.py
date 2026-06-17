@@ -70,6 +70,25 @@ def _refs_count_check(run_dir: Path, rr: dict[str, Any]) -> list[dict[str, Any]]
     return []
 
 
+def _inbody_cite_count_check(run_dir: Path, rr: dict[str, Any]) -> list[dict[str, Any]]:
+    """The skill's floor is >=35 citations USED IN THE BODY (@citekey), not merely >=35
+    entries sitting in references.bib. A bibliography the writer never cites does not meet
+    the bar. Counts unique in-body cite keys (excluding @fig-/@tbl- crossrefs)."""
+    lane = str(rr.get("lane") or "")
+    floor = _REF_FLOORS.get(lane)
+    if floor is None:
+        return []
+    qmd = _read_text(run_dir / "paper_draft_v0.qmd")
+    keys = set(re.findall(r"@([A-Za-z][A-Za-z0-9_:.\-]+)", qmd))
+    keys = {k for k in keys if k.split("-", 1)[0].lower() not in ("fig", "tbl", "sec", "eq", "thm", "lst")}
+    n = len(keys)
+    if n < floor:
+        return [_issue("D7_INBODY_CITES_TOO_FEW", "P0",
+                       f"{n} unique in-body citations (@key) < floor {floor}; a bibliography "
+                       "must be CITED, not just present", count=n)]
+    return []
+
+
 def _citation_integrity_check(run_dir: Path) -> list[dict[str, Any]]:
     """Skill Layer 2 (Phase 9 文獻複驗): EVERY in-text citation must resolve to a
     CrossRef-verified bibliography entry. A key cited but absent from metadata.json was
@@ -197,6 +216,7 @@ def audit(run_dir: Path) -> dict[str, Any]:
         issues.append(_issue("AUDIT_RQ_ERROR", "P1", f"render_quality_check failed: {exc}"))
     # add the human-caught classes
     issues.extend(_refs_count_check(run_dir, rr))
+    issues.extend(_inbody_cite_count_check(run_dir, rr))   # skill floor is >=35 in-BODY cites
     issues.extend(_citation_integrity_check(run_dir))      # skill Layer 2: no unverified citation
     issues.extend(_promise_capability_check(run_dir))
     issues.extend(_subgroup_promise_check(run_dir, rr))

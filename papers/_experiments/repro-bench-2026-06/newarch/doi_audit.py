@@ -79,11 +79,16 @@ def fetch_crossref_meta(doi: str, timeout: int = 8) -> tuple[str, dict | None]:
             year = str(parts[0][0])
             break
     containers = msg.get("container-title") or []
+    # CrossRef abstracts are JATS XML — strip tags + collapse whitespace (skill: bib must
+    # carry an abstract). Absent for many DOIs; that's fine, the field is then omitted.
+    abstract = re.sub(r"<[^>]+>", " ", str(msg.get("abstract") or ""))
+    abstract = re.sub(r"\s+", " ", abstract).strip()
     return ("ok", {
         "title": titles[0] if titles else "",
         "authors": authors,
         "year": year,
         "journal": containers[0] if containers else "",
+        "abstract": abstract,
     })
 
 

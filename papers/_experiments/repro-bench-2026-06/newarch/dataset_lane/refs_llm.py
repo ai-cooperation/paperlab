@@ -100,10 +100,14 @@ def _item_year(item: dict[str, Any]) -> int | None:
         return None
 
 
-def verify_candidate(cand: dict[str, Any], *, pause: float = 0.0) -> dict[str, Any] | None:
+def verify_candidate(cand: dict[str, Any], *, pause: float = 0.0,
+                     topic_terms: set[str] | None = None) -> dict[str, Any] | None:
     """Search CrossRef for ONE LLM candidate and return the real matched item (with
     canonical DOI/title/year) or None. The LLM's own DOI is NOT used — only its title
-    (+ first author) seed the search, and the result must token-match the title."""
+    (+ first author) seed the search, and the result must token-match the title AND author.
+    If `topic_terms` is given, the matched paper must also be ON-TOPIC (its title shares a
+    distinctive topic word) — so a real DOI on a coincidentally title-overlapping paper
+    from a DIFFERENT FIELD is rejected, not just a different-author one."""
     title = str(cand.get("title") or "").strip()
     if len(_title_tokens(title)) < 2:
         return None
@@ -115,23 +119,28 @@ def verify_candidate(cand: dict[str, Any], *, pause: float = 0.0) -> dict[str, A
     for item in items:
         found_title = (item.get("title") or [""])[0]
         doi = str(item.get("DOI") or "").strip().lower()
-        # BOTH title AND author must match: a real DOI attached to a coincidentally
-        # title-overlapping but WRONG paper (different authors) is rejected.
-        if doi and found_title and title_match(title, found_title) and _author_match(author, item):
-            return {"doi": doi, "title": found_title, "year": _item_year(item),
-                    "is_referenced_by_count": item.get("is-referenced-by-count")}
+        # title AND author AND topic must match: a real DOI on a coincidentally overlapping
+        # but WRONG paper (different authors OR a different field) is rejected.
+        if not (doi and found_title and title_match(title, found_title) and _author_match(author, item)):
+            continue
+        if topic_terms and not (_title_tokens(found_title) & topic_terms):
+            continue                                  # real paper, wrong field -> drop
+        return {"doi": doi, "title": found_title, "year": _item_year(item),
+                "is_referenced_by_count": item.get("is-referenced-by-count")}
     return None
 
 
 def verify_candidates(candidates: list[dict[str, Any]], *, pause: float = 0.34,
-                      seen: set[str] | None = None) -> list[dict[str, Any]]:
+                      seen: set[str] | None = None,
+                      topic_terms: set[str] | None = None) -> list[dict[str, Any]]:
     """Verify a list of LLM candidates against CrossRef; return the de-duplicated real
     matches. `pause` keeps under CrossRef's polite-pool rate; `seen` carries DOIs across
-    rounds so a re-suggested paper is not double-counted."""
+    rounds so a re-suggested paper is not double-counted; `topic_terms` rejects on-title
+    but off-FIELD matches."""
     seen = seen if seen is not None else set()
     kept: list[dict[str, Any]] = []
     for cand in candidates:
-        match = verify_candidate(cand, pause=pause)
+        match = verify_candidate(cand, pause=pause, topic_terms=topic_terms)
         if match and match["doi"] not in seen:
             seen.add(match["doi"])
             kept.append(match)
@@ -176,6 +185,7 @@ def collect(run_dir: Path, topic: str, brain: Any, *, target: int = 40, max_roun
     must write CANDIDATES_FILE (the lane's brain dispatch)."""
     run_dir = Path(run_dir)
     seen: set[str] = set()
+    topic_terms = _title_tokens(topic)        # on-FIELD relevance check for every verified ref
     refs: list[dict[str, Any]] = []
     for s in (seed_dois or []):
         d = str(s.get("doi") or "").strip().lower()
@@ -193,5 +203,5 @@ def collect(run_dir: Path, topic: str, brain: Any, *, target: int = 40, max_roun
         ok = brain(_gen_prompt(topic, need, have_titles, rnd), [CANDIDATES_FILE])
         cands = _read_candidates(run_dir)
         requested += len(cands)
-        refs.extend(verify_candidates(cands, pause=pause, seen=seen))
+        refs.extend(verify_candidates(cands, pause=pause, seen=seen, topic_terms=topic_terms))
     return {"refs": refs, "rounds": rounds, "verified": len(refs), "requested": requested}

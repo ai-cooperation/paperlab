@@ -323,7 +323,8 @@ You are the PAPER-STRUCTURE brain. Read: {_skill('paper-draft', 'figure-design',
 Phase 4. Inputs: phase3_positioning.md, references.bib, real_experiments/real_results.json.
 Write `phase4_structure.md`: section outline (Abstract/Introduction/Related Work/Methods/Results/
 Discussion/Limitations/Conclusion), each section's key claim, the figures/tables to reference
-(@fig-forest/@fig-prisma/@fig-method/@tbl-*), target 4500-6000 words. Only that file. End with CHILD_OK."""
+({_fig_hint(o, c)} for figures, @tbl-* for tables; reference at least 3 figures and 2 tables),
+target 4500-6000 words. Only that file. End with CHILD_OK."""
     _dispatch_brain(o, "phase4_structure", prompt, ["phase4_structure.md"])
 
 
@@ -478,6 +479,13 @@ def _phase_render_gates(o: Orchestrator) -> None:
             raise OrchestratorBlocked("render_gates", reason=(
                 f"{n_untraced} manuscript numbers do not trace to real_results "
                 "(hallucinated statistics) — claim must not exceed evidence"))
+    # Phase-4 visual plan (RECORDED, soft floor): the figure/table count actually present.
+    # Not a hard block — the dataset lane draws what the analysis supports (e.g. no spline
+    # => no dose-response figure), so a rigid >=3 would false-block a thinner-but-valid run.
+    n_fig = len(re.findall(r"!\[[^\]]*\]\(figures/[^)]*\.(?:png|svg)\)", gd["qmd_text"]))
+    n_tbl = len(re.findall(r"\{#tbl-", gd["qmd_text"]))      # Quarto labelled-table count
+    o.dossier.data.setdefault("gates", {})["visual_plan"] = {
+        "figures": n_fig, "tables": n_tbl, "meets_floor": n_fig >= 2 and n_tbl >= 1}
     o.dossier.save()
 
 
