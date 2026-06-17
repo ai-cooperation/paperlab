@@ -112,5 +112,8 @@ class Orchestrator:
             if phase.name in self.completed_phases():
                 continue                                 # resume: do NOT replay
             self._run_phase(phase)
-        self.dossier.update_status(phase="done", blocked=False)
+        # Do NOT clear a blocker at the finish line: a phase that recorded blocked=True
+        # (even without raising) keeps that terminal state, never masked as "done".
+        if not self.dossier.data.get("status", {}).get("blocked"):
+            self.dossier.update_status(phase="done", blocked=False)
         return self.dossier

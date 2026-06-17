@@ -663,7 +663,7 @@ def expand_references_from_analysis(run_dir: Path, contract: dict[str, Any],
     return int(audit.get("kept") or 0)
 
 
-REF_BACKFILL_TARGET = 26   # a little above the 20-ref delivery-audit floor
+REF_BACKFILL_TARGET = 40   # buffer above the wired Gate A floor (refs>=35, both lanes)
 
 
 _REF_STOP = {"intervention", "interventions", "effect", "effects", "study", "studies",

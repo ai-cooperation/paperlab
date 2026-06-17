@@ -48,13 +48,39 @@ def _skill(*names: str) -> str:
     return "\n".join(f"- {SKILLS}/{n}/SKILL.md" for n in names)
 
 
+def _framing_block(c: dict[str, Any]) -> str:
+    """The researcher's intellectual framing from the b-side grill (gap / positioning /
+    candidate claims). The a-side must BUILD ON this — not regenerate the positioning
+    blind from references.bib (the discourse defect). Framing is the starting HYPOTHESIS;
+    real_results + the claim<=evidence gate are the REFEREE: any claim the evidence does
+    not support is downgraded or dropped, so honoring the human's angle never becomes an
+    overclaim."""
+    fr = c.get("framing") or {}
+    gap = str(fr.get("gap") or "").strip()
+    pos = str(fr.get("positioning") or "").strip()
+    claims = [str(x).strip() for x in (fr.get("claims") or []) if str(x).strip()]
+    if not (gap or pos or claims):
+        return ""
+    out = ["\nResearcher framing (BUILD ON and REFINE this; ground it in references.bib + "
+           "real_results; DROP any element the evidence does not support — claim never exceeds evidence):"]
+    if gap:
+        out.append(f"- Gap: {gap}")
+    if pos:
+        out.append(f"- Positioning: {pos}")
+    if claims:
+        out.append("- Candidate claims (each must map to a real_results row or be downgraded/dropped):")
+        out += [f"    * {x}" for x in claims]
+    return "\n".join(out) + "\n"
+
+
 def _hdr(c: dict[str, Any]) -> str:
     return (
         "Governing research contract (do NOT change the topic):\n"
         f"- Topic: {c.get('topic')}\n- Research question: {c.get('research_question')}\n"
         f"- Contribution: {c.get('contribution')}\n- Target journal: {c.get('target_journal')}\n"
         "Rules: academic English; no emoji; no invented numbers; every numeric claim must trace to "
-        "real_experiments/real_results.json; ground every citation in references.bib.\n")
+        "real_experiments/real_results.json; ground every citation in references.bib.\n"
+        + _framing_block(c))
 
 
 def _dispatch_brain(o: Orchestrator, label: str, prompt: str, writes: list[str],
@@ -145,6 +171,57 @@ def _phase_data_meta(o: Orchestrator, contract: dict[str, Any]) -> None:
     o.dossier.pack_ext_set("metrics_block", PD.meta_metrics_block(result))
 
 
+REF_FLOOR = 35    # the paper-draft skill's HARD minimum real, verified references
+
+
+def _build_dataset_references(o: Orchestrator, contract: dict[str, Any],
+                              lit: dict[str, Any]) -> int:
+    """Multi-source, CrossRef-verified related-work bibliography for the dataset lane.
+
+    DISCOVERY is multi-source: the BRAIN (codex) generates a topic reading list (broad
+    real knowledge of the field) AND the OpenAlex corpus seeds real on-topic DOIs — NOT
+    OpenAlex alone (the single-source cause of the 14-ref thinness). Semantic Scholar is
+    deliberately skipped (rate-limited, unreliable).
+
+    VERIFICATION is fail-closed and runs on the WHOLE list AFTER it is assembled (skill
+    Layer 1): refs_llm CrossRef-title-verifies each codex candidate, and then EVERY DOI
+    (codex + OpenAlex seed + contract seed) is routed through build_refs_from_doi_list,
+    which CrossRef-verifies by DOI and DROPS anything fabricated. So no reference enters
+    the bibliography that CrossRef has not confirmed real — supplementing references ALWAYS
+    re-runs CrossRef. Targets a buffer above REF_FLOOR so the DOI re-verify drop still
+    nets >= REF_FLOOR."""
+    import dataset_lane.refs_llm as refs_llm
+    analysis = (lit or {}).get("analysis") or {}
+    seed = [{"doi": w.get("doi"), "title": w.get("title"), "year": w.get("year")}
+            for w in (analysis.get("background_works") or analysis.get("most_cited") or [])
+            if w.get("doi")]
+    topic = PD._literature_query(contract)
+    disc = refs_llm.collect(
+        o.run_dir, topic,
+        lambda p, wr: _dispatch_brain(o, "ref_discovery", p, wr, worker_fallback=False),
+        target=REF_FLOOR + 12, seed_dois=seed)
+    o.dossier.data.setdefault("ref_discovery", {}).update(
+        {"requested": disc["requested"], "verified_candidates": disc["verified"], "rounds": disc["rounds"]})
+    # Layer 1 re-verify: the FULL union of DOIs (codex + OpenAlex + contract) through the
+    # CrossRef DOI-verify bib builder (writes references.bib / metadata.json / doi_audit.json).
+    union: dict[str, dict[str, Any]] = {}
+    for c in PD.contract_doi_candidates(contract):
+        d = str(c.get("doi") or "").strip().lower()
+        if d:
+            union[d] = {"doi": d}
+    for r in disc["refs"]:
+        union.setdefault(r["doi"], {"doi": r["doi"]})
+    audit = PD.build_refs_from_doi_list(o.run_dir, list(union.values()))
+    kept = int(audit.get("kept") or 0)
+    # fail-closed floor (the skill's HARD >=35): never write a paper on a thin bibliography.
+    if kept < REF_FLOOR:
+        raise OrchestratorBlocked("data", reason=(
+            f"references below the skill floor: {kept} CrossRef-verified < {REF_FLOOR} "
+            f"(codex discovery {disc['rounds']} round(s) + OpenAlex seed exhausted; "
+            "topic may be too narrow)"))
+    return kept
+
+
 def _phase_data_dataset(o: Orchestrator, contract: dict[str, Any]) -> None:
     """General dataset lane: the agent FETCHES the real data + WRITES+RUNS the analysis;
     deterministic gates verify (no hallucination); then related-work refs come from a topic
@@ -181,11 +258,11 @@ def _phase_data_dataset(o: Orchestrator, contract: dict[str, Any]) -> None:
     try:
         import openalex_analysis
         lit = openalex_analysis.run(PD._literature_query(contract), o.run_dir)
-    except Exception:  # noqa: BLE001 - no corpus just means seed-ref-only bibliography
+    except Exception:  # noqa: BLE001 - no corpus just means codex-discovery-only bibliography
         lit = {}
     if saved is not None:
         rr_path.write_text(saved, encoding="utf-8")   # restore the dataset analysis result
-    kept = PD.expand_references_from_analysis(o.run_dir, contract, lit)
+    kept = _build_dataset_references(o, contract, lit)
 
     # Deterministic figures from the analysis output: a forest of model coefficients, a
     # spline dose-response, and the sample-construction flow — machine-drawn so a figure
@@ -215,7 +292,10 @@ def _phase_gap(o: Orchestrator) -> None:
     prompt = _hdr(c) + f"""
 You are the RESEARCH-POSITIONING brain. Read these skills:
 {_skill('paper-draft', 'literature-synthesis', 'innovation-positioning')}
-Phase 3. Inputs in THIS directory: references.bib, real_experiments/real_results.json.
+Phase 3. Inputs: references.bib, real_experiments/real_results.json, AND the Researcher framing above.
+ANCHOR the positioning in the Researcher framing — validate and sharpen its gap and claims against
+references.bib + real_results; keep what they support, refine/drop what they do not. Do NOT regenerate
+a positioning that ignores the framing.
 Write `phase3_positioning.md`: (1) a literature landscape grouping the real references;
 (2) a Gap Matrix table | Gap | Description | Existing Work | Our Approach | with >=3 gaps, each
 Existing-Work cell citing REAL references.bib entries (author/year), never invented; (3) a
@@ -368,6 +448,17 @@ def _phase_render_gates(o: Orchestrator) -> None:
         yrs = {str(y) for y in range(1990, 2031)}        # bare years are not analysis numbers
         traced = dataset_lane.gates.number_trace(gd["qmd_text"], rr, whitelist=yrs)
         o.dossier.data["gates"]["number_trace"] = [p["id"] for p in traced]
+        # HARD BLOCK on a real hallucination pattern. number_trace is now parsing-precise
+        # (ranges/sci-notation/frontmatter no longer misfire); a lone stray token can still
+        # be a methods-rule constant ("30 observations"), so block only on >=3 untraced —
+        # a genuine fabrication comes in bunches, never as one rule number.
+        n_untraced = sum(len(p.get("numbers") or []) for p in traced)
+        if n_untraced >= 3:
+            o.dossier.save()
+            o.dossier.update_status(blocked=True, blockers=["number_trace"])
+            raise OrchestratorBlocked("render_gates", reason=(
+                f"{n_untraced} manuscript numbers do not trace to real_results "
+                "(hallucinated statistics) — claim must not exceed evidence"))
     o.dossier.save()
 
 
@@ -509,7 +600,8 @@ def _phase_format_repair(o: Orchestrator) -> None:
 
 def build_paper_phases() -> list[Phase]:
     return [
-        Phase("data", _phase_data, checkpoint_artifacts=["real_experiments/real_results.json", "references.bib"]),
+        Phase("data", _phase_data, gates=frozenset({"A"}),
+              checkpoint_artifacts=["real_experiments/real_results.json", "references.bib"]),
         Phase("gap", _phase_gap, checkpoint_artifacts=["phase3_positioning.md"]),
         Phase("structure", _phase_structure, checkpoint_artifacts=["phase4_structure.md"]),
         Phase("claim_evidence", _phase_claim_evidence, checkpoint_artifacts=["claim_evidence_map.md"]),

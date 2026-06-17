@@ -193,12 +193,19 @@ def _default_row_counter(manifest: dict[str, Any]) -> int | None:
 
 
 # ── 6. every number in the manuscript traces to the analysis output ──────────
-_NUM_RE = re.compile(r"-?\d+(?:\.\d+)?")
+_NUM_RE = re.compile(
+    r"(?<![\w.])(?<!\d)[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?(?![\w.])"
+)
 # universal statistical-writing conventions (CI levels, significance thresholds, small
 # counts) — not results, not dataset-specific. Allowed everywhere so prose like "95% CI"
 # and "p < 0.05" does not read as an untraceable number.
 _CONVENTION_NUMS = {"0", "1", "2", "3", "4", "5", "10", "90", "95", "99", "100",
                     "0.05", "0.01", "0.1", "0.001", "1.96"}
+_STRUCTURAL_NUMBER_RE = re.compile(
+    r"(?:^|[\s(@])(?:fig(?:ure)?|table|tbl|section|sec|appendix|supplement(?:ary)?|"
+    r"eq(?:uation)?|model|column|row|panel)\s*[-#:.\s]*$",
+    re.IGNORECASE,
+)
 
 
 def number_trace(qmd_text: str, real_results: dict[str, Any], *,
@@ -206,13 +213,20 @@ def number_trace(qmd_text: str, real_results: dict[str, Any], *,
     """Every numeric token in the manuscript prose must appear in the analysis
     `numeric_index` (or the small whitelist of contract/source years). A number that is
     nowhere in the machine output is a hallucination -> blocked. Domain-agnostic."""
+    text = _strip_yaml_frontmatter(qmd_text or "")
+    # Quarto/LaTeX attribute blocks ({#tbl-x tbl-colwidths="[32,18,25,25]"}, {#fig-x}, ${..}$
+    # subscripts) carry LAYOUT numbers, not claims — strip them before the scan.
+    text = re.sub(r"\{[^{}]*\}", " ", text)
     allowed = schema.iter_numeric_index(real_results) | _CONVENTION_NUMS | (whitelist or set())
     allowed_floats = {_to_float(x) for x in allowed}
     allowed_floats.discard(None)
     untraced: list[str] = []
-    for tok in _NUM_RE.findall(qmd_text or ""):
+    for m in _NUM_RE.finditer(text):
+        tok = m.group(0)
         f = _to_float(tok)
         if f is None:
+            continue
+        if _is_structural_number(text, m.start(), m.end(), f):
             continue
         if tok.strip() in allowed:
             continue
@@ -229,6 +243,32 @@ def number_trace(qmd_text: str, real_results: dict[str, Any], *,
                     f"{len(uniq)} manuscript number(s) do not trace to the analysis output: {uniq}",
                     numbers=uniq)]
     return []
+
+
+def _strip_yaml_frontmatter(text: str) -> str:
+    """Remove a leading QMD/YAML frontmatter block; those config values are not claims."""
+    if text.startswith("---"):
+        parts = text.split("---", 2)
+        if len(parts) == 3:
+            return parts[2]
+    return text
+
+
+def _is_structural_number(text: str, start: int, end: int, value: float) -> bool:
+    """Skip small document-structure labels such as "Figure 1" or "Table 2"."""
+    if value < 0 or value > 50 or float(int(value)) != value:
+        return False
+    line_start = text.rfind("\n", 0, start) + 1
+    line_end = text.find("\n", end)
+    if line_end == -1:
+        line_end = len(text)
+    before = text[line_start:start]
+    after = text[end:line_end]
+    if re.match(r"^\s{0,3}#{1,6}\s*$", before):
+        return True
+    if re.match(r"^\s{0,3}(?:[-*+]\s+)?$", before) and re.match(r"^\s*[:.)-]?\s+\S", after):
+        return True
+    return bool(_STRUCTURAL_NUMBER_RE.search(before[-80:]))
 
 
 def _to_float(s: str) -> float | None:
