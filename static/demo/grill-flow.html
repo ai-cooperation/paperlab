@@ -169,17 +169,10 @@
     font-size: 15px; color: var(--ink-soft);
   }
   .foot {
-    display: flex; justify-content: space-between; align-items: center;
+    display: flex; justify-content: center; align-items: center;
     padding: 12px 40px 20px; border-top: 1px solid var(--line);
     font-size: 14px; color: var(--ink-soft);
   }
-  .foot .ctl { display: flex; gap: 10px; }
-  .foot button {
-    border: 1px solid var(--line); background: #fff; color: var(--ink-soft);
-    border-radius: 8px; padding: 6px 14px; font-size: 14px; cursor: pointer;
-    font-family: inherit;
-  }
-  .foot button:hover { border-color: var(--teal); color: var(--teal); }
 
   /* ── mobile RWD (照首頁 hero 做法：拿掉硬比例盒，改自然高度 + 降字級) ── */
   @media (max-width: 640px) {
@@ -313,10 +306,6 @@
 
   <div class="foot">
     <div>PaperLab 引導式發想　·　流程示意，實際為對話式引導</div>
-    <div class="ctl">
-      <button id="pauseBtn">暫停</button>
-      <button id="replayBtn">重播</button>
-    </div>
   </div>
 </div>
 
@@ -335,7 +324,7 @@
     '收斂完成：骨架在手，剩下的是寫開，不是想出來',
   ];
   const DUR = [4200, 5800, 5600, 5600, 6400, 5400, 6400];
-  let i = -1, timer = null, paused = false;
+  let i = -1, timer = null;
 
   function show(n) {
     i = n;
@@ -347,17 +336,9 @@
       node.classList.toggle('done', railStep === 6 ? true : step < railStep);
     });
     caption.textContent = captions[n];
-    if (!paused) timer = setTimeout(next, DUR[n]);
+    timer = setTimeout(next, DUR[n]);
   }
-  function next() { show((i + 1) % scenes.length); }
-
-  document.getElementById('replayBtn').onclick = () => { clearTimeout(timer); paused = false; pauseBtn.textContent = '暫停'; show(0); };
-  const pauseBtn = document.getElementById('pauseBtn');
-  pauseBtn.onclick = () => {
-    paused = !paused;
-    pauseBtn.textContent = paused ? '播放' : '暫停';
-    if (paused) clearTimeout(timer); else timer = setTimeout(next, 1500);
-  };
+  function next() { show((i + 1) % scenes.length); }   // continuous auto-loop, no controls
 
   show(0);
 })();
