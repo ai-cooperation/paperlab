@@ -48,7 +48,7 @@ buildExpired = false
     weight = 25
   [[menu.main]]
     identifier = "mcp"
-    name = "AI 發想 (MCP)"
+    name = "研究引導 (MCP)"
     url = "/mcp/"
     weight = 28
   [[menu.main]]

@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PaperLab 引導式發想 — 像指導教授帶你，把模糊想法問成能做的題目</title>
+<style>
+  :root {
+    --navy: #16324f;
+    --navy-2: #1f4a6e;
+    --teal: #0e8a7d;
+    --teal-soft: #e3f4f1;
+    --ink: #243240;
+    --ink-soft: #5b6b7a;
+    --line: #dde5ec;
+    --bg: #f4f7fa;
+    --card: #ffffff;
+    --warn: #b3552c;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; padding: 24px;
+  }
+  .stage {
+    width: 1200px; max-width: 100%;
+    aspect-ratio: 16 / 9;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    box-shadow: 0 18px 50px rgba(22, 50, 79, .12);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── header ── */
+  .head {
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 24px 40px 4px;
+  }
+  .brand { font-size: 23px; font-weight: 800; color: var(--navy); letter-spacing: .3px; line-height: 1.3; }
+  .head .title { font-size: 15px; color: var(--ink-soft); line-height: 1.4; }
+  .head .title b { color: var(--navy); font-weight: 700; }
+  .head .title span { color: var(--teal); }
+
+  /* ── progress rail ── */
+  .rail { display: flex; gap: 0; padding: 18px 40px 6px; }
+  .node { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; position: relative; }
+  .node::before {
+    content: ""; position: absolute; top: 15px; left: -50%; width: 100%; height: 2px;
+    background: var(--line); z-index: 0;
+  }
+  .node:first-child::before { display: none; }
+  .dot {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: #fff; border: 2px solid var(--line);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700; color: var(--ink-soft);
+    position: relative; z-index: 1; transition: all .45s ease;
+  }
+  .node .lbl { font-size: 14px; color: var(--ink-soft); transition: color .45s; }
+  .node.active .dot { background: var(--teal); border-color: var(--teal); color: #fff; transform: scale(1.12); }
+  .node.active .lbl { color: var(--teal); font-weight: 700; }
+  .node.done .dot { background: var(--navy); border-color: var(--navy); color: #fff; }
+  .node.done .lbl { color: var(--navy); }
+  .node.done .dot::after { content: "✓"; position: absolute; font-size: 14px; }
+  .node.done .dot b { display: none; }
+
+  /* ── scenes ── */
+  .scenes { flex: 1; position: relative; padding: 8px 40px 0; }
+  .scene {
+    position: absolute; inset: 8px 40px 0;
+    opacity: 0; transform: translateY(14px);
+    transition: opacity .5s ease, transform .5s ease;
+    pointer-events: none;
+    display: flex; flex-direction: column; gap: 14px; justify-content: center;
+  }
+  .scene.on { opacity: 1; transform: translateY(0); }
+
+  .bubble {
+    max-width: 72%;
+    padding: 16px 22px; border-radius: 14px;
+    font-size: 19px; line-height: 1.65;
+    opacity: 0; transform: translateY(10px);
+    transition: opacity .45s ease .15s, transform .45s ease .15s;
+  }
+  .scene.on .bubble { opacity: 1; transform: translateY(0); }
+  .bubble.user {
+    align-self: flex-end;
+    background: var(--navy); color: #fff;
+    border-bottom-right-radius: 4px;
+  }
+  .bubble.ai {
+    align-self: flex-start;
+    background: var(--teal-soft); color: var(--ink);
+    border-bottom-left-radius: 4px;
+    border: 1px solid #cfe8e4;
+  }
+  .bubble.ai .who { font-size: 13px; font-weight: 700; color: var(--teal); letter-spacing: 1px; margin-bottom: 4px; }
+
+  .chips { display: flex; gap: 12px; align-self: flex-start; flex-wrap: wrap;
+    opacity: 0; transition: opacity .45s ease .6s; }
+  .scene.on .chips { opacity: 1; }
+  .chip {
+    padding: 12px 20px; border-radius: 999px;
+    border: 1.5px solid var(--line); background: #fff;
+    font-size: 16px; color: var(--ink);
+    transition: all .4s ease;
+  }
+  .chip small { color: var(--ink-soft); font-size: 13px; margin-left: 6px; }
+  .chip.rec { border-color: var(--teal); }
+  .chip.rec small { color: var(--teal); }
+  .chip.dead { color: #9aa7b3; text-decoration: line-through; }
+  .scene.on .chip.rec { animation: pick .6s ease 1.6s forwards; }
+  @keyframes pick {
+    to { background: var(--teal); border-color: var(--teal); color: #fff; }
+  }
+  .scene.on .chip.rec small { animation: pickSmall .6s ease 1.6s forwards; }
+  @keyframes pickSmall { to { color: #d8f0ec; } }
+
+  .outcome {
+    align-self: flex-start;
+    border-left: 4px solid var(--teal);
+    background: #fbfdfc;
+    padding: 12px 18px; border-radius: 0 10px 10px 0;
+    font-size: 17px; line-height: 1.6; color: var(--navy);
+    opacity: 0; transform: translateY(8px);
+    transition: opacity .5s ease 2.4s, transform .5s ease 2.4s;
+    max-width: 80%;
+  }
+  .scene.on .outcome { opacity: 1; transform: translateY(0); }
+  .outcome b { color: var(--teal); }
+  .outcome .warnline { color: var(--warn); font-size: 14px; margin-top: 6px; }
+
+  /* ── final scene ── */
+  .final-card {
+    align-self: center; width: 78%;
+    background: var(--navy); color: #fff;
+    border-radius: 16px; padding: 28px 36px;
+  }
+  .final-card h2 { font-size: 22px; margin-bottom: 16px; font-weight: 700; }
+  .final-card h2 span { color: #7fd4c9; }
+  .final-list { list-style: none; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 28px; }
+  .final-list li {
+    font-size: 17px; line-height: 1.5; padding-left: 26px; position: relative;
+    opacity: 0; transform: translateX(-8px);
+  }
+  .final-list li::before { content: "✓"; position: absolute; left: 0; color: #7fd4c9; font-weight: 700; }
+  .scene.on .final-list li { animation: liIn .4s ease forwards; }
+  .scene.on .final-list li:nth-child(1) { animation-delay: .4s; }
+  .scene.on .final-list li:nth-child(2) { animation-delay: .8s; }
+  .scene.on .final-list li:nth-child(3) { animation-delay: 1.2s; }
+  .scene.on .final-list li:nth-child(4) { animation-delay: 1.6s; }
+  .scene.on .final-list li:nth-child(5) { animation-delay: 2.0s; }
+  @keyframes liIn { to { opacity: 1; transform: translateX(0); } }
+  .final-quote {
+    margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.25);
+    font-size: 17px; color: #cfe0ee; line-height: 1.6;
+    opacity: 0; transition: opacity .6s ease 2.6s;
+  }
+  .scene.on .final-quote { opacity: 1; }
+
+  /* ── caption + footer ── */
+  .caption {
+    padding: 0 40px 10px; min-height: 34px;
+    font-size: 15px; color: var(--ink-soft);
+  }
+  .foot {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 40px 20px; border-top: 1px solid var(--line);
+    font-size: 14px; color: var(--ink-soft);
+  }
+  .foot .ctl { display: flex; gap: 10px; }
+  .foot button {
+    border: 1px solid var(--line); background: #fff; color: var(--ink-soft);
+    border-radius: 8px; padding: 6px 14px; font-size: 14px; cursor: pointer;
+    font-family: inherit;
+  }
+  .foot button:hover { border-color: var(--teal); color: var(--teal); }
+
+  /* ── mobile RWD (照首頁 hero 做法：拿掉硬比例盒，改自然高度 + 降字級) ── */
+  @media (max-width: 640px) {
+    body { padding: 12px; align-items: flex-start; }
+    .stage { aspect-ratio: auto; min-height: 600px; border-radius: 12px; }
+
+    .head { gap: 4px; padding: 18px 18px 2px; }
+    .brand { font-size: 16px; line-height: 1.35; }
+    .head .title { font-size: 12px; }
+
+    .rail { padding: 14px 6px 4px; }
+    .dot { width: 24px; height: 24px; font-size: 12px; }
+    .node::before { top: 11px; }
+    .node .lbl { font-size: 10px; line-height: 1.25; text-align: center; }
+
+    .scenes { padding: 8px 18px 0; }
+    .scene { inset: 8px 18px 0; gap: 10px; }
+
+    .bubble { max-width: 94%; font-size: 15px; padding: 12px 16px; line-height: 1.55; }
+    .bubble.ai .who { font-size: 11px; }
+
+    .chips { gap: 8px; }
+    .chip { font-size: 13px; padding: 9px 14px; }
+    .chip small { font-size: 11px; margin-left: 4px; }
+
+    .outcome { max-width: 100%; font-size: 14px; padding: 10px 14px; }
+    .outcome .warnline { font-size: 12px; }
+
+    .final-card { width: 100%; padding: 20px 18px; }
+    .final-card h2 { font-size: 17px; margin-bottom: 12px; }
+    .final-list { grid-template-columns: 1fr; gap: 8px; }
+    .final-list li { font-size: 14px; padding-left: 24px; }
+    .final-quote { font-size: 14px; }
+
+    .caption { padding: 0 18px 8px; font-size: 12px; min-height: 26px; }
+    .foot { flex-direction: column; gap: 8px; align-items: flex-start; padding: 10px 18px 16px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="head">
+    <h1 class="brand">像指導教授帶你，把模糊想法問成能做的題目</h1>
+    <div class="title"><b>Paper<span>Lab</span></b> 引導式發想：從「我想研究 X」收斂成可執行的研究缺口</div>
+  </div>
+
+  <div class="rail">
+    <div class="node" data-step="1"><div class="dot"><b>1</b></div><div class="lbl">一句話主題</div></div>
+    <div class="node" data-step="2"><div class="dot"><b>2</b></div><div class="lbl">問題類型</div></div>
+    <div class="node" data-step="3"><div class="dot"><b>3</b></div><div class="lbl">資料驗證</div></div>
+    <div class="node" data-step="4"><div class="dot"><b>4</b></div><div class="lbl">文獻缺口</div></div>
+    <div class="node" data-step="5"><div class="dot"><b>5</b></div><div class="lbl">產出門檻</div></div>
+  </div>
+
+  <div class="scenes">
+
+    <!-- scene 0: intro -->
+    <section class="scene" data-rail="0">
+      <div class="bubble user">我想研究 AI 在長照的應用⋯</div>
+      <div class="bubble ai"><div class="who">GRILL</div>這是一個領域，還不是一個題目。<br>像指導教授帶你那樣——五步，把它一路問成一個能做的題目。</div>
+    </section>
+
+    <!-- scene 1 -->
+    <section class="scene" data-rail="1">
+      <div class="bubble ai"><div class="who">GRILL・第一步</div>研究對象、情境、結果變數，各是什麼？</div>
+      <div class="chips">
+        <div class="chip rec">機構照服員 <small>推薦：資料可近性高</small></div>
+        <div class="chip">家庭照顧者</div>
+        <div class="chip">居家服務員</div>
+      </div>
+      <div class="outcome">收斂成一句話：<b>AI 排班輔助</b>對<b>機構照服員</b>「<b>加班時數</b>」的影響</div>
+    </section>
+
+    <!-- scene 2 -->
+    <section class="scene" data-rail="2">
+      <div class="bubble ai"><div class="who">GRILL・第二步</div>你問的是「有沒有效」，還是「這個領域做到哪了」？<br>類型決定產出形態——答非所問多半死在這一步。</div>
+      <div class="chips">
+        <div class="chip rec">成效類 <small>需要效應量證據</small></div>
+        <div class="chip">地景類 <small>產出是研究版圖</small></div>
+      </div>
+      <div class="outcome">定案：<b>成效類</b>——產出必須能回答「效果多大」，文獻回顧式設計到此淘汰</div>
+    </section>
+
+    <!-- scene 3 -->
+    <section class="scene" data-rail="3">
+      <div class="bubble ai"><div class="who">GRILL・第三步</div>資料現在、立刻，拿得到嗎？先驗證，再寫計畫。</div>
+      <div class="chips">
+        <div class="chip rec">機構排班紀錄 <small>已確認可取得</small></div>
+        <div class="chip dead">政府開放資料 <small>欄位缺、換掉</small></div>
+      </div>
+      <div class="outcome">只有<b>驗證過拿得到</b>的來源才寫進計畫<div class="warnline">「應該找得到資料」＝還沒驗證——空頭支票不進計畫</div></div>
+    </section>
+
+    <!-- scene 4 -->
+    <section class="scene" data-rail="4">
+      <div class="bubble ai"><div class="who">GRILL・第四步</div>缺口在文獻「之間」，不在單篇結尾的 future work。<br>A 做了什麼、B 做了什麼——沒人做的 Z 是什麼？</div>
+      <div class="outcome" style="transition-delay: 1.2s">
+        排班演算法研究集中在<b>製造業（A）</b>，長照研究多看<b>人力配置（B）</b>——<br>沒人量過 <b>AI 排班對照服員實際工時的影響（Z）</b>
+        <div class="warnline">紅線：AI 推薦的文獻逐篇驗 DOI——AI 會編造看起來很像真的引用</div>
+      </div>
+    </section>
+
+    <!-- scene 5 -->
+    <section class="scene" data-rail="5">
+      <div class="bubble ai"><div class="who">GRILL・第五步</div>這份研究要過誰的門檻——碩士？期刊？最後把前面四步的規模，對齊你的目標。</div>
+      <div class="chips">
+        <div class="chip rec">碩士論文 <small>方法正確＋真實資料</small></div>
+        <div class="chip">期刊投稿 <small>需明確研究貢獻</small></div>
+      </div>
+      <div class="outcome">現在校準，比口試被調便宜——<b>規模與門檻對齊</b>才算過關</div>
+    </section>
+
+    <!-- scene 6: final -->
+    <section class="scene" data-rail="6">
+      <div class="final-card">
+        <h2>五步走完，研究計畫的<span>骨架</span>已經在手上</h2>
+        <ul class="final-list">
+          <li>一句話題目（對象＋情境＋變數）</li>
+          <li>問題類型（成效／地景）</li>
+          <li>驗證過的資料來源</li>
+          <li>文獻之間的缺口（A、B、沒人做 Z）</li>
+          <li>對齊的產出門檻</li>
+        </ul>
+        <div class="final-quote">帶著卡住的關卡去 meeting，比帶著模糊的興趣去，有效十倍。</div>
+      </div>
+    </section>
+
+  </div>
+
+  <div class="caption" id="caption"></div>
+
+  <div class="foot">
+    <div>PaperLab 引導式發想　·　流程示意，實際為對話式引導</div>
+    <div class="ctl">
+      <button id="pauseBtn">暫停</button>
+      <button id="replayBtn">重播</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const scenes = [...document.querySelectorAll('.scene')];
+  const nodes = [...document.querySelectorAll('.node')];
+  const caption = document.getElementById('caption');
+  const captions = [
+    '起點：一個還不能執行的興趣',
+    '第一步——把領域逼成「對象＋情境＋變數」的一句話',
+    '第二步——類型決定產出形態，先分流再前進',
+    '第三步——資料先驗證再寫計畫，拿不到就換',
+    '第四步——缺口在文獻之間：A 做了 X、B 做了 Y、沒人做 Z',
+    '第五步——把規模對齊你的目標層級',
+    '收斂完成：骨架在手，剩下的是寫開，不是想出來',
+  ];
+  const DUR = [4200, 5800, 5600, 5600, 6400, 5400, 6400];
+  let i = -1, timer = null, paused = false;
+
+  function show(n) {
+    i = n;
+    scenes.forEach((s, k) => s.classList.toggle('on', k === n));
+    const railStep = parseInt(scenes[n].dataset.rail, 10);
+    nodes.forEach((node, k) => {
+      const step = k + 1;
+      node.classList.toggle('active', step === railStep);
+      node.classList.toggle('done', railStep === 6 ? true : step < railStep);
+    });
+    caption.textContent = captions[n];
+    if (!paused) timer = setTimeout(next, DUR[n]);
+  }
+  function next() { show((i + 1) % scenes.length); }
+
+  document.getElementById('replayBtn').onclick = () => { clearTimeout(timer); paused = false; pauseBtn.textContent = '暫停'; show(0); };
+  const pauseBtn = document.getElementById('pauseBtn');
+  pauseBtn.onclick = () => {
+    paused = !paused;
+    pauseBtn.textContent = paused ? '播放' : '暫停';
+    if (paused) clearTimeout(timer); else timer = setTimeout(next, 1500);
+  };
+
+  show(0);
+})();
+</script>
+</body>
+</html>
