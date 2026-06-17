@@ -129,13 +129,19 @@ def gate_refs(dossier: dict[str, Any]) -> GateResult:
 # Independent claim extractor (anti-gaming, §3.7): pull quantitative claims straight
 # from the prose so an UNLISTED claim the agent forgot cannot slip past the matrix.
 _UNIVERSAL_QUANTIFIERS = (
-    "always", "every", "all ", "all.", "all,", "none", "never", "any ",
-    "regardless of", "in all cases", "universally", "without exception",
+    # bare "all "/"any " dropped — too benign ("all these mechanisms", "any paper")
+    "always", "every ", "never ", "in all cases", "universally", "without exception",
+    "regardless of",
 )
 _STRONG_CAUSAL = (
-    "prove", "proves", "proven", "cause", "causes", "caused", "causal",
+    "prove", "proves", "proven", "causes", "caused",
     "guarantee", "guarantees", "ensures that", "demonstrates that",
 )
+# A causal verb inside a DISCLAIMER ("not a causal estimate", "association, not causation",
+# "should not be read as causal") is honest hedging, NOT an overclaim — do not flag it.
+_CAUSAL_DISCLAIMER = re.compile(
+    r"\b(not|no|cannot|can't|rather than|neither|without|do(?:es)? not|is not|are not|"
+    r"should not|need not|association,? not|not prove|not a causal|not as)\b")
 _OVERREACH_SCOPE = (
     "state-of-the-art", "state of the art", "outperform", "outperforms",
     "outperforming", "first-line", "every public leaderboard", "all prior work",
@@ -173,6 +179,8 @@ def extract_claims(draft_text: str) -> list[dict[str, Any]]:
                    if n is not None and n not in (0.0, 1.0)]
         quantifier = next((q.strip() for q in _UNIVERSAL_QUANTIFIERS if q in low), None)
         causal = next((v for v in _STRONG_CAUSAL if re.search(rf"\b{re.escape(v)}\b", low)), None)
+        if causal and _CAUSAL_DISCLAIMER.search(low):
+            causal = None                       # the sentence DISCLAIMS causality — honest hedging
         overreach = next((s for s in _OVERREACH_SCOPE if s in low), None)
         if numbers or quantifier or causal or overreach:
             claims.append({
@@ -225,6 +233,24 @@ def gate_claim_evidence(dossier: dict[str, Any]) -> GateResult:
         return GateResult(gate="B", severity=Severity.BLOCK, passed=False, p0=True,
                           details="no draft_text to extract claims from (fail-closed)",
                           evidence={"reason": "missing_draft"})
+
+    # Dataset lane: numbers are checked PRECISELY by number_trace (each must trace to
+    # real_results). Gate B here owns the QUALITATIVE ceiling — no non-disclaimed causal
+    # verb, universal quantifier, or scope overreach (associational evidence cannot support
+    # them). The extractor is negation-aware, so honest hedging ("not a causal estimate")
+    # does not flag. Matrix-vs-number checking (the meta path) would false-block here
+    # because the brain's matrix never lists every prose number.
+    if str((dossier.get("real_results") or {}).get("lane") or "") == "dataset_agent_analysis":
+        overs = [c for c in extract_claims(draft)
+                 if c.get("causal") or c.get("quantifier") or c.get("overreach")]
+        ok = not overs
+        return GateResult(
+            gate="B", severity=Severity.BLOCK, passed=ok, p0=not ok,
+            details=("no qualitative overclaim (numbers gated by number_trace)" if ok else
+                     f"{len(overs)} qualitative overclaim(s): " + "; ".join(
+                         (str(c.get("causal") or c.get("quantifier") or c.get("overreach"))
+                          + " in '" + c["text"][:60] + "'") for c in overs[:5])),
+            evidence={"qualitative_overclaims": overs[:10]})
 
     matrix_rows = dossier.get("claim_evidence") or []
     matrix_text = _matrix_text(matrix_rows)
@@ -372,6 +398,21 @@ def gate_value(dossier: dict[str, Any]) -> GateResult:
     Fail-closed semantics for a WARN gate = ``passed=False`` (the steering signal
     fires) WITHOUT ``p0`` (it cannot block the deliverable).
     """
+    # Dataset lane: research value rests on POWER + a primary spec, not on poolable-k (a
+    # meta concept). A well-powered null is valuable; an under-powered one cannot conclude.
+    rr = dossier.get("real_results") or {}
+    if str(rr.get("lane") or "") == "dataset_agent_analysis":
+        try:
+            import dataset_lane.schema as _ds
+            rv = _ds.dataset_research_value(rr)
+        except Exception:  # noqa: BLE001 - a WARN gate must never crash the run
+            rv = {"sufficient": True, "reason": "research-value check unavailable"}
+        return GateResult(
+            gate="E", severity=Severity.WARN, passed=bool(rv.get("sufficient")), p0=False,
+            details="research value " + ("sufficient" if rv.get("sufficient") else "LIMITED")
+                    + ": " + str(rv.get("reason")),
+            evidence={"research_value": rv})
+
     viability = dossier.get("viability") or {}
     floor = int(dossier.get("value_floor") or POOLABLE_FLOOR)
     max_k = viability.get("max_poolable_k")

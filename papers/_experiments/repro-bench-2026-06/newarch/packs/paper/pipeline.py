@@ -164,7 +164,7 @@ def _phase_data_meta(o: Orchestrator, contract: dict[str, Any]) -> None:
         **o.dossier.data.get("evidence", {}),
         "studies_with_effects": prisma.get("studies_with_effects"),
         "pooled": (result.get("meta") or {}).get("pooled"),
-        "references": {"bib_count": kept},
+        "references": {"bib_count": kept, "doi_real_rate": _doi_real_rate(o.run_dir)},
         "real_results": "real_experiments/real_results.json",
         "figures": [{"name": p.stem} for p in (o.run_dir / "figures").glob("*.svg")],
     })
@@ -280,7 +280,7 @@ def _phase_data_dataset(o: Orchestrator, contract: dict[str, Any]) -> None:
         "dataset_models": rr.get("models"),
         "survey_design": rr.get("survey_design"),
         "sample_flow": rr.get("sample_flow"),
-        "references": {"bib_count": kept},
+        "references": {"bib_count": kept, "doi_real_rate": _doi_real_rate(o.run_dir)},
         "real_results": "real_experiments/real_results.json",
         "figures": [{"name": p.stem} for p in (o.run_dir / "figures").glob("*.svg")],
     })
@@ -435,10 +435,29 @@ def _phase_render_gates(o: Orchestrator) -> None:
         "qmd_text": draft.read_text(encoding="utf-8") if draft.exists() else "",
         "evidence": o.dossier.data.get("evidence", {}),
         "real_results": _read(o.run_dir / "real_experiments" / "real_results.json"),
-        "claim_evidence": [], "render_ok": draft.exists(),
+        "claim_evidence": _claim_matrix_rows(o.run_dir),    # Gate B (meta) reads the matrix
+        "render_ok": draft.exists(),
+        "viability": o.dossier.data.get("viability", {}),     # Gate E (meta) reads this
     }
-    report = run_gates(PaperPack(), gd, only={"C", "D", "F"})
+    report = run_gates(PaperPack(), gd, only={"B", "C", "D", "E", "F"})
     o.dossier.data.setdefault("gates", {})["render"] = report.as_dict()
+    # Gate E (research value, WARN): the a-side CONFIRMS VALUE (the b-side confirmed the
+    # GAP). Surface it for the report page + the heal loop. A well-powered null is valuable.
+    for _r in report.results:
+        if _r.gate == "E":
+            o.dossier.data["research_value"] = (_r.evidence or {}).get("research_value")
+    # Gate B (claim<=evidence, BLOCK) HARD-enforced for the dataset lane: the negation-aware
+    # qualitative check (no non-disclaimed causal/universal/overreach; numbers gated by
+    # number_trace). Verified clean on an honest paper (0 flags). Meta keeps RECORDED until
+    # its matrix path's precision is verified on a fresh meta run (enforce-then-false-block
+    # is worse than record).
+    if _is_dataset_lane(o.dossier.data["contract"]):
+        _b = next((r for r in report.results if r.gate == "B"), None)
+        if _b is not None and not _b.passed:
+            o.dossier.save()
+            o.dossier.update_status(blocked=True, blockers=["claim_evidence_B"])
+            raise OrchestratorBlocked("render_gates", reason="Gate B (claim exceeds evidence): "
+                                      + (_b.details or "qualitative overclaim"))
     # Dataset lane: every manuscript number must trace to the analysis output (no
     # hallucinated statistics). The meta lane has its own claim-evidence path; this adds
     # the number-trace gate for agent-run dataset analyses.
@@ -467,6 +486,23 @@ def _read(p: Path) -> Any:
         return json.loads(p.read_text(encoding="utf-8"))
     except Exception:  # noqa: BLE001
         return {}
+
+
+def _doi_real_rate(run_dir: Path) -> float | None:
+    """The CrossRef real-existence rate from the DOI audit — so Gate A can evaluate its
+    DOI-realness half (refs>=35 AND doi_real_rate>=0.80), not just the count."""
+    audit = _read(run_dir / "doi_audit.json")
+    r = audit.get("real_rate") if isinstance(audit, dict) else None
+    return float(r) if isinstance(r, (int, float)) else None
+
+
+def _claim_matrix_rows(run_dir: Path) -> list[str]:
+    """The claim-evidence matrix table rows for Gate B's meta path (the dataset path uses
+    its own negation-aware qualitative check and ignores the matrix)."""
+    p = run_dir / "claim_evidence_map.md"
+    if not p.is_file():
+        return []
+    return [ln for ln in p.read_text(encoding="utf-8", errors="ignore").splitlines() if "|" in ln]
 
 
 def _phase_review_heal(o: Orchestrator) -> None:
@@ -528,11 +564,27 @@ sentence). Do NOT edit the paper yourself. End with CHILD_OK."""
     # big-pickle fallback), DELIVER the draft with a recorded note instead of crashing the
     # whole run. Never stuck with no output.
     loop = _PaperSelfHeal(o, review_fn, target_score=SCORE_TARGET, max_rounds=3)
+    result = None
     try:
-        loop.run()
+        result = loop.run()
     except OrchestratorBlocked as exc:
         o.dossier.data.setdefault("degraded", []).append(
             {"phase": "review_heal", "reason": f"review incomplete ({exc}); delivered the rendered draft"})
+    # ACT on the review outcome — never let the phase complete silently with the loop's
+    # blocked status ignored. A deterministic INTEGRITY hard-gate failure (analysis not
+    # completed / simulated / a P0 consistency error) is a TERMINAL content block: a
+    # fabricated or incomplete analysis must NOT deliver, even degraded. (A soft score
+    # below target is NOT a hard block — the loop did its best; we record the verdict.)
+    hg = floor_score.hard_gates(o.run_dir)
+    o.dossier.pack_ext_set("review_verdict", {
+        "status": getattr(result, "status", "degraded"),
+        "rounds": getattr(result, "rounds", None),
+        "hard_gates_pass": hg.get("all_pass")})
+    if not hg.get("all_pass", True):
+        o.dossier.save()
+        o.dossier.update_status(blocked=True, blockers=["floor_hard_gates"])
+        raise OrchestratorBlocked("review_heal",
+                                  reason=f"integrity hard-gates failed (not deliverable): {hg}")
     o.dossier.pack_ext_set("final_score", floor_score.floor_scores(o.run_dir).get("mean_6_floor"))
 
 

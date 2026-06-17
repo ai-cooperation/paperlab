@@ -62,7 +62,11 @@ def _spec_prompt(contract: dict[str, Any], manifest: dict[str, Any], skills: str
         "dataset is a complex survey, declare survey_design = {weight_variable, "
         "strata_variable, psu_variable, design notes} using the dataset's REAL column names. "
         "Include `required_outputs` (sample_flow, weighted/unweighted n, model_results, "
-        "spline_results, subgroup_results, sensitivity_results). Keep wording consistent "
+        "spline_results, subgroup_results, sensitivity_results). DECLARE which model is the "
+        "PRIMARY specification via `primary_model_id` (the id of the most rigorous adjusted "
+        "model answering the research question — e.g. the two-way fixed-effects model with key "
+        "controls, NOT a naive descriptive model); real_results.json MUST echo `primary_model_id`. "
+        "Keep wording consistent "
         "with the study design (e.g. cross-sectional => association/odds, not prevention). "
         "Only write that one file. End with CHILD_OK.")
 
@@ -83,7 +87,9 @@ def _code_prompt(contract: dict[str, Any], skills: str) -> str:
         "the manifest you read), rows, sample_flow, survey_design (weighted bool + the real "
         "column names + design_df + weight combination rule), variables (the columns you "
         "actually used), models (each: id, family, outcome, exposure, estimate, ci_low, "
-        "ci_high, p_value, n_unweighted, n_weighted, covariates), and numeric_index (a flat "
+        "ci_high, p_value, n_unweighted, n_weighted, covariates), primary_model_id (the id of "
+        "the PRIMARY model from the spec — the rigorous adjusted specification, not a naive "
+        "descriptive one), and numeric_index (a flat "
         "list of EVERY number you report). Print a one-line summary to stdout. Do NOT "
         "hardcode results or write numbers you did not compute. Only write that one file. "
         "End with CHILD_OK.")
