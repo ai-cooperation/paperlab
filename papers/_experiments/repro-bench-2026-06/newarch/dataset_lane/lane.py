@@ -90,32 +90,53 @@ def _code_prompt(contract: dict[str, Any], skills: str) -> str:
 
 
 def _review_prompt(contract: dict[str, Any], problems: list[dict[str, Any]], skills: str) -> str:
-    """BRAIN (codex) review: read the FAILING analysis.py + the run log + the gate problems
-    and write a CONCRETE fix prescription the free worker can apply mechanically."""
+    """BRAIN (codex) review: diagnose the failure AND decide who should apply the fix — a
+    small localized edit a non-reasoning worker can do, or a rewrite only the brain can do.
+    This SCOPE call is the escalation-ladder decision (the reviewer knows if its own fix is
+    worker-applicable)."""
     bullets = "\n".join(f"- [{p.get('id')}] {p.get('description')}" for p in problems)
     return _contract_brief(contract) + (
         f"\nYou are the REVIEW brain (Hermes two-layer §3.6). Read these skills:\n{skills}\n"
         "The deterministic gates FAILED on the worker's analysis. READ the actual files:\n"
-        "- `real_experiments/analysis.py` (the code the worker wrote)\n"
+        "- `real_experiments/analysis.py` (the code the worker wrote — may be missing/empty)\n"
         "- `real_experiments/analysis_stderr.txt` and `analysis_stdout.txt` (the run log)\n"
         "- `real_experiments/analysis_spec.json` and `data/manifest.json`\n"
         "Gate failures:\n" + bullets + "\n\n"
-        "Diagnose the REAL cause (e.g. the worker did not actually read the downloaded files; "
-        "ran an UNWEIGHTED fit when the spec declares a survey design; a pandas/statsmodels API "
-        "error in the log; a timeout because it processed too much; missing real_results fields; "
-        "numbers not in numeric_index). Write `real_experiments/fix_prescription.md`: a SHORT, "
-        "CONCRETE prescription — the exact changes the worker must make to analysis.py (specific "
-        "functions/columns/weights/imports, or a corrected code snippet). NEVER prescribe "
-        "fabricating numbers or faking the result shape. Only write that one file. End with CHILD_OK.")
+        "Diagnose the REAL cause (did not read the downloaded files; UNWEIGHTED fit when the "
+        "spec declares a survey design; a pandas/statsmodels error in the log; a timeout from "
+        "processing too much; missing real_results fields; numbers not in numeric_index).\n"
+        "Write `real_experiments/fix_prescription.md`. Its FIRST LINE must be exactly one of:\n"
+        "  SCOPE: small_edit   (a localized change — a non-reasoning worker can apply it)\n"
+        "  SCOPE: rewrite      (the code is missing/empty or needs substantial rewriting — "
+        "only a capable author should do it)\n"
+        "Then a SHORT, CONCRETE prescription: the exact changes (specific functions/columns/"
+        "weights/imports, or a corrected snippet). NEVER prescribe fabricating numbers or faking "
+        "the result shape. Only write that one file. End with CHILD_OK.")
 
 
 def _apply_prompt(contract: dict[str, Any]) -> str:
-    """WORKER applies the brain's prescription to analysis.py — typing, not reasoning."""
+    """WORKER applies a SMALL prescribed edit to analysis.py — typing, not reasoning."""
     return _contract_brief(contract) + (
-        "\nThe reviewer wrote a fix prescription at `real_experiments/fix_prescription.md`. "
-        "READ it and rewrite `real_experiments/analysis.py` to do EXACTLY what it says — do "
-        "not add your own ideas, do not fabricate numbers. Keep the rest of the analysis intact. "
-        "Only write analysis.py. End with CHILD_OK.")
+        "\nThe reviewer wrote a fix prescription at `real_experiments/fix_prescription.md` "
+        "(scope: small_edit). READ it and apply EXACTLY that localized change to "
+        "`real_experiments/analysis.py` — do not add your own ideas, do not fabricate numbers, "
+        "keep the rest intact. Only write analysis.py. End with CHILD_OK.")
+
+
+def _brain_apply_prompt(contract: dict[str, Any], skills: str) -> str:
+    """BRAIN takes over and WRITES analysis.py itself — escalation when the worker can't (the
+    code is missing, or the reviewer judged the fix a rewrite). The brain authored the
+    prescription, so it now implements it fully and correctly."""
+    return _contract_brief(contract) + (
+        f"\nThe free worker could not produce a working analysis (its draft is missing/empty or "
+        "the fix is a rewrite), so YOU (the capable author) now write it. Read these skills:\n"
+        f"{skills}\nFollow your own `real_experiments/fix_prescription.md` and "
+        "`real_experiments/analysis_spec.json`. Write the COMPLETE `real_experiments/analysis.py` "
+        "with the fixed interface (argparse --manifest/--spec/--out): read the real downloaded "
+        "files per the manifest, build the analytic dataset, run the spec's models (survey-"
+        "weighted with the declared weight/strata/psu when declared), and write real_results.json "
+        "with all required fields incl. data_manifest_sha256 (copied from the manifest) and "
+        "numeric_index. Do NOT fabricate numbers. Only write analysis.py. End with CHILD_OK.")
 
 
 def run(run_dir: Path, contract: dict[str, Any], *, brain: Dispatch, worker: Dispatch,
@@ -144,25 +165,49 @@ def run(run_dir: Path, contract: dict[str, Any], *, brain: Dispatch, worker: Dis
     brain(_spec_prompt(contract, manifest, skills), [schema.ANALYSIS_SPEC])
     worker(_code_prompt(contract, skills), [schema.ANALYSIS_CODE])
 
-    # 3. the HERMES TWO-LAYER self-correction loop (DESIGN §3.6): execute + gate; on failure
-    # the strong BRAIN (codex) REVIEWS the actual code + run log + gate problems and writes a
-    # concrete fix PRESCRIPTION; the free WORKER applies it. The brain reasons, the worker
-    # types — switching the whole job to the brain would abandon the two-layer model.
+    # 3. the HERMES ESCALATION LADDER (loop engineering): cheapest layer first, escalate on
+    # failure, and let the BRAIN decide who applies its own fix.
+    #   worker drafts -> run+gate -> on fail the brain REVIEWS + prescribes + declares SCOPE
+    #   -> small_edit: the free WORKER applies it (cheap);  rewrite / empty / already-escalated:
+    #   the BRAIN takes over and writes the code itself (the worker proved unable).
     problems: list[dict[str, Any]] = []
     history: list[dict[str, Any]] = []
+    escalated = False
     for rnd in range(max_heal_rounds + 1):
         runner.run_analysis(run_dir)
         problems = gates.run_all(run_dir)
-        history.append({"round": rnd, "problem_ids": [p.get("id") for p in problems]})
         if not problems:
+            history.append({"round": rnd, "problem_ids": [], "applied_by": None})
             break
-        if rnd < max_heal_rounds:
-            brain(_review_prompt(contract, problems, skills), [schema.FIX_PRESCRIPTION])  # review+prescribe
-            worker(_apply_prompt(contract), [schema.ANALYSIS_CODE])                       # apply the fix
+        if rnd >= max_heal_rounds:
+            history.append({"round": rnd, "problem_ids": [p.get("id") for p in problems], "applied_by": None})
+            break
+        brain(_review_prompt(contract, problems, skills), [schema.FIX_PRESCRIPTION])      # review + SCOPE
+        code = run_dir / schema.ANALYSIS_CODE
+        code_empty = (not code.is_file()) or len(code.read_text(encoding="utf-8", errors="ignore").strip()) < 40
+        use_brain = escalated or code_empty or _scope(run_dir) == "rewrite"
+        if use_brain:
+            brain(_brain_apply_prompt(contract, skills), [schema.ANALYSIS_CODE])           # brain writes it
+            escalated = True                                                               # keep it (worker unable)
+            applied_by = "brain"
+        else:
+            worker(_apply_prompt(contract), [schema.ANALYSIS_CODE])                        # worker applies small edit
+            applied_by = "worker"
+        history.append({"round": rnd, "problem_ids": [p.get("id") for p in problems], "applied_by": applied_by})
 
     rr = schema.read_json(run_dir, schema.REAL_RESULTS)
     return {"ok": not problems, "problems": problems, "real_results": rr,
-            "stage": "analysis", "history": history}
+            "stage": "analysis", "history": history, "escalated": escalated}
+
+
+def _scope(run_dir: Path) -> str:
+    """Read the reviewer's SCOPE decision from the first line of the prescription."""
+    p = Path(run_dir) / schema.FIX_PRESCRIPTION
+    if not p.is_file():
+        return "rewrite"
+    first = p.read_text(encoding="utf-8", errors="ignore").strip().splitlines()[:1]
+    line = (first[0] if first else "").lower()
+    return "small_edit" if "small_edit" in line else "rewrite"
 
 
 def metrics_block(real_results: dict[str, Any]) -> str:

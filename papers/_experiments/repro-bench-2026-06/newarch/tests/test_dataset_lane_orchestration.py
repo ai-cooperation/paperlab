@@ -92,36 +92,12 @@ def test_lane_happy_path_yields_ok(tmp_path, monkeypatch):
     assert "history" in res                                 # two-layer loop records its rounds
 
 
-def test_two_layer_heal_brain_reviews_worker_applies(tmp_path, monkeypatch):
-    """The Hermes two-layer loop: worker drafts -> gate fails -> BRAIN reviews+prescribes ->
-    WORKER applies -> gate passes. Both layers are exercised; the brain does not write code."""
-    seen = {"review": 0, "apply": 0, "rounds": 0}
-
-    def brain(prompt, writes):
-        if schema.DOWNLOAD_PLAN in writes:
-            schema.write_json(tmp_path, schema.DOWNLOAD_PLAN, [{"url": "u", "filename": "c.csv"}])
-        elif schema.ANALYSIS_SPEC in writes:
-            schema.write_json(tmp_path, schema.ANALYSIS_SPEC, {})
-        elif schema.FIX_PRESCRIPTION in writes:            # BRAIN review -> prescription
-            seen["review"] += 1
-            (tmp_path / schema.FIX_PRESCRIPTION).write_text("apply the survey weights", encoding="utf-8")
-        return True
-
-    def worker(prompt, writes):
-        if schema.ANALYSIS_CODE in writes:
-            (tmp_path / schema.ANALYSIS_CODE).write_text("# code", encoding="utf-8")
-            if (tmp_path / schema.FIX_PRESCRIPTION).is_file():
-                seen["apply"] += 1                          # WORKER applied a prescription
-        return True
-
-    def fake_fetch(rd, contract, **kw):
-        return _build_good_manifest(Path(rd))
-
+def _runner_factory(tmp_path, seen, fail_first=True):
     def fake_runner(rd, **kw):
         seen["rounds"] += 1
         rr = _good_real_results(Path(rd))
-        if seen["rounds"] == 1:
-            rr["models"] = []                               # first run: gate fails (no models)
+        if fail_first and seen["rounds"] == 1:
+            rr["models"] = []                               # first run fails the schema gate
         schema.write_json(rd, schema.REAL_RESULTS, rr)
         out = Path(rd) / schema.REAL_RESULTS
         schema.write_json(rd, schema.EXECUTION_RECORD,
@@ -131,14 +107,63 @@ def test_two_layer_heal_brain_reviews_worker_applies(tmp_path, monkeypatch):
                            "returncode": 0, "started_at_unix": out.stat().st_mtime - 1,
                            "finished_at_unix": out.stat().st_mtime})
         return {}
+    return fake_runner
 
-    monkeypatch.setattr(lane.fetch, "fetch", fake_fetch)
-    monkeypatch.setattr(lane.runner, "run_analysis", fake_runner)
-    res = lane.run(tmp_path, {"data_source": {"type": "dataset", "url": "u", "name": "Fict"}},
+
+def test_escalation_small_edit_worker_applies(tmp_path, monkeypatch):
+    """Worker drafts non-empty code -> gate fails -> brain reviews 'SCOPE: small_edit' ->
+    the cheap WORKER applies it. The brain does not take over a small fix."""
+    seen = {"rounds": 0}
+
+    def brain(prompt, writes):
+        if schema.DOWNLOAD_PLAN in writes:
+            schema.write_json(tmp_path, schema.DOWNLOAD_PLAN, [{"url": "u", "filename": "c.csv"}])
+        elif schema.ANALYSIS_SPEC in writes:
+            schema.write_json(tmp_path, schema.ANALYSIS_SPEC, {})
+        elif schema.FIX_PRESCRIPTION in writes:
+            (tmp_path / schema.FIX_PRESCRIPTION).write_text("SCOPE: small_edit\nadd the weights", encoding="utf-8")
+        return True
+
+    def worker(prompt, writes):
+        if schema.ANALYSIS_CODE in writes:                  # worker drafts AND applies the small edit
+            (tmp_path / schema.ANALYSIS_CODE).write_text("# a real draft with enough body to not be empty\n" * 3,
+                                                          encoding="utf-8")
+        return True
+
+    monkeypatch.setattr(lane.fetch, "fetch", lambda rd, c, **k: _build_good_manifest(Path(rd)))
+    monkeypatch.setattr(lane.runner, "run_analysis", _runner_factory(tmp_path, seen))
+    res = lane.run(tmp_path, {"data_source": {"type": "dataset", "url": "u", "name": "F"}},
                    brain=brain, worker=worker, max_heal_rounds=2)
     assert res["ok"] is True
-    assert seen["review"] >= 1 and seen["apply"] >= 1       # brain reviewed, worker applied
-    assert seen["rounds"] >= 2                              # failed once, fixed, passed
+    assert any(h.get("applied_by") == "worker" for h in res["history"])   # worker applied the small fix
+    assert res["escalated"] is False
+
+
+def test_escalation_brain_takes_over_when_worker_empty(tmp_path, monkeypatch):
+    """Worker drafts NOTHING -> brain reviews -> the BRAIN takes over and writes the code
+    itself (the worker proved unable). applied_by=brain, escalated=True."""
+    seen = {"rounds": 0}
+
+    def brain(prompt, writes):
+        if schema.DOWNLOAD_PLAN in writes:
+            schema.write_json(tmp_path, schema.DOWNLOAD_PLAN, [{"url": "u", "filename": "c.csv"}])
+        elif schema.ANALYSIS_SPEC in writes:
+            schema.write_json(tmp_path, schema.ANALYSIS_SPEC, {})
+        elif schema.FIX_PRESCRIPTION in writes:
+            (tmp_path / schema.FIX_PRESCRIPTION).write_text("SCOPE: rewrite\nthe file is missing", encoding="utf-8")
+        elif schema.ANALYSIS_CODE in writes:                # BRAIN takes over -> writes the code
+            (tmp_path / schema.ANALYSIS_CODE).write_text("# brain-authored full analysis\n" * 4, encoding="utf-8")
+        return True
+
+    def worker(prompt, writes):
+        return True                                          # worker writes NOTHING (its real failure mode)
+
+    monkeypatch.setattr(lane.fetch, "fetch", lambda rd, c, **k: _build_good_manifest(Path(rd)))
+    monkeypatch.setattr(lane.runner, "run_analysis", _runner_factory(tmp_path, seen))
+    res = lane.run(tmp_path, {"data_source": {"type": "dataset", "url": "u", "name": "F"}},
+                   brain=brain, worker=worker, max_heal_rounds=2)
+    assert res["ok"] is True
+    assert any(h.get("applied_by") == "brain" for h in res["history"]) and res["escalated"] is True
 
 
 def test_skill_upgrade_distils_and_persists(tmp_path):
