@@ -33,9 +33,14 @@ class ReviewOutcome:
     floor: float                                   # deterministic floor, /100
     floor_failed: bool
     findings_by_type: dict[str, list[str]] = field(default_factory=dict)
+    p1_count: int = 0                              # minor findings (cleared only for VIP tier)
+    p2_count: int = 0
 
-    def passed(self, target: float) -> bool:
-        return self.p0_count == 0 and not self.floor_failed and self.score >= target
+    def passed(self, target: float, clear_minor: bool = False) -> bool:
+        base = self.p0_count == 0 and not self.floor_failed and self.score >= target
+        # VIP tier (clear_minor) also requires P1/P2 to be cleared; the standard tier
+        # stops at "no P0 + floor ok + score >= target" and leaves minor findings recorded.
+        return base and (not clear_minor or (self.p1_count == 0 and self.p2_count == 0))
 
 
 @dataclass
@@ -56,12 +61,14 @@ ReviewFn = Callable[[dict[str, Any], int], ReviewOutcome]
 
 class SelfHealLoop:
     def __init__(self, dossier: Dossier, dispatcher: Dispatcher, review_fn: ReviewFn, *,
-                 target_score: float = TARGET_SCORE, max_rounds: int = MAX_ROUNDS):
+                 target_score: float = TARGET_SCORE, max_rounds: int = MAX_ROUNDS,
+                 clear_minor: bool = False):
         self.dossier = dossier
         self.dispatcher = dispatcher
         self.review_fn = review_fn
         self.target = target_score
         self.max_rounds = max_rounds
+        self.clear_minor = clear_minor          # VIP tier: also heal P1/P2, not just P0+score
 
     # ── self-heal: one fix-agent per failure type (parent-level fan-out) ─────
     def _dispatch_fixers(self, outcome: ReviewOutcome) -> list[str]:
@@ -86,8 +93,9 @@ class SelfHealLoop:
         self.dossier.data["revision_loop"] = {
             "round": outcome.round, "score": outcome.score,
             "floor": outcome.floor, "floor_failed": outcome.floor_failed,
-            "p0_count": outcome.p0_count, "target_score": self.target,
-            "remaining_tasks": fixers}
+            "p0_count": outcome.p0_count, "p1_count": outcome.p1_count,
+            "p2_count": outcome.p2_count, "clear_minor": self.clear_minor,
+            "target_score": self.target, "remaining_tasks": fixers}
         log = self.dossier.run_dir / "quality_review_log.md"
         line = (f"- round {outcome.round}: score={outcome.score} floor={outcome.floor} "
                 f"p0={outcome.p0_count} floor_failed={outcome.floor_failed} "
@@ -115,7 +123,7 @@ class SelfHealLoop:
         for rnd in range(1, self.max_rounds + 1):
             outcome = self.review_fn(self.dossier.data, rnd)
             history.append(outcome)
-            if outcome.passed(self.target):
+            if outcome.passed(self.target, self.clear_minor):
                 self._record_round(outcome, [])
                 self.dossier.update_status(blocked=False)
                 return SelfHealResult("passed", rnd, history)

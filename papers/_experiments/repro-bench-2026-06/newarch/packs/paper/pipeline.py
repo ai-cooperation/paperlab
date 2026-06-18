@@ -590,6 +590,8 @@ sentence). Do NOT edit the paper yourself. End with CHILD_OK."""
             round=rnd, score=float(rev.get("score_100") or 0),
             p0_count=len(rev.get("p0") or []), floor=floor100,
             floor_failed=not hg.get("all_pass", True),   # floor_score hard-gates: all_pass
+            p1_count=len(rev.get("p1") or []),
+            p2_count=sum(1 for e in edits if str(e.get("severity") or "").upper() == "P2"),
             findings_by_type={"edits": edits} if edits else {})
 
     # the self-heal loop dispatches free-worker fix-agents on each failing round.
@@ -597,7 +599,13 @@ sentence). Do NOT edit the paper yourself. End with CHILD_OK."""
     # floor already exist. If review cannot complete (e.g. codex usage limit even after the
     # big-pickle fallback), DELIVER the draft with a recorded note instead of crashing the
     # whole run. Never stuck with no output.
-    loop = _PaperSelfHeal(o, review_fn, target_score=SCORE_TARGET, max_rounds=3)
+    # VIP tier is a PREMIUM service: the loop also heals P1/P2 (not just P0 + score >= target)
+    # and gets more rounds to do it. The standard tier stops at "no P0 + floor ok + score >=
+    # target" and leaves minor findings recorded. (Submission + reviewer-response remain a
+    # VIP HUMAN service, deliberately OUT of the pipeline — see build_paper_phases note.)
+    is_vip = str(c.get("tier") or "").lower() == "vip"
+    loop = _PaperSelfHeal(o, review_fn, target_score=SCORE_TARGET,
+                          max_rounds=5 if is_vip else 3, clear_minor=is_vip)
     result = None
     try:
         result = loop.run()
@@ -684,6 +692,12 @@ def _phase_format_repair(o: Orchestrator) -> None:
     o.dossier.save()
 
 
+# These 8 orchestrator phases cover the paper-draft skill's documented Phase 1-9 (data/
+# experiment -> gap -> structure -> claim-evidence -> write -> render -> 7-dim review/heal).
+# The paper-draft Phase 10-11 (journal SUBMISSION + REVIEWER-RESPONSE / rebuttal) are a VIP
+# HUMAN service, deliberately OUT of the automated pipeline — a person prepares the cover
+# letter, handles the submission system, and drafts rebuttals. The engine stops at a
+# delivered, reviewed draft; it does not submit or rebut.
 def build_paper_phases() -> list[Phase]:
     return [
         Phase("data", _phase_data, gates=frozenset({"A"}),
