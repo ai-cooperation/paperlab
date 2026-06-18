@@ -370,16 +370,26 @@ def _limitations_hint(c: dict[str, Any]) -> str:
             if _is_dataset_lane(c) else "this is abstract-level (no full text)")
 
 
-def _limitations_caveats(c: dict[str, Any]) -> str:
+def _limitations_caveats(c: dict[str, Any], rr: dict[str, Any] | None = None) -> str:
     """The EXACT honest-caveat phrasings the review brain must put in Limitations — lane
     aware, so a dataset study does not get meta-analysis caveats (RoB2/GRADE/PRISMA) that
     are not true of it, and a meta-analysis does not get panel caveats."""
     if _is_dataset_lane(c):
-        return ('the design is "observational" and the estimates are "associational, not '
-                'causal"; the findings "may not generalize" and have limited "external '
-                'validity"; the analytic sample is a harmonized "subset" of available '
-                'country-year data with small-k subgroups; the panel is "unweighted" and the '
-                'variables are broad "aggregate indicators" that do not identify a mechanism')
+        rr = rr or {}
+        sf = rr.get("sample_flow") or {}
+        sd = rr.get("survey_design") or {}
+        unit_label = (sf.get("unit_label") or "analytic unit")
+        longitudinal = sf.get("time_min") is not None or sf.get("analytic_year_min") is not None
+        pieces = [
+            'the design is "observational" and the estimates are "associational, not causal"',
+            'the findings "may not generalize" and have limited "external validity"',
+            f'the analytic sample is a harmonized "subset" of the source {unit_label}-level data'
+            + (" panel" if longitudinal else "") + " with small-k subgroups",
+        ]
+        if sd.get("weighted") is False:
+            pieces.append('the analysis is "unweighted"')
+        pieces.append("the measures are observed indicators that do not identify a mechanism")
+        return "; ".join(pieces)
     return ('the pooled effect is "not statistically significant" (the 95% CI crosses zero); '
             'the findings "may not generalize" and have limited "external validity"; the '
             '"sample size" is small (a "subset" of available studies, small k); abstract-level '
@@ -543,6 +553,7 @@ def _phase_review_heal(o: Orchestrator) -> None:
         rdef_note = ("\nThe COMPILED PDF has UNRESOLVED figure cross-references "
                      "(`?@fig-`/`?@tbl-`) — flag this; the figures must reference-resolve."
                      ) if rdefs else ""
+        rr = _read(o.run_dir / "real_experiments" / "real_results.json")
         prompt = _hdr(c) + f"""
 You are the REVIEW brain (independent — you did NOT write this). Read:
 {_skill('paper-draft', 'paper-review-skill', 'elite-reviewer-audit', 'paper-logic-audit', 'figure-table-checker')}
@@ -564,7 +575,7 @@ these is NOT smart; it only finds your locator and writes your replacement. Prio
 -> rewrite so claim <= evidence (numbers must match real_results; downgrade strong verbs when k small /
 CI crosses zero); (b) STRENGTHEN the Limitations section — prescribe a `replacement` whose text
 EXPLICITLY contains these honest caveats, all genuinely true here, using these exact phrasings:
-{_limitations_caveats(c)}. Always include at least one P1 edit whose replacement is a 3-5 sentence
+{_limitations_caveats(c, rr)}. Always include at least one P1 edit whose replacement is a 3-5 sentence
 Limitations paragraph containing those phrases (locator = the existing Limitations heading or first
 sentence). Do NOT edit the paper yourself. End with CHILD_OK."""
         _dispatch_brain(o, f"review_round{rnd}", prompt, [f"quality_review_round{rnd}.json"])
