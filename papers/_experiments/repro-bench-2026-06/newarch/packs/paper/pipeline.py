@@ -587,6 +587,12 @@ Write `quality_review_round{rnd}.json` with this EXACT shape:
       "action": "replace|insert_after|delete",
       "replacement": "<the EXACT new text to write; empty for delete>",
       "reason": "<one line>"}}
+  ],
+  "analysis_findings": [
+    {{"severity": "P0|P1|P2|P3",
+      "issue": "<a problem that CANNOT be fixed by editing manuscript text — it needs the analysis re-run or the model spec changed>",
+      "required_action": "<short tag, e.g. rerun_primary_post1990 | add_control:<var> | rebound_sample:<rule> | refit_model:<id> | verify_estimate_in_ci:<model>>",
+      "reason": "<one line>"}}
   ]}}
 RULES: for EVERY P0/P1 you MUST give a concrete edit whose `locator` is copied VERBATIM from the qmd
 and whose `replacement` is the exact final text — never a vague suggestion. The editor that applies
@@ -598,7 +604,16 @@ CI crosses zero); (b) STRENGTHEN the Limitations section — prescribe a `replac
 EXPLICITLY contains these honest caveats, all genuinely true here, using these exact phrasings:
 {_limitations_caveats(c, rr)}. Always include at least one P1 edit whose replacement is a 3-5 sentence
 Limitations paragraph containing those phrases (locator = the existing Limitations heading or first
-sentence). Do NOT edit the paper yourself. End with CHILD_OK."""
+sentence).
+ANALYSIS-LEVEL findings (CRITICAL — do not lose them): some problems CANNOT be fixed by editing
+manuscript text — they need the analysis re-run or a model spec changed (e.g. the primary model
+rests on implausible data, an omitted control biases the estimate, the analytic period/sample is not
+credible, a reported estimate falls OUTSIDE its own confidence interval). For those, do NOT invent a
+caveat `edit` to paper over them and do NOT drop them — put them in `analysis_findings` with a
+concrete `required_action`. The manuscript editor cannot fix these; they are surfaced to the operator
+(and may route the run back to the analysis phase). Judging whether the analysis itself is sound — not
+just whether the prose matches the numbers — is part of the academic-rigor dimension.
+Do NOT edit the paper yourself. End with CHILD_OK."""
         _dispatch_brain(o, f"review_round{rnd}", prompt, [f"quality_review_round{rnd}.json"])
         o.dossier.pack_ext_set("render_defects", [d.get("id") for d in rdefs])
         rev = _read(o.run_dir / f"quality_review_round{rnd}.json")
@@ -607,6 +622,20 @@ sentence). Do NOT edit the paper yourself. End with CHILD_OK."""
         hg = fs.get("hard_gates") or {}
         # carry the concrete edits as the loop's findings (one mechanical batch)
         edits = [e for e in (rev.get("edits") or []) if isinstance(e, dict) and e.get("locator")]
+        # analysis-level findings the manuscript editor CANNOT fix — accumulate (dedup by issue)
+        # across rounds so they survive to delivery instead of being lost or downgraded to caveats.
+        af = [a for a in (rev.get("analysis_findings") or []) if isinstance(a, dict) and a.get("issue")]
+        if af:
+            acc = list(o.dossier.data.get("analysis_findings") or [])
+            # dedup by required_action (the canonical fix) so the brain rephrasing the same
+            # issue each round collapses to ONE finding; fall back to the issue text if no action.
+            def _key(x): return str(x.get("required_action") or x.get("issue"))
+            seen = {_key(x) for x in acc}
+            for a in af:
+                if _key(a) not in seen:
+                    acc.append({k: a.get(k) for k in ("severity", "issue", "required_action", "reason")})
+                    seen.add(_key(a))
+            o.dossier.data["analysis_findings"] = acc
         return ReviewOutcome(
             round=rnd, score=float(rev.get("score_100") or 0),
             p0_count=len(rev.get("p0") or []), floor=floor100,
@@ -639,10 +668,14 @@ sentence). Do NOT edit the paper yourself. End with CHILD_OK."""
     # fabricated or incomplete analysis must NOT deliver, even degraded. (A soft score
     # below target is NOT a hard block — the loop did its best; we record the verdict.)
     hg = floor_score.hard_gates(o.run_dir)
+    analysis_findings = o.dossier.data.get("analysis_findings") or []
     o.dossier.pack_ext_set("review_verdict", {
         "status": getattr(result, "status", "degraded"),
         "rounds": getattr(result, "rounds", None),
-        "hard_gates_pass": hg.get("all_pass")})
+        "hard_gates_pass": hg.get("all_pass"),
+        # analysis-level findings the review surfaced but could NOT auto-fix (need a re-run /
+        # spec change) — carried to delivery so the operator sees them, not silently dropped.
+        "analysis_findings": analysis_findings})
     if not hg.get("all_pass", True):
         o.dossier.save()
         o.dossier.update_status(blocked=True, blockers=["floor_hard_gates"])
