@@ -206,3 +206,20 @@ symbols). 17 errors = `golden_dir` fixture missing in temp-dir copy (conftest no
 artifact, not code.
 
 Commits: ea2f63f aa335d6 1d75af5 d417fed.
+
+---
+
+## Delivered-paper quality fixes (2026-06-18, user audit of the live re-run)
+
+User audited the delivered dataset paper (job v2_adebc36b20ea) and caught three real gaps
+that `delivery=pass` masked (delivery=pass means 0 P0 + score>=target + renders — NOT
+"clean tables / all issues fixed"):
+
+| # | Issue | Fix | Commit |
+|---|-------|-----|--------|
+| 1 | Tables AND prose dumped raw 16-decimal floats (`3.6285577215297318`, `p = 1.149e-83`) — the dataset lane's tables are writer-authored (tables.generate -> [] for it), so the deterministic `_f(n=3)` rounding was never applied | `number_format.format_numbers`: column-aware table rounding (p-value cols -> p</=, others 3 sig figs) + prose rounding (>=5-decimal artifacts + p-values; DOIs/years/counts untouched). Wired into `format_repair.verify_and_repair` AFTER number_trace so `<0.001` can't trip traceability. Verified: 171 artifacts + 2 sci-notation -> 0; crossrefs/cites/years intact | 3684c0b |
+| 2 | Review loop stopped at "no P0 + score>=target", leaving the final round's P1/P2 recorded-but-UNFIXED (verified: round-2 edits' replacement absent from the delivered qmd) | VIP tier now also clears P1/P2: `ReviewOutcome.p1_count/p2_count` + `passed(target, clear_minor)` requires p1==p2==0 when clear_minor; `_phase_review_heal` sets clear_minor=(tier=='vip') + 5 rounds (vs 3). Standard tier unchanged | 70ebb74 |
+| 3 | "12 phase" claim: pipeline is 8 orchestrator phases covering paper-draft Phase 1-9. Phase 10-11 (submission + reviewer-response/rebuttal) are a VIP HUMAN service, deliberately out of the automated pipeline | Documented at `build_paper_phases` | 70ebb74 |
+
+Honest note: the earlier "完整確認" confirmed delivery MECHANICS (0 P0, floor passes, renders),
+not deeper quality (table precision, residual P1). The user's three observations were all correct.
