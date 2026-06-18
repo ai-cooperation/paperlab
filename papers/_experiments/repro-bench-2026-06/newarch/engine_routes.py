@@ -200,6 +200,9 @@ def project_status(dossier_data: dict[str, Any], run_dir: Path) -> dict[str, Any
         "data_warning": rr_warn,                    # set only when real_results exists but is unreadable
         "degraded": dossier_data.get("degraded") or None,  # phases that fell back (codex limit -> big-pickle)
         "research_value": dossier_data.get("research_value") or None,  # Gate E: a-side value confirmation
+        # analysis-design issues the review surfaced but could NOT auto-fix (need a re-run /
+        # spec change) — shown on the page so the user sees them, not silently dropped.
+        "analysis_findings": dossier_data.get("analysis_findings") or None,
         "updated_at": status.get("finished_at") or status.get("started_at"),
     }
 

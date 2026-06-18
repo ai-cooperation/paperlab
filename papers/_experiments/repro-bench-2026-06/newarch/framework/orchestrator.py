@@ -108,10 +108,24 @@ class Orchestrator:
                                 artifacts=phase.checkpoint_artifacts)
 
     def run(self) -> Dossier:
-        for phase in self.phases:
-            if phase.name in self.completed_phases():
-                continue                                 # resume: do NOT replay
-            self._run_phase(phase)
+        while True:
+            for phase in self.phases:
+                if phase.name in self.completed_phases():
+                    continue                             # resume: do NOT replay
+                self._run_phase(phase)
+            # ESCALATION LADDER: a phase (e.g. review_heal with analysis-level findings) can
+            # request a re-run FROM an earlier phase by setting `_reroute_from`. Re-running is
+            # bounded by the requesting phase's own budget counter — the orchestrator just
+            # re-opens the phases from there. Without a request, the run finishes normally.
+            reroute = self.dossier.data.pop("_reroute_from", None)
+            names = [p.name for p in self.phases]
+            if reroute in names:
+                cut = names.index(reroute)
+                keep = [n for n in self.completed_phases() if n in names[:cut]]
+                self.dossier.update_status(completed=keep, blocked=False, blockers=[])
+                self.dossier.save()
+                continue                                 # re-loop: re-runs `reroute` and after
+            break
         # Do NOT clear a blocker at the finish line: a phase that recorded blocked=True
         # (even without raising) keeps that terminal state, never masked as "done".
         if not self.dossier.data.get("status", {}).get("blocked"):

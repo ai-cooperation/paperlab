@@ -50,10 +50,25 @@ def _resolve_prompt(contract: dict[str, Any], skills: str, feedback: str = "") -
         "\nOnly write that one file. End with CHILD_OK.")
 
 
-def _spec_prompt(contract: dict[str, Any], manifest: dict[str, Any], skills: str) -> str:
+def _feedback_block(analysis_feedback: list[dict[str, Any]] | None) -> str:
+    """A PRIOR-RUN review fed back analysis-level problems (escalation ladder). The new spec
+    MUST address them — they could not be fixed by editing prose."""
+    items = [a for a in (analysis_feedback or []) if isinstance(a, dict) and a.get("issue")]
+    if not items:
+        return ""
+    lines = "\n".join(f"- [{a.get('required_action') or 'fix'}] {a.get('issue')}" for a in items)
+    return ("\nPRIOR-RUN ANALYSIS PROBLEMS — a reviewer flagged these about the LAST analysis; they "
+            "need a CHANGED specification (not prose edits). Address each in THIS spec where the data "
+            "allow (e.g. restrict the period, add a control, complete an interaction test, bound an "
+            "unstable elasticity); if a fix is genuinely impossible with this dataset, say so in the "
+            f"spec rationale rather than ignoring it:\n{lines}\n")
+
+
+def _spec_prompt(contract: dict[str, Any], manifest: dict[str, Any], skills: str,
+                 analysis_feedback: list[dict[str, Any]] | None = None) -> str:
     cols = sorted({c for a in (manifest.get("artifacts") or [])
                    for c in ((a.get("probe_sample") or {}).get("columns") or [])})
-    return _contract_brief(contract) + (
+    return _contract_brief(contract) + _feedback_block(analysis_feedback) + (
         f"\nYou are the ANALYSIS-SPEC brain.\n{skills}\n"
         "The real data is downloaded (see data/manifest.json). Sample columns seen: "
         f"{cols[:80] if cols else '(binary format — open the files to discover columns)'}.\n"
@@ -152,7 +167,8 @@ def _brain_apply_prompt(contract: dict[str, Any], skills: str) -> str:
 
 
 def run(run_dir: Path, contract: dict[str, Any], *, brain: Dispatch, worker: Dispatch,
-        skills: str = "", max_heal_rounds: int = 2) -> dict[str, Any]:
+        skills: str = "", max_heal_rounds: int = 2,
+        analysis_feedback: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Fetch -> spec -> code -> execute -> gates (+heal). Returns
     {ok, problems, real_results}. Raises nothing; the caller decides on `ok`."""
     run_dir = Path(run_dir)
@@ -174,7 +190,7 @@ def run(run_dir: Path, contract: dict[str, Any], *, brain: Dispatch, worker: Dis
     # 2. the BRAIN reasons the SPEC (map the contract to this dataset's real variables +
     # survey design); the free WORKER drafts the analysis CODE from the spec+skills.
     manifest = schema.read_json(run_dir, schema.MANIFEST) or {}
-    brain(_spec_prompt(contract, manifest, skills), [schema.ANALYSIS_SPEC])
+    brain(_spec_prompt(contract, manifest, skills, analysis_feedback), [schema.ANALYSIS_SPEC])
     worker(_code_prompt(contract, skills), [schema.ANALYSIS_CODE])
 
     # 3. the HERMES ESCALATION LADDER (loop engineering): cheapest layer first, escalate on

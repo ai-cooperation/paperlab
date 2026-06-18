@@ -42,6 +42,7 @@ from .pack import PaperPack
 
 SKILLS = Path(os.environ.get("PAPERBENCH_SKILLS", str(Path.home() / "paperbench" / "skills-bundle")))
 SCORE_TARGET = 80.0
+ANALYSIS_RERUN_BUDGET = 1   # max times review can route the run back to the analysis phase
 SECTIONS = ["Introduction", "Related Work", "Methods", "Results", "Discussion",
             "Limitations", "Conclusion"]
 
@@ -250,7 +251,10 @@ def _phase_data_dataset(o: Orchestrator, contract: dict[str, Any]) -> None:
         return _dispatch_worker(o, "dataset_worker", prompt, writes)
 
     skills = _skill("dataset-fetch", "survey-weighted-analysis", "number-trace-writing")
-    res = dataset_lane.lane.run(o.run_dir, contract, brain=brain, worker=worker, skills=skills)
+    # On an escalation-ladder re-run, the review's analysis-level findings steer the new spec.
+    feedback = o.dossier.data.get("analysis_feedback") or None
+    res = dataset_lane.lane.run(o.run_dir, contract, brain=brain, worker=worker, skills=skills,
+                                analysis_feedback=feedback)
     # Self-upgrade SKILL loop: distil this run's failures into a general skill lesson so the
     # next run avoids them (the "Skill" half of Hermes+Skill). Best-effort, never blocks.
     try:
@@ -681,6 +685,20 @@ Do NOT edit the paper yourself. End with CHILD_OK."""
         o.dossier.update_status(blocked=True, blockers=["floor_hard_gates"])
         raise OrchestratorBlocked("review_heal",
                                   reason=f"integrity hard-gates failed (not deliverable): {hg}")
+    # ESCALATION LADDER (VIP): a P0/P1 analysis-level finding can ONLY be fixed by re-running the
+    # analysis with a changed spec — editing prose cannot. If the review surfaced such findings and
+    # the bounded re-run budget is not spent, route the run BACK to the data phase, feeding the
+    # findings to the next analysis spec. Bounded to ONE re-run (cost + loop guard); standard tier
+    # delivers with the findings recorded for the operator instead of re-running.
+    critical_af = [a for a in analysis_findings if str(a.get("severity") or "").upper() in ("P0", "P1")]
+    rerun_count = int(o.dossier.data.get("analysis_rerun_count") or 0)
+    if is_vip and critical_af and rerun_count < ANALYSIS_RERUN_BUDGET:
+        o.dossier.data["analysis_rerun_count"] = rerun_count + 1
+        o.dossier.data["analysis_feedback"] = critical_af     # consumed by the dataset spec prompt
+        o.dossier.data["analysis_findings"] = []              # re-populate from the post-rerun review
+        o.dossier.data["_reroute_from"] = "data"              # orchestrator.run() re-runs from here
+        o.dossier.save()
+        return
     o.dossier.pack_ext_set("final_score", floor_score.floor_scores(o.run_dir).get("mean_6_floor"))
 
 
