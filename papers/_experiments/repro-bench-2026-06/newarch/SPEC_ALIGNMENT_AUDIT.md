@@ -173,3 +173,36 @@ in-body cites, floor 58.3).
 - number_trace blocked only at >=3 → tightened to >=2.
 
 Commits: 6e3ef83 e03df99 3b8ff76 4896f1e 37ae62d 2cc3d74 414980e 04dde29 ea37b8d.
+
+---
+
+## Class A fixed-script residue cleanup (2026-06-18)
+
+Standing directive: the general dataset lane must hold ZERO dataset-specific knowledge in
+SOURCE — all case knowledge lives in agent-produced run artifacts. codex flagged 6 Class A
+residues; all fixed (codex wrote A–C; D+E applied inline after codex flaked narrate-no-apply
+twice). Reviewer (Claude) bounded scope + ran per-batch acceptance against real run dirs.
+
+| # | Residue | Fix | Commit |
+|---|---------|-----|--------|
+| 1+2 | `schema.dataset_research_value` + `figures.sample_flow` string-matched country/year keys (`analytic_countries`, `analytic_year_*`) — and the agent emits DIFFERENT keys each run (one run `analytic_countries`, another `merged_country_year_rows`), so the match was fragile AND unreliable | agent DECLARES generic `sample_flow.analytic_units` / `unit_label` / `time_min` / `time_max` (lane.py prompts emit them, like `primary_model_id`); consumers read the declaration first, legacy keys only as backward-compat fallback | ea2f63f |
+| 3 | `_limitations_caveats` hardcoded "country-year data / unweighted panel / aggregate indicators" — false for survey-weighted microdata or cross-sectional studies | `_limitations_caveats(c, rr)`: unit phrasing from `unit_label`, ` panel` only when longitudinal, `"unweighted"` only when `survey_design.weighted is False`, generic "observed indicators". floor_score-scored tokens (subset/generalize/external validity/associational/not causal) all preserved | aa335d6 |
+| 4 | `"hupd" not in name` substring duplicated in `_is_dataset_lane` (pipeline) + `figspec_for` (tables) | `capabilities.REGISTERED_FAST_LANE_TOKENS` + `is_registered_fast_lane(ds)` — the literal lives once in the registry; both consumers ask it. HUPD stays a legitimate registered fast-lane (intentional, not residue) | 1d75af5 |
+| 5 | `_template_for` DEFAULTED the general dataset lane to the HUPD-specific `classical_ml_benchmark` template | explicit empty `TEMPLATES["dataset_agent_analysis"]=[]` (writer owns dataset tables via metrics_block) + route the lane there + neutral default for unknown lanes; HUPD still routes via the benchmark rule | d417fed |
+| 6 | figure-inject fallback sentence hardcoded meta language ("analysis pipeline and pooled results") | neutral "The corresponding result is shown in {ref}." | d417fed |
+
+### Litmus re-audit (post-fix, read-only scan of general-lane source)
+- No case-specific dataset literal (nhanes/owid/gdp/country-code/CPC) in general-lane source.
+- Remaining `analytic_year_*` / `"countries" in k` occurrences are the DECLARED-FIRST,
+  legacy-fallback paths only (a new dataset declares the generic fields and never hits them) —
+  intentional backward-compat, not residue. `tables.py:132 year_range` is scientometric-lane-internal.
+- Registered HUPD lane (`real_patent_experiment.py`, `data_availability_gate.py`, capabilities
+  registry) is INTENTIONAL architecture — pre-verified golden lane, not general-lane residue.
+
+### Regression (changed-module unit suite on ac-2012)
+56 passed. 5 pre-existing failures (PROVEN not from this work: `primary_model_id` required field +
+`format_repair` phase, both prior-session changes; my 4 commits' combined diff greps EMPTY on those
+symbols). 17 errors = `golden_dir` fixture missing in temp-dir copy (conftest not copied) = harness
+artifact, not code.
+
+Commits: ea2f63f aa335d6 1d75af5 d417fed.
