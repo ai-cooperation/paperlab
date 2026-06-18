@@ -62,6 +62,24 @@ def _save(fig: plt.Figure, run_dir: Path, name: str) -> list[str]:
     return out
 
 
+def _headline_ci(m: dict[str, Any]) -> tuple[Any, Any]:
+    """The model's HEADLINE 95% CI, wherever the analysis put it: top-level ci_low/ci_high,
+    else the key coefficient inside a `coefficients{}` map (keyed by the exposure variable, or
+    the sole entry). General — a regression model's headline number IS its exposure coefficient,
+    whether the agent reports it flat or nested. No dataset/column literal."""
+    lo, hi = _num(m.get("ci_low")), _num(m.get("ci_high"))
+    if lo is not None and hi is not None:
+        return lo, hi
+    coeffs = m.get("coefficients")
+    if isinstance(coeffs, dict) and coeffs:
+        entry = coeffs.get(m.get("exposure"))
+        if entry is None and len(coeffs) == 1:
+            entry = next(iter(coeffs.values()))
+        if isinstance(entry, dict):
+            return _num(entry.get("ci_low")), _num(entry.get("ci_high"))
+    return lo, hi
+
+
 def forest_plot(run_dir: Path, rr: dict[str, Any]) -> list[str]:
     """Coefficient forest: each model's point estimate + 95% CI on a common axis,
     null line at 0. A panel of model specifications (not a meta-analysis pool), so no
@@ -69,7 +87,7 @@ def forest_plot(run_dir: Path, rr: dict[str, Any]) -> list[str]:
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
     for m in rr.get("models") or []:
-        lo, hi = _num(m.get("ci_low")), _num(m.get("ci_high"))
+        lo, hi = _headline_ci(m)
         pt = _num(m.get("estimate"))
         if pt is None:
             pt = _num(m.get("beta"))
@@ -106,10 +124,20 @@ def forest_plot(run_dir: Path, rr: dict[str, Any]) -> list[str]:
     return _save(fig, run_dir, FOREST)
 
 
+def _spline_curve(v: dict[str, Any]) -> list[Any]:
+    """The predicted-values curve from a spline entry, under ANY `predicted_values*` key
+    (e.g. ..._at_predefined_percentiles / ..._over_observed_exposure_grid). Pattern-based so
+    the renderer never hard-codes which sampling grid the analysis chose."""
+    for k, val in v.items():
+        if k.startswith("predicted_values") and isinstance(val, list) and val:
+            return val
+    return []
+
+
 def _find_spline(rr: dict[str, Any]) -> dict[str, Any] | None:
     """The first spline_results entry carrying a predicted-values curve (model id agnostic)."""
     for v in (rr.get("spline_results") or {}).values():
-        if isinstance(v, dict) and v.get("predicted_values_at_predefined_percentiles"):
+        if isinstance(v, dict) and _spline_curve(v):
             return v
     return None
 
@@ -121,12 +149,18 @@ def dose_response(run_dir: Path, rr: dict[str, Any]) -> list[str]:
     sp = _find_spline(rr)
     if not sp:
         return []
-    pv = sp.get("predicted_values_at_predefined_percentiles") or []
+    pv = _spline_curve(sp)
     if len(pv) < 3:
         return []
     keys = list(pv[0].keys())
-    x_key = next((k for k in keys if k.endswith("_value") and not k.startswith("predicted")), None)
     y_key = next((k for k in keys if k.startswith("predicted")), None)
+    # x = the exposure variable column if the grid named it; else a `*_value` column; else the
+    # first non-predicted, non-CI numeric column. General — never hard-codes the variable name.
+    _exp = sp.get("exposure") or (rr.get("models") or [{}])[0].get("exposure")
+    x_key = (_exp if _exp in keys else None) \
+        or next((k for k in keys if k.endswith("_value") and not k.startswith("predicted")), None) \
+        or next((k for k in keys if not k.startswith("predicted") and k not in ("ci_low", "ci_high")
+                 and isinstance(_num(pv[0].get(k)), float)), None)
     if not x_key or not y_key:
         return []
     pts = []
@@ -171,6 +205,8 @@ def sample_flow(run_dir: Path, rr: dict[str, Any]) -> list[str]:
     identified = sum(_num(v) or 0 for v in by_file.values()) if by_file else _num(sf.get("merged_rows"))
     merged = _num(sf.get("merged_rows"))
     analytic = _num(sf.get("analytic_rows"))
+    if analytic is None:                       # the analytic-sample count, flat or under `analytic`
+        analytic = _num(sf.get("analytic"))
     if analytic is None:
         return []
     excl = [(_clean(k).replace("excluded ", ""), int(_num(v) or 0))
