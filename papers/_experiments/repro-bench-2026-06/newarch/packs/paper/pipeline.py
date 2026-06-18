@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import delivery_audit
+import capabilities
 import floor_score
 import format_repair
 import meta_figures
@@ -141,8 +142,7 @@ def _is_dataset_lane(contract: dict[str, Any]) -> bool:
     """A real-data analysis (not literature/meta) of an arbitrary public dataset that is
     NOT the registered HUPD lane -> the general agent-driven dataset lane."""
     ds = contract.get("data_source") or {}
-    name = str(ds.get("name") or "").lower()
-    return str(ds.get("type") or "").lower() == "dataset" and "hupd" not in name
+    return str(ds.get("type") or "").lower() == "dataset" and not capabilities.is_registered_fast_lane(ds)
 
 
 def _phase_data(o: Orchestrator) -> None:

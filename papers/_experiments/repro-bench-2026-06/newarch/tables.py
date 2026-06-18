@@ -17,6 +17,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+import capabilities
+
 GEN_OPEN = "<!-- GENERATED:{tid} source=real_results sha256={sha} -->"
 GEN_CLOSE = "<!-- /GENERATED:{tid} -->"
 GEN_BLOCK_RE = re.compile(
@@ -330,12 +332,11 @@ DATASET_FIGSPEC = [
 
 
 def figspec_for(contract: dict[str, Any] | None) -> list[tuple[str, str, str]]:
-    """Pick the figure spec by lane. Mirrors pipeline._is_dataset_lane (kept local to
-    avoid a tables<-pipeline import cycle): an arbitrary public DATASET (not HUPD) uses
-    the dataset figures; everything else uses the meta-analysis figures."""
+    """Pick the figure spec by lane. Mirrors pipeline._is_dataset_lane using the
+    capabilities registry: an arbitrary public DATASET (not HUPD) uses the dataset
+    figures; everything else uses the meta-analysis figures."""
     ds = (contract or {}).get("data_source") or {}
-    name = str(ds.get("name") or "").lower()
-    is_dataset = str(ds.get("type") or "").lower() == "dataset" and "hupd" not in name
+    is_dataset = str(ds.get("type") or "").lower() == "dataset" and not capabilities.is_registered_fast_lane(ds)
     return DATASET_FIGSPEC if is_dataset else _FIGSPEC
 
 
