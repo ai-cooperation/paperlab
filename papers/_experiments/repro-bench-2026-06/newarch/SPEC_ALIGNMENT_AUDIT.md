@@ -131,3 +131,45 @@ wiped `blocked=False` at the finish). agy also found a real hole in the new `ref
 - Phases 10–11 (submission/rebuttal) — intentionally manual.
 - 三重驗證 is single-source CrossRef verify + multi-source discovery — relabel honestly, do not
   claim CrossRef+S2+OpenAlex ≥2-pass.
+
+---
+
+## H. Second pass — all 12 missed/partial items done + e2e validated
+
+The reviewer-flagged items I had skipped (section G under-counted them) were ALL completed,
+then codex did an acceptance review (found 2 fail-OPEN holes), then a fresh e2e run caught 4
+more bugs that no parse/import/unit check could. Final state: **all 6 gates LIVE + an honest
+paper delivers with 0 false-blocks** (job v2_f432cfbd275b: delivery=pass, 0 P0, PDF, 50/50
+in-body cites, floor 58.3).
+
+| Gate | Severity | Status (e2e-verified) |
+|---|---|---|
+| A refs>=35 + doi_real_rate>=0.80 | BLOCK | LIVE, fail-CLOSED (rate=None blocks) |
+| B claim<=evidence | numbers=BLOCK(number_trace) / qualitative=WARN | qualitative is the review BRAIN's call (semantic), NOT a keyword hard-gate |
+| C figures paired | BLOCK | LIVE (figures registered {name,svg,png}) |
+| D readability | BLOCK | LIVE |
+| E research value | WARN | LIVE — well-powered null = valuable (a-side confirms VALUE) |
+| F logic | BLOCK | LIVE — dataset drops quantifier scan (number_trace owns numbers) |
+| number_trace | BLOCK (>=2) | robust: full real_results walk + comma-strip + rounding tolerance |
+
+### The principle this pass nailed down (the core correction)
+- **Deterministic gate** ⟺ deterministic AND general facts: refs count, integrity hard-gates,
+  figures-exist, and number traceability (a number must trace to a computed result — true for
+  ANY dataset; thousands-commas + rounding are universal number formatting, so handling them is
+  principled, NOT a fixed script).
+- **Review brain** ⟺ semantic judgment: qualitative overclaim (causal language, universals).
+  A keyword regex enumerating noun contexts for "causes" (of/across/leading/major…) is linguistic
+  whack-a-mole — a fixed script wearing a general coat. Gate B's qualitative half is now advisory
+  (records candidates) and the brain judges in context.
+
+### e2e-only bugs (parse/import/unit all passed; only a live run surfaced them)
+1. Gate B flagged "causes" the NOUN ("causes of death") → fixed-script regex was the wrong tool → advisory.
+2. number_trace: "1,071" split into "071" (comma) + rounded CI/spline values → 25 false untraced → 0.
+3. `re` never imported in pipeline.py (used inside `_phase_render_gates`) → NameError only on a live run.
+4. D7: writer cited 29/50 refs (21 dead) → D7 correctly BLOCKED → compose prompt fixed to cite >=35 + every entry.
+
+### codex acceptance fixes (fail-OPEN integrity)
+- gate_refs PASSED on doi_real_rate=None → now fail-CLOSED.
+- number_trace blocked only at >=3 → tightened to >=2.
+
+Commits: 6e3ef83 e03df99 3b8ff76 4896f1e 37ae62d 2cc3d74 414980e 04dde29 ea37b8d.
