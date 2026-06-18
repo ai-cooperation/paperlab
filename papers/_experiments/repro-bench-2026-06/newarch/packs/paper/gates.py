@@ -117,11 +117,14 @@ def _prose_only(draft_text: str) -> str:
 
 # ───────────────────────────── Gate A: contract/refs ────────────────────────
 def gate_refs(dossier: dict[str, Any]) -> GateResult:
-    """A (BLOCK): refs>=35 AND doi_real_rate>=0.80. Fail-closed if evidence absent."""
+    """A (BLOCK): refs>=35 AND doi_real_rate>=0.80. FAIL-CLOSED: a missing/malformed DOI
+    audit (rate is None) does NOT pass — both lanes now write doi_real_rate, so an absent
+    rate means the audit broke and the refs are unverified, which must block, not slip
+    through on the count alone."""
     refs = (dossier.get("evidence") or {}).get("references") or {}
     n = int(refs.get("bib_count") or 0)
     rate = refs.get("doi_real_rate")
-    ok = n >= REFS_FLOOR and (rate is None or rate >= DOI_REAL_RATE_FLOOR)
+    ok = n >= REFS_FLOOR and isinstance(rate, (int, float)) and rate >= DOI_REAL_RATE_FLOOR
     return GateResult(
         gate="A", severity=Severity.BLOCK, passed=ok, p0=not ok,
         details=f"bib_count={n} (floor {REFS_FLOOR}), doi_real_rate={rate} (floor {DOI_REAL_RATE_FLOOR})",

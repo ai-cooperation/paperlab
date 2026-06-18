@@ -476,12 +476,13 @@ def _phase_render_gates(o: Orchestrator) -> None:
         yrs = {str(y) for y in range(1990, 2031)}        # bare years are not analysis numbers
         traced = dataset_lane.gates.number_trace(gd["qmd_text"], rr, whitelist=yrs)
         o.dossier.data["gates"]["number_trace"] = [p["id"] for p in traced]
-        # HARD BLOCK on a real hallucination pattern. number_trace is now parsing-precise
-        # (ranges/sci-notation/frontmatter no longer misfire); a lone stray token can still
-        # be a methods-rule constant ("30 observations"), so block only on >=3 untraced —
-        # a genuine fabrication comes in bunches, never as one rule number.
+        # HARD BLOCK on hallucinated statistics. number_trace is parsing-precise (ranges/
+        # sci-notation/frontmatter/attribute-blocks handled); a LONE stray token can still be
+        # a methods-rule constant ("30 observations"), so tolerate exactly ONE and block on
+        # >=2 untraced (codex acceptance: keep the fabrication window minimal). A genuine
+        # fabrication comes in bunches, not as a single documented rule number.
         n_untraced = sum(len(p.get("numbers") or []) for p in traced)
-        if n_untraced >= 3:
+        if n_untraced >= 2:
             o.dossier.save()
             o.dossier.update_status(blocked=True, blockers=["number_trace"])
             raise OrchestratorBlocked("render_gates", reason=(
