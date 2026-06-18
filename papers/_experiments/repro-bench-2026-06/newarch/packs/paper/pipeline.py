@@ -350,7 +350,9 @@ def _fig_hint(o: Orchestrator, c: dict[str, Any]) -> str:
     writer never references a figure the analysis did not generate."""
     import tables
     refs = tables.available_fig_refs(o.run_dir, tables.figspec_for(c))
-    return "/".join(refs) if refs else "@fig-forest"
+    # No dangling fixed label when no figure was produced (codex acceptance): instruct the
+    # writer to reference NO figure rather than seeding a @fig-forest that does not exist.
+    return "/".join(refs) if refs else "(no figures were generated — do NOT use any @fig- reference)"
 
 
 def _paper_kind(c: dict[str, Any]) -> str:

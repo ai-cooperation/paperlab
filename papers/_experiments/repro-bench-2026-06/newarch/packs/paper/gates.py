@@ -148,6 +148,14 @@ _STRONG_CAUSAL = (
 _CAUSAL_DISCLAIMER = re.compile(
     r"\b(not|no|cannot|can't|rather than|neither|without|do(?:es)? not|is not|are not|"
     r"should not|need not|association,? not|not prove|not a causal|not as)\b")
+# "cause(s)" is also a common NOUN ("causes of death", "across causes, ages and regions",
+# "leading causes of mortality") — epidemiology prose, NOT a causal claim. A noun is signalled
+# by a preceding preposition/article/adjective, or by "causes of"/"causes," enumeration. A
+# VERB ("X causes Y") has none of these, so it still flags.
+_CAUSE_NOUN = re.compile(
+    r"\b(?:of|across|among|between|by|through|for|from|with|on|leading|major|common|"
+    r"underlying|main|principal|specific|multiple|various|other|the|its|all|both)\s+causes?\b"
+    r"|\bcauses?\s+(?:of\b|[,;]|and\b|or\b)")
 _OVERREACH_SCOPE = (
     "state-of-the-art", "state of the art", "outperform", "outperforms",
     "outperforming", "first-line", "every public leaderboard", "all prior work",
@@ -187,6 +195,8 @@ def extract_claims(draft_text: str) -> list[dict[str, Any]]:
         causal = next((v for v in _STRONG_CAUSAL if re.search(rf"\b{re.escape(v)}\b", low)), None)
         if causal and _CAUSAL_DISCLAIMER.search(low):
             causal = None                       # the sentence DISCLAIMS causality — honest hedging
+        if causal in ("causes", "cause") and not re.search(r"\bcauses?\b", _CAUSE_NOUN.sub(" ", low)):
+            causal = None                       # every "cause(s)" was a NOUN ("causes of death")
         overreach = next((s for s in _OVERREACH_SCOPE if s in low), None)
         if numbers or quantifier or causal or overreach:
             claims.append({
