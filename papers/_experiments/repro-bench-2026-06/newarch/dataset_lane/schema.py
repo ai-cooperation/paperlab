@@ -147,17 +147,30 @@ def write_json(run_dir: Path, rel: str, obj: Any) -> Path:
 
 
 def iter_numeric_index(real_results: dict[str, Any]) -> set[str]:
-    """Every number the manuscript is allowed to cite, normalized to strings. The analysis
-    script MUST emit `numeric_index` (a flat list/dict of its reported numbers); a paper
-    number not in here is untraceable -> blocked."""
-    idx = (real_results or {}).get("numeric_index")
+    """Every number the manuscript is allowed to cite. ROBUST: walk the ENTIRE real_results
+    (models, subgroup_results, sensitivity_results, spline_results, sample_flow, variables,
+    AND the analysis's numeric_index) and collect every computed number — the actual results
+    are the source of truth, not a self-reported index that the analysis may leave incomplete.
+    A prose number not computed ANYWHERE is the fabrication this catches."""
     out: set[str] = set()
-    vals = idx.values() if isinstance(idx, dict) else (idx or [])
-    for v in vals:
-        if isinstance(v, (int, float)):
-            out.add(_norm_num(v))
-        elif isinstance(v, str):
-            out.add(v.strip())
+
+    def _walk(obj: Any) -> None:
+        if isinstance(obj, bool):
+            return
+        if isinstance(obj, (int, float)):
+            out.add(_norm_num(float(obj)))
+        elif isinstance(obj, str):
+            s = obj.strip()
+            if s:
+                out.add(s)
+        elif isinstance(obj, dict):
+            for v in obj.values():
+                _walk(v)
+        elif isinstance(obj, (list, tuple)):
+            for v in obj:
+                _walk(v)
+
+    _walk(real_results or {})
     return out
 
 

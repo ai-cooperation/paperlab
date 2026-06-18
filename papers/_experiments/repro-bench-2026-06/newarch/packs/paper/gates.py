@@ -257,16 +257,19 @@ def gate_claim_evidence(dossier: dict[str, Any]) -> GateResult:
     # does not flag. Matrix-vs-number checking (the meta path) would false-block here
     # because the brain's matrix never lists every prose number.
     if str((dossier.get("real_results") or {}).get("lane") or "") == "dataset_agent_analysis":
-        overs = [c for c in extract_claims(draft)
+        # claim<=evidence for NUMBERS is the deterministic hard gate — owned by number_trace
+        # (every number must trace to real_results). QUALITATIVE overclaim (causal language,
+        # universals) is INHERENTLY SEMANTIC: a keyword scan cannot reliably tell the verb
+        # "X causes Y" from the noun "causes of death", so it is NOT a mechanical hard gate
+        # here — it is a WARN that RECORDS candidate sentences for the review brain (which
+        # judges them in context). Mechanizing semantics with a keyword regex is whack-a-mole.
+        overs = [c["text"] for c in extract_claims(draft)
                  if c.get("causal") or c.get("quantifier") or c.get("overreach")]
-        ok = not overs
         return GateResult(
-            gate="B", severity=Severity.BLOCK, passed=ok, p0=not ok,
-            details=("no qualitative overclaim (numbers gated by number_trace)" if ok else
-                     f"{len(overs)} qualitative overclaim(s): " + "; ".join(
-                         (str(c.get("causal") or c.get("quantifier") or c.get("overreach"))
-                          + " in '" + c["text"][:60] + "'") for c in overs[:5])),
-            evidence={"qualitative_overclaims": overs[:10]})
+            gate="B", severity=Severity.WARN, passed=not overs, p0=False,
+            details=("no candidate qualitative overclaim (numbers gated by number_trace)" if not overs
+                     else f"{len(overs)} candidate overclaim sentence(s) flagged for review (advisory)"),
+            evidence={"candidate_overclaims": overs[:10]})
 
     matrix_rows = dossier.get("claim_evidence") or []
     matrix_text = _matrix_text(matrix_rows)

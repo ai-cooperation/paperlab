@@ -461,8 +461,9 @@ def _phase_render_gates(o: Orchestrator) -> None:
     # owned by number_trace). E is WARN. A genuinely bad paper (placeholder text, missing
     # figure, real contradiction, overclaim) blocks; an honest one passes.
     if _is_dataset_lane(o.dossier.data["contract"]):
-        for _gn, _bl in (("B", "claim_evidence_B"), ("C", "figures_C"),
-                         ("D", "readability_D"), ("F", "logic_F")):
+        # B is WARN/advisory (qualitative overclaim is the review brain's semantic call);
+        # numbers are hard-gated by number_trace below. Hard-block on C/D/F only.
+        for _gn, _bl in (("C", "figures_C"), ("D", "readability_D"), ("F", "logic_F")):
             _g = next((r for r in report.results if r.gate == _gn), None)
             if _g is not None and not _g.passed:
                 o.dossier.save()

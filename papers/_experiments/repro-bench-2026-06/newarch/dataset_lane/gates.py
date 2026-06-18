@@ -217,6 +217,10 @@ def number_trace(qmd_text: str, real_results: dict[str, Any], *,
     # Quarto/LaTeX attribute blocks ({#tbl-x tbl-colwidths="[32,18,25,25]"}, {#fig-x}, ${..}$
     # subscripts) carry LAYOUT numbers, not claims — strip them before the scan.
     text = re.sub(r"\{[^{}]*\}", " ", text)
+    # Thousands separators are formatting, not a different number: "1,071" is 1071, not the
+    # fragments "1" and "071". Strip the grouping comma BEFORE the scan (and the index reads
+    # raw floats, so they already compare comma-free).
+    text = re.sub(r"(?<=\d),(?=\d)", "", text)
     allowed = schema.iter_numeric_index(real_results) | _CONVENTION_NUMS | (whitelist or set())
     allowed_floats = {_to_float(x) for x in allowed}
     allowed_floats.discard(None)
@@ -231,6 +235,12 @@ def number_trace(qmd_text: str, real_results: dict[str, Any], *,
         if tok.strip() in allowed:
             continue
         if any(abs(f - a) <= 1e-6 + 1e-4 * abs(a) for a in allowed_floats):
+            continue
+        # ROUNDING: a paper rounds for readability ("0.25" for a real 0.2534). A prose number
+        # traces if SOME real value rounds to it at the prose's own precision — exact-match is
+        # too strict and would flag every rounded statistic as a fabrication.
+        dp = len((tok.split(".", 1)[1]) if "." in tok else "")
+        if dp and any(round(a, dp) == f for a in allowed_floats):
             continue
         if -1900 <= f <= 2100 and float(int(f)) == f:        # bare years handled by whitelist below
             if str(int(f)) in allowed:
