@@ -175,9 +175,17 @@ def sample_flow(run_dir: Path, rr: dict[str, Any]) -> list[str]:
         return []
     excl = [(_clean(k).replace("excluded ", ""), int(_num(v) or 0))
             for k, v in sf.items() if k.startswith("excluded_") and (_num(v) or 0) > 0]
-    countries = sf.get("analytic_countries")
-    ymin, ymax = sf.get("analytic_year_min"), sf.get("analytic_year_max")
-    span = (f"\n{int(countries)} units, {ymin}–{ymax}" if countries and ymin else "")
+    unit_label = _clean(sf.get("unit_label")) or "units"
+    units = sf.get("analytic_units")
+    if units is None:
+        units = sf.get("analytic_countries")
+    tmin = sf.get("time_min")
+    if tmin is None:
+        tmin = sf.get("analytic_year_min")
+    tmax = sf.get("time_max")
+    if tmax is None:
+        tmax = sf.get("analytic_year_max")
+    span = (f"\n{int(units)} {unit_label}, {tmin}–{tmax}" if units and tmin is not None and tmax is not None else "")
 
     fig, ax = plt.subplots(figsize=(6.8, 6.4))
     ax.set_xlim(0, 12)

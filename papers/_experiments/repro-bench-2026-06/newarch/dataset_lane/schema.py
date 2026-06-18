@@ -99,23 +99,29 @@ def dataset_research_value(rr: dict[str, Any]) -> dict[str, Any]:
     rows = int(rr.get("rows") or 0)
     sf = rr.get("sample_flow") or {}
     units = 0
-    for k, v in sf.items():
-        if "countries" in k or "units" in k or "subjects" in k or "clusters" in k:
-            try:
-                units = max(units, int(v))
-            except (TypeError, ValueError):
-                pass
+    try:
+        units = int(sf.get("analytic_units") or 0)
+    except (TypeError, ValueError):
+        units = 0
+    if units == 0:
+        for k, v in sf.items():
+            if "countries" in k or "units" in k or "subjects" in k or "clusters" in k:
+                try:
+                    units = max(units, int(v))
+                except (TypeError, ValueError):
+                    pass
+    unit_label = str(sf.get("unit_label") or "units")
     pm = primary_model(rr)
     has_primary = bool(pm)
     powered = rows >= DATASET_N_FLOOR and (units == 0 or units >= DATASET_UNIT_FLOOR)
     sufficient = powered and has_primary
     if sufficient:
-        reason = (f"well-powered (n={rows}, units={units}) with a primary specification — "
+        reason = (f"well-powered (n={rows}, {unit_label}={units}) with a primary specification — "
                   "the finding is informative whether or not it is statistically significant")
     elif not has_primary:
         reason = "no primary model specification declared"
     else:
-        reason = (f"under-powered (n={rows}, units={units}) — a null here cannot distinguish "
+        reason = (f"under-powered (n={rows}, {unit_label}={units}) — a null here cannot distinguish "
                   "'no association' from 'insufficient evidence'")
     return {"sufficient": sufficient, "rows": rows, "units": units,
             "has_primary": has_primary, "reason": reason}

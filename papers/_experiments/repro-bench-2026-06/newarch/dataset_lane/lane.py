@@ -66,6 +66,10 @@ def _spec_prompt(contract: dict[str, Any], manifest: dict[str, Any], skills: str
         "PRIMARY specification via `primary_model_id` (the id of the most rigorous adjusted "
         "model answering the research question — e.g. the two-way fixed-effects model with key "
         "controls, NOT a naive descriptive model); real_results.json MUST echo `primary_model_id`. "
+        "The analysis MUST also emit generic `sample_flow` declarations: `analytic_units` "
+        "(count of DISTINCT analytic units, e.g. countries/firms/stations/subjects/households), "
+        "`unit_label` (e.g. countries, firms, stations), and when longitudinal/time-indexed "
+        "`time_min`, `time_max`, and optional `time_label`; omit time fields for cross-sectional data. "
         "Keep wording consistent "
         "with the study design (e.g. cross-sectional => association/odds, not prevention). "
         "Only write that one file. End with CHILD_OK.")
@@ -89,7 +93,9 @@ def _code_prompt(contract: dict[str, Any], skills: str) -> str:
         "actually used), models (each: id, family, outcome, exposure, estimate, ci_low, "
         "ci_high, p_value, n_unweighted, n_weighted, covariates), primary_model_id (the id of "
         "the PRIMARY model from the spec — the rigorous adjusted specification, not a naive "
-        "descriptive one), and numeric_index (a flat "
+        "descriptive one), sample_flow declarations `analytic_units` (count of DISTINCT analytic "
+        "units), `unit_label`, and when longitudinal/time-indexed `time_min`, `time_max`, and "
+        "optional `time_label` (omit time fields for cross-sectional data), and numeric_index (a flat "
         "list of EVERY number you report). Print a one-line summary to stdout. Do NOT "
         "hardcode results or write numbers you did not compute. Only write that one file. "
         "End with CHILD_OK.")
@@ -242,4 +248,3 @@ def metrics_block(real_results: dict[str, Any]) -> str:
             f"estimate={m.get('estimate')}{ci} | p={m.get('p_value')} | "
             f"n_unweighted={m.get('n_unweighted')} | n_weighted={m.get('n_weighted')}")
     return "\n".join(lines)
-
