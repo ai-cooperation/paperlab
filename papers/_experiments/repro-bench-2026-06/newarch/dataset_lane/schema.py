@@ -152,6 +152,38 @@ def write_json(run_dir: Path, rel: str, obj: Any) -> Path:
     return p
 
 
+# Aliases the brain sometimes uses for a model's point estimate instead of the canonical
+# `estimate` (MODEL_REQUIRED). Run-to-run variance: the same prompt produced `estimate` in
+# one run and only `estimate_beta` in another. Checked in priority order.
+ESTIMATE_ALIASES = ("estimate_beta", "coef", "coefficient", "beta")
+
+
+def canonicalize_estimates(run_dir: Path) -> bool:
+    """Robustness: every model MUST expose its point estimate as `estimate`, but the agent
+    occasionally names it `estimate_beta`/`coef`/`beta`. When `estimate` is absent/None and
+    a known alias holds a numeric value, COPY it into `estimate` so the schema gate AND every
+    downstream consumer (metrics_block, tables, number_trace) see the same value. Never
+    recomputes or fabricates — only renames an already-computed number. Returns True if any
+    model was filled. Generic: no dataset/column knowledge."""
+    rr = read_json(run_dir, REAL_RESULTS)
+    if not isinstance(rr, dict):
+        return False
+    changed = False
+    for key in ("models", "model_results"):
+        for m in (rr.get(key) or []):
+            if not isinstance(m, dict) or m.get("estimate") is not None:
+                continue
+            for alias in ESTIMATE_ALIASES:
+                v = m.get(alias)
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    m["estimate"] = v
+                    changed = True
+                    break
+    if changed:
+        write_json(run_dir, REAL_RESULTS, rr)
+    return changed
+
+
 def iter_numeric_index(real_results: dict[str, Any]) -> set[str]:
     """Every number the manuscript is allowed to cite. ROBUST: walk the ENTIRE real_results
     (models, subgroup_results, sensitivity_results, spline_results, sample_flow, variables,
