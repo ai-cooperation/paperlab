@@ -35,7 +35,7 @@ def _contract_brief(contract: dict[str, Any]) -> str:
 def _resolve_prompt(contract: dict[str, Any], skills: str, feedback: str = "") -> str:
     ds = contract.get("data_source") or {}
     return _contract_brief(contract) + (
-        f"\nYou are the DATA-RESOLUTION brain. Read these skills:\n{skills}\n"
+        f"\nYou are the DATA-RESOLUTION brain.\n{skills}\n"
         f"Resolve the dataset at {ds.get('url')} into the ACTUAL downloadable data files "
         "needed for this study. Use your terminal to FIND and VERIFY the real file URLs — "
         "do NOT guess a URL pattern from memory (data portals change their paths). Steps: "
@@ -54,7 +54,7 @@ def _spec_prompt(contract: dict[str, Any], manifest: dict[str, Any], skills: str
     cols = sorted({c for a in (manifest.get("artifacts") or [])
                    for c in ((a.get("probe_sample") or {}).get("columns") or [])})
     return _contract_brief(contract) + (
-        f"\nYou are the ANALYSIS-SPEC brain. Read these skills:\n{skills}\n"
+        f"\nYou are the ANALYSIS-SPEC brain.\n{skills}\n"
         "The real data is downloaded (see data/manifest.json). Sample columns seen: "
         f"{cols[:80] if cols else '(binary format — open the files to discover columns)'}.\n"
         "Write `real_experiments/analysis_spec.json`: map the contract's exposures/outcomes/"
@@ -77,7 +77,7 @@ def _spec_prompt(contract: dict[str, Any], manifest: dict[str, Any], skills: str
 
 def _code_prompt(contract: dict[str, Any], skills: str) -> str:
     return _contract_brief(contract) + (
-        f"\nYou WRITE the analysis program. Read these skills:\n{skills}\n"
+        f"\nYou WRITE the analysis program.\n{skills}\n"
         "Write `real_experiments/analysis.py`. It is invoked as:\n"
         "  python analysis.py --manifest data/manifest.json "
         "--spec real_experiments/analysis_spec.json --out real_experiments/real_results.json\n"
@@ -108,7 +108,7 @@ def _review_prompt(contract: dict[str, Any], problems: list[dict[str, Any]], ski
     worker-applicable)."""
     bullets = "\n".join(f"- [{p.get('id')}] {p.get('description')}" for p in problems)
     return _contract_brief(contract) + (
-        f"\nYou are the REVIEW brain (Hermes two-layer §3.6). Read these skills:\n{skills}\n"
+        f"\nYou are the REVIEW brain (Hermes two-layer §3.6).\n{skills}\n"
         "The deterministic gates FAILED on the worker's analysis. READ the actual files:\n"
         "- `real_experiments/analysis.py` (the code the worker wrote — may be missing/empty)\n"
         "- `real_experiments/analysis_stderr.txt` and `analysis_stdout.txt` (the run log)\n"
@@ -141,7 +141,7 @@ def _brain_apply_prompt(contract: dict[str, Any], skills: str) -> str:
     prescription, so it now implements it fully and correctly."""
     return _contract_brief(contract) + (
         f"\nThe free worker could not produce a working analysis (its draft is missing/empty or "
-        "the fix is a rewrite), so YOU (the capable author) now write it. Read these skills:\n"
+        "the fix is a rewrite), so YOU (the capable author) now write it.\n"
         f"{skills}\nFollow your own `real_experiments/fix_prescription.md` and "
         "`real_experiments/analysis_spec.json`. Write the COMPLETE `real_experiments/analysis.py` "
         "with the fixed interface (argparse --manifest/--spec/--out): read the real downloaded "

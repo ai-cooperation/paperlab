@@ -47,7 +47,20 @@ SECTIONS = ["Introduction", "Related Work", "Methods", "Results", "Discussion",
 
 
 def _skill(*names: str) -> str:
-    return "\n".join(f"- {SKILLS}/{n}/SKILL.md" for n in names)
+    """A BINDING skill-load instruction — NOT a dangling path. A dispatched brain (codex)
+    does not reliably open a path merely listed under 'Read:'; it proceeds from priors + the
+    explicit prompt unless told the file is a hard prerequisite (codex self-reported this).
+    So spell it out: open, read in full, apply EVERY rubric/dimension, fail loud if a file
+    cannot be read. The dimension/rubric knowledge stays in the skill — never enumerated here."""
+    paths = "\n".join(f"- {SKILLS}/{n}/SKILL.md" for n in names)
+    return (
+        "AUTHORITATIVE SKILLS (binding — load BEFORE doing this phase's work): for EACH path "
+        "below, open and read the file IN FULL, extract every operative requirement / checklist "
+        "/ scoring rubric / dimension it defines, and apply them on equal footing with this "
+        "prompt. Do NOT work from memory and do NOT skip any dimension. If a skill file cannot "
+        "be read, STOP and report which path failed rather than proceeding.\n"
+        f"{paths}"
+    )
 
 
 def _framing_block(c: dict[str, Any]) -> str:
@@ -293,7 +306,7 @@ def _phase_data_dataset(o: Orchestrator, contract: dict[str, Any]) -> None:
 def _phase_gap(o: Orchestrator) -> None:
     c = o.dossier.data["contract"]
     prompt = _hdr(c) + f"""
-You are the RESEARCH-POSITIONING brain. Read these skills:
+You are the RESEARCH-POSITIONING brain.
 {_skill('paper-draft', 'literature-synthesis', 'innovation-positioning')}
 Phase 3. Inputs: references.bib, real_experiments/real_results.json, AND the Researcher framing above.
 ANCHOR the positioning in the Researcher framing — validate and sharpen its gap and claims against
@@ -322,7 +335,8 @@ End with CHILD_OK."""
 def _phase_structure(o: Orchestrator) -> None:
     c = o.dossier.data["contract"]
     prompt = _hdr(c) + f"""
-You are the PAPER-STRUCTURE brain. Read: {_skill('paper-draft', 'figure-design', 'qmd-writer')}
+You are the PAPER-STRUCTURE brain.
+{_skill('paper-draft', 'figure-design', 'qmd-writer')}
 Phase 4. Inputs: phase3_positioning.md, references.bib, real_experiments/real_results.json.
 Write `phase4_structure.md`: section outline (Abstract/Introduction/Related Work/Methods/Results/
 Discussion/Limitations/Conclusion), each section's key claim, the figures/tables to reference
@@ -334,7 +348,8 @@ target 4500-6000 words. Only that file. End with CHILD_OK."""
 def _phase_claim_evidence(o: Orchestrator) -> None:
     c = o.dossier.data["contract"]
     prompt = _hdr(c) + f"""
-You are the CLAIM-EVIDENCE (Gate B) brain. Read: {_skill('paper-draft', 'paper-review-skill')}
+You are the CLAIM-EVIDENCE (Gate B) brain.
+{_skill('paper-draft', 'paper-review-skill')}
 Inputs: real_experiments/real_results.json, phase3_positioning.md, phase4_structure.md.
 Write `claim_evidence_map.md`: a markdown table | Claim | Evidence (real_results field/table/figure) |
 Exact-Match? | N-Support | Attribution-verb | for EVERY quantitative claim. Produce AT LEAST 8 claim rows.
@@ -407,7 +422,7 @@ def _phase_write(o: Orchestrator) -> None:
     packets = [WorkerPacket(
         task_id=f"draft-{s.replace(' ', '_')}", role=f"section:{s}", worker_class="drafter",
         task_goal=_hdr(c) + f"""
-You draft ONLY the "{s}" section of {kind}. Read:
+You draft ONLY the "{s}" section of {kind}.
 {_skill('paper-draft', 'academic-writing')}
 Inputs: phase3_positioning.md (gap), phase4_structure.md (outline), claim_evidence_map.md (allowed
 claims), references.bib. Write `sections/{s.replace(' ', '_')}.md` — prose for the {s} section only,
@@ -425,7 +440,8 @@ Only write that one file. End with CHILD_OK.""",
     drafted = [f"sections/{s.replace(' ', '_')}.md" for s in SECTIONS
                if (o.run_dir / "sections" / f"{s.replace(' ', '_')}.md").exists()]
     compose = _hdr(c) + f"""
-You are the COMPOSITION brain. Read: {_skill('paper-draft', 'academic-writing', 'qmd-writer', 'journal-templates')}
+You are the COMPOSITION brain.
+{_skill('paper-draft', 'academic-writing', 'qmd-writer', 'journal-templates')}
 Assemble these section drafts into a complete Quarto `paper_draft_v0.qmd` (>=4500 words) for {kind}:
 {chr(10).join('- ' + d for d in drafted)}
 Plus an Abstract you write. Frontmatter: title, author "Cooperation.TW / Paper Lab", bibliography
@@ -555,11 +571,14 @@ def _phase_review_heal(o: Orchestrator) -> None:
                      ) if rdefs else ""
         rr = _read(o.run_dir / "real_experiments" / "real_results.json")
         prompt = _hdr(c) + f"""
-You are the REVIEW brain (independent — you did NOT write this). Read:
+You are the REVIEW brain (independent — you did NOT write this).
 {_skill('paper-draft', 'paper-review-skill', 'elite-reviewer-audit', 'paper-logic-audit', 'figure-table-checker')}
 Review paper_draft_v0.qmd vs real_experiments/real_results.json + claim_evidence_map.md as a tough
-Q1 reviewer on the 7 dimensions. Also VERIFY the deliverable renders: every @fig-/@tbl- reference must
-resolve (no `?@` in the PDF) and figures/tables must be present.{rdef_note}
+Q1 reviewer. EVALUATE AND REPORT FINDINGS FOR EVERY dimension the loaded review skill defines — do
+NOT skip any. (Faithfully matching the numbers in real_results is necessary but NOT sufficient: the
+loaded skill's dimensions also judge whether the analysis and the manuscript themselves are sound.)
+Also VERIFY the deliverable renders: every @fig-/@tbl- reference must resolve (no `?@` in the PDF)
+and figures/tables must be present.{rdef_note}
 Write `quality_review_round{rnd}.json` with this EXACT shape:
 {{"score_100": <int 0-100>, "p0": [<short labels>], "p1": [<short labels>],
   "edits": [
@@ -571,7 +590,9 @@ Write `quality_review_round{rnd}.json` with this EXACT shape:
   ]}}
 RULES: for EVERY P0/P1 you MUST give a concrete edit whose `locator` is copied VERBATIM from the qmd
 and whose `replacement` is the exact final text — never a vague suggestion. The editor that applies
-these is NOT smart; it only finds your locator and writes your replacement. Prioritise: (a) overclaims
+these is NOT smart; it only finds your locator and writes your replacement. The two items below are
+where to FOCUS FIRST (ordering of effort), NOT the scope of the review — still report findings from
+EVERY skill dimension, do not drop a dimension to save effort: (a) overclaims
 -> rewrite so claim <= evidence (numbers must match real_results; downgrade strong verbs when k small /
 CI crosses zero); (b) STRENGTHEN the Limitations section — prescribe a `replacement` whose text
 EXPLICITLY contains these honest caveats, all genuinely true here, using these exact phrasings:
