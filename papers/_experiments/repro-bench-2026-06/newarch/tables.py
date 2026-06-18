@@ -243,6 +243,9 @@ TEMPLATES = {
     "scientometric": [("tbl-main", _scientometric_overview_table), ("tbl-trend", _pubs_per_year_table)],
     "meta_analysis": [("tbl-main", _meta_pooled_table), ("tbl-sensitivity", _meta_sensitivity_table),
                       ("tbl-studies", _meta_studies_table)],
+    # The general dataset lane's manuscript tables are writer-authored from metrics_block;
+    # tables.py does not deterministically own them -> empty template (no ML-benchmark misroute).
+    "dataset_agent_analysis": [],
 }
 
 
@@ -251,10 +254,12 @@ def _template_for(contract: dict[str, Any], rr: dict[str, Any]) -> str:
         return "meta_analysis"
     if isinstance(rr.get("analysis"), dict) or rr.get("lane") == "scientometric":
         return "scientometric"
+    if str(rr.get("lane") or "") == "dataset_agent_analysis":
+        return "dataset_agent_analysis"
     ct = str(contract.get("contribution_type") or "").lower()
     if "benchmark" in ct or "reproducib" in ct or isinstance(rr.get("benchmark"), list):
         return "classical_ml_benchmark"
-    return "classical_ml_benchmark"  # default; extend per type
+    return "dataset_agent_analysis"  # neutral default: do not force ML-benchmark tables onto unknown lanes
 
 
 def generate(run_dir: Path, contract: dict[str, Any] | None = None) -> dict[str, str]:
@@ -409,7 +414,7 @@ def inject_figures(run_dir: Path, figspec: list[tuple[str, str, str]] | None = N
             end = len(text) if end == -1 else end
             text = text[:end] + f"\n\n{embed}\n" + text[end:]
         else:                                                # referenced nowhere: append + add a ref
-            text += f"\n\nThe analysis pipeline and pooled results are shown in {ref}.\n\n{embed}\n"
+            text += f"\n\nThe corresponding result is shown in {ref}.\n\n{embed}\n"
         n += 1
     if n:
         qmd.write_text(text, encoding="utf-8")
