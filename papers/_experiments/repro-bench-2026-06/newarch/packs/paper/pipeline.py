@@ -419,7 +419,9 @@ You are the COMPOSITION brain. Read: {_skill('paper-draft', 'academic-writing', 
 Assemble these section drafts into a complete Quarto `paper_draft_v0.qmd` (>=4500 words) for {kind}:
 {chr(10).join('- ' + d for d in drafted)}
 Plus an Abstract you write. Frontmatter: title, author "Cooperation.TW / Paper Lab", bibliography
-references.bib, colorlinks/link-citations/citecolor blue. Cite >=20 references. Reference figures ONLY by
+references.bib, colorlinks/link-citations/citecolor blue. CITE >=35 DISTINCT references @key IN THE
+BODY and use EVERY entry in references.bib at least once (no dead/uncited references — the delivery
+gate blocks a bibliography that is present but not cited). Reference figures ONLY by
 {fig_hint} in prose (NO image embeds, NO {{#fig-}} labels — the pipeline injects
 each figure once). Fix any number that does not match real_experiments/real_results.json. State in
 Limitations that {_limitations_hint(c)}. Only write paper_draft_v0.qmd. End with CHILD_OK."""
