@@ -213,7 +213,11 @@ def run(run_dir: Path, contract: dict[str, Any], *, brain: Dispatch, worker: Dis
         brain(_review_prompt(contract, problems, skills), [schema.FIX_PRESCRIPTION])      # review + SCOPE
         code = run_dir / schema.ANALYSIS_CODE
         code_empty = (not code.is_file()) or len(code.read_text(encoding="utf-8", errors="ignore").strip()) < 40
-        use_brain = escalated or code_empty or _scope(run_dir) == "rewrite"
+        # A spec-alignment failure (the code did not implement the spec — wrong primary model or
+        # sample) is NOT a small worker edit: force the BRAIN to (re)write the code so the result
+        # actually conforms to its own spec. Otherwise the worker can keep echoing the label.
+        force_brain = any(str(p.get("id") or "").startswith("DS_SPEC_") for p in problems)
+        use_brain = force_brain or escalated or code_empty or _scope(run_dir) == "rewrite"
         if use_brain:
             brain(_brain_apply_prompt(contract, skills), [schema.ANALYSIS_CODE])           # brain writes it
             escalated = True                                                               # keep it (worker unable)

@@ -288,13 +288,67 @@ def _to_float(s: str) -> float | None:
         return None
 
 
+def spec_alignment_gate(run_dir: Path) -> list[dict[str, Any]]:
+    """The analysis CODE must IMPLEMENT the spec the brain wrote, not merely LABEL it. A cheap
+    worker can echo the spec's primary_model_id string while still running the wrong model or the
+    wrong sample (e.g. the full 1820-2022 panel when the spec restricted the primary to post-1990).
+    So compare the ACTUAL constraints the spec DECLARED against what real_results produced:
+      - the output's primary_model_id matches the spec's,
+      - every model the spec declared was actually produced,
+      - the primary model's OWN time bounds honour the spec's primary_period (the global panel may
+        keep all years for descriptive/sensitivity models — only the PRIMARY model is checked).
+    Fails closed (P0) so the lane's escalation ladder forces the brain to write conforming code —
+    that is what makes the analysis self-correction loop CONVERGE instead of delivering a stale
+    headline. GENERIC: it reads whatever the spec declares; no dataset/year/model literal here."""
+    spec = schema.read_json(run_dir, schema.ANALYSIS_SPEC) or {}
+    rr = schema.read_json(run_dir, schema.REAL_RESULTS) or {}
+    if not spec or not rr:
+        return []                                   # missing-file cases belong to other gates
+    out: list[dict[str, Any]] = []
+    want = str(spec.get("primary_model_id") or "")
+    got = str(rr.get("primary_model_id") or "")
+    models = [m for m in (rr.get("models") or []) if isinstance(m, dict)]
+    res_ids = {str(m.get("id") or "") for m in models}
+    if want and got != want:
+        out.append(_p0("DS_SPEC_PRIMARY_MISMATCH",
+                       f"real_results.primary_model_id={got!r} != analysis_spec.primary_model_id={want!r}",
+                       expected=want, actual=got))
+    if want and want not in res_ids:
+        out.append(_p0("DS_SPEC_PRIMARY_MODEL_MISSING",
+                       f"spec primary_model_id={want!r} was not produced in real_results.models",
+                       expected=want))
+    for sm in (spec.get("models") or []):
+        sid = str((sm or {}).get("id") or "")
+        if sid and sid not in res_ids:
+            out.append(_p0("DS_SPEC_MODEL_MISSING",
+                           f"spec declared model {sid!r} but it is absent from real_results.models",
+                           model=sid))
+    # the PRIMARY model's own analytic period must honour a spec-declared primary_period
+    period = (spec.get("research_contract_mapping") or {}).get("primary_period") or {}
+    ymin, ymax = period.get("year_min"), period.get("year_max")
+    pm = next((m for m in models if str(m.get("id") or "") == got), None)
+    if pm:
+        pmin, pmax = pm.get("time_min"), pm.get("time_max")
+        if isinstance(ymin, (int, float)) and isinstance(pmin, (int, float)) and pmin < ymin:
+            out.append(_p0("DS_SPEC_PERIOD_MISMATCH",
+                           f"primary model time_min={pmin} violates spec primary_period.year_min={ymin} "
+                           "(the full historical sample was run despite a restricted primary period)",
+                           expected=ymin, actual=pmin))
+        if isinstance(ymax, (int, float)) and isinstance(pmax, (int, float)) and pmax > ymax:
+            out.append(_p0("DS_SPEC_PERIOD_MISMATCH",
+                           f"primary model time_max={pmax} violates spec primary_period.year_max={ymax}",
+                           expected=ymax, actual=pmax))
+    return out
+
+
 def run_all(run_dir: Path) -> list[dict[str, Any]]:
-    """Run the structural gates (fetch->execution->schema->survey->recompute) in order.
-    number_trace runs later at manuscript time. Returns all problems (empty == pass)."""
+    """Run the structural gates (fetch->execution->schema->spec-alignment->survey->recompute) in
+    order. number_trace runs later at manuscript time. Returns all problems (empty == pass)."""
     out: list[dict[str, Any]] = []
     out += fetch_gate(run_dir)
     out += execution_gate(run_dir)
     out += schema_gate(run_dir)
+    out += spec_alignment_gate(run_dir)
     out += survey_gate(run_dir)
     out += recompute_gate(run_dir)
     return out
