@@ -76,6 +76,7 @@ def _dossier_to_json(dossier: Dossier, run_dir: Path) -> Mapping[str, Any]:
         },
         "evidence": dict(dossier.evidence),
         "gate_reports": list(dossier.gate_reports),
+        "delegations": list(dossier.delegations),
     }
 
 
@@ -92,6 +93,7 @@ def _dossier_from_json(data: Mapping[str, Any], run_dir: Path) -> Dossier:
         artifacts=artifacts,
         evidence=dict(data.get("evidence", {})),
         gate_reports=list(data.get("gate_reports", [])),
+        delegations=list(data.get("delegations", [])),
     )
 
 
@@ -107,4 +109,3 @@ def _artifact_rel_path(path: Path, run_dir: Path) -> str:
         return str(path.relative_to(run_dir))
     except ValueError:
         return str(path)
-

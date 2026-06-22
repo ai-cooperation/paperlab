@@ -21,6 +21,7 @@ class RuntimeContext:
 @dataclass(frozen=True)
 class BrainTask:
     phase: str
+    task_id: str = ""
     prompt: str = ""
     inputs: Mapping[str, Any] = field(default_factory=dict)
     expected_outputs: List[str] = field(default_factory=list)
@@ -30,6 +31,7 @@ class BrainTask:
 class WorkerTask:
     phase: str
     prompt: str
+    task_id: str = ""
     inputs: Mapping[str, Any] = field(default_factory=dict)
     expected_outputs: List[str] = field(default_factory=list)
 
@@ -37,6 +39,7 @@ class WorkerTask:
 @dataclass(frozen=True)
 class TaskResult:
     status: str
+    task_id: str = ""
     outputs: Mapping[str, Path] = field(default_factory=dict)
     details: str = ""
     metadata: Mapping[str, Any] = field(default_factory=dict)
@@ -111,6 +114,7 @@ class Dossier:
     artifacts: Dict[str, ArtifactRef] = field(default_factory=dict)
     evidence: Dict[str, Any] = field(default_factory=dict)
     gate_reports: List[Mapping[str, Any]] = field(default_factory=list)
+    delegations: List[Mapping[str, Any]] = field(default_factory=list)
 
     def mark_phase(self, phase: str, status: str) -> None:
         if not phase:

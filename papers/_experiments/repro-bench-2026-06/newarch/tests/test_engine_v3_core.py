@@ -11,6 +11,7 @@ from engine_v3.core import (
     GateSeverity,
     PhaseSpec,
     RuntimeContext,
+    TaskResult,
     WorkerTask,
     run_gates,
     PackRegistry,
@@ -174,3 +175,84 @@ def test_orchestrator_passes_pack_skill_bundle_to_runtime_context(tmp_path: Path
     orchestrator.run(job_id="job-1", resume=False)
 
     assert seen["metadata"]["skill_bundle"] == ["domain-skill"]
+
+
+def test_orchestrator_records_runtime_delegation_and_artifacts(tmp_path: Path):
+    class WritingRuntime(MockRuntime):
+        name = "writer"
+
+        def run_brain(self, task: BrainTask, context: RuntimeContext):
+            path = context.run_dir / task.expected_outputs[0]
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("draft", encoding="utf-8")
+            return TaskResult(
+                task_id=task.task_id,
+                status="ok",
+                outputs={task.expected_outputs[0]: path},
+                changed_files=[task.expected_outputs[0]],
+            )
+
+    orchestrator = EngineV3Orchestrator(
+        runtime=WritingRuntime(),
+        domain_pack=object(),
+        phases=[
+            PhaseSpec(
+                id="write",
+                handler=lambda _task, _context: {"ok": True},
+                prompt="write draft",
+                expected_outputs=["paper_draft_v0.qmd"],
+            )
+        ],
+        dossier_store=DossierStore(tmp_path),
+    )
+
+    dossier = orchestrator.run(job_id="job-1", resume=False)
+
+    assert dossier.phases["write"] == "done"
+    assert dossier.delegations == [
+        {
+            "task_id": "write:brain",
+            "phase": "write",
+            "runtime": "writer",
+            "class": "brain",
+            "status": "ok",
+            "declared_outputs": ["paper_draft_v0.qmd"],
+            "changed_files": ["paper_draft_v0.qmd"],
+            "blockers": [],
+        }
+    ]
+    assert dossier.artifacts["paper_draft_v0.qmd"].path == "paper_draft_v0.qmd"
+    assert len(dossier.artifacts["paper_draft_v0.qmd"].sha256) == 64
+
+
+def test_orchestrator_blocks_phase_when_runtime_output_missing(tmp_path: Path):
+    class BlockingRuntime(MockRuntime):
+        name = "blocked-runtime"
+
+        def run_brain(self, task: BrainTask, context: RuntimeContext):
+            return TaskResult(
+                task_id=task.task_id,
+                status="blocked",
+                blockers=["missing declared output: draft.md"],
+            )
+
+    called = []
+    orchestrator = EngineV3Orchestrator(
+        runtime=BlockingRuntime(),
+        domain_pack=object(),
+        phases=[
+            PhaseSpec(
+                id="write",
+                handler=lambda _task, _context: called.append("handler") or {},
+                prompt="write draft",
+                expected_outputs=["draft.md"],
+            )
+        ],
+        dossier_store=DossierStore(tmp_path),
+    )
+
+    dossier = orchestrator.run(job_id="job-1", resume=False)
+
+    assert called == []
+    assert dossier.phases["write"] == "blocked"
+    assert dossier.delegations[0]["status"] == "blocked"
