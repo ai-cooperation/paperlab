@@ -39,4 +39,9 @@ class MockRuntime:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("mock output for %s\n" % phase, encoding="utf-8")
             outputs[rel] = path
-        return TaskResult(status="ok", outputs=outputs, details="mock runtime")
+        return TaskResult(
+            status="ok",
+            outputs=outputs,
+            details="mock runtime",
+            changed_files=sorted(outputs),
+        )

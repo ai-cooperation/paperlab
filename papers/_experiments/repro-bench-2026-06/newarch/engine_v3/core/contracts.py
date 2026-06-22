@@ -40,6 +40,9 @@ class TaskResult:
     outputs: Mapping[str, Path] = field(default_factory=dict)
     details: str = ""
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    changed_files: List[str] = field(default_factory=list)
+    blockers: List[str] = field(default_factory=list)
+    stdout_tail: str = ""
 
 
 @dataclass(frozen=True)
