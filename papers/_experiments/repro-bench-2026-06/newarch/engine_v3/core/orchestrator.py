@@ -28,7 +28,11 @@ class EngineV3Orchestrator:
             domain = getattr(self.domain_pack, "name", "unknown")
             dossier = self.dossier_store.create(job_id=job_id, domain=domain)
 
-        context = RuntimeContext(job_id=job_id, run_dir=self.dossier_store.run_dir)
+        context = RuntimeContext(
+            job_id=job_id,
+            run_dir=self.dossier_store.run_dir,
+            metadata={"skill_bundle": _skill_bundle(self.domain_pack)},
+        )
         self.runtime.prepare(context)
         for phase in self.phases:
             if resume and dossier.phases.get(phase.id) == "done":
@@ -59,3 +63,10 @@ class EngineV3Orchestrator:
             self.dossier_store.save(dossier)
 
         return dossier
+
+
+def _skill_bundle(domain_pack: object) -> list[str]:
+    skill_bundle = getattr(domain_pack, "skill_bundle", None)
+    if not callable(skill_bundle):
+        return []
+    return list(skill_bundle())

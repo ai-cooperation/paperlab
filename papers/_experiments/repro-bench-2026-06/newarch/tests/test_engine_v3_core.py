@@ -146,3 +146,31 @@ def test_orchestrator_skips_completed_phases_on_resume(tmp_path: Path):
 
     assert calls == ["phase-1"]
     assert final.phases == {"phase-0": "done", "phase-1": "done"}
+
+
+def test_orchestrator_passes_pack_skill_bundle_to_runtime_context(tmp_path: Path):
+    seen = {}
+
+    class DemoPack:
+        name = "demo"
+
+        def skill_bundle(self):
+            return ["domain-skill"]
+
+        def gate_registry(self):
+            return []
+
+    def handler(_task: BrainTask, context: RuntimeContext):
+        seen["metadata"] = dict(context.metadata)
+        return {}
+
+    orchestrator = EngineV3Orchestrator(
+        runtime=MockRuntime(),
+        domain_pack=DemoPack(),
+        phases=[PhaseSpec(id="phase-0", handler=handler)],
+        dossier_store=DossierStore(tmp_path),
+    )
+
+    orchestrator.run(job_id="job-1", resume=False)
+
+    assert seen["metadata"]["skill_bundle"] == ["domain-skill"]
