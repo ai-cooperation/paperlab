@@ -156,7 +156,11 @@ def paper_path_for_job(job_id: str, jobs_dir: Path) -> Path:
 
 def create_app(jobs_dir: Path = DEFAULT_HTTP_JOBS_DIR, start_worker: bool = True,
                engine_v2: bool = False, v2_spawn: Any = None,
-               v2_max_concurrent: int = 1) -> FastAPI:
+               v2_max_concurrent: int = 1,
+               engine_v3: bool = False,
+               v3_auth_token: str | None = None,
+               v3_runtime_factory: Any = None,
+               v3_phases_factory: Any = None) -> FastAPI:
     app = FastAPI(title="Paper Job Service", version=job_runner.RUNNER_VERSION)
     # Let the public live progress page (paperlab.cooperation.tw) fetch the read-only
     # GET status/paper across origin. Scoped to that origin + GET only — the b-side
@@ -175,6 +179,16 @@ def create_app(jobs_dir: Path = DEFAULT_HTTP_JOBS_DIR, start_worker: bool = True
         if v2_spawn is not None:
             kw["spawn"] = v2_spawn
         engine_routes.register(app, resolved_jobs_dir, **kw)
+
+    if engine_v3:
+        from engine_v3 import routes as engine_v3_routes
+        engine_v3_routes.register(
+            app,
+            resolved_jobs_dir,
+            auth_token=v3_auth_token or os.environ.get("PAPER_ENGINE_V3_TOKEN"),
+            runtime_factory=v3_runtime_factory,
+            phases_factory=v3_phases_factory,
+        )
 
     @app.get("/health")
     def health() -> dict[str, Any]:
