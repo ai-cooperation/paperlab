@@ -43,7 +43,7 @@ def test_v3_jobs_require_bearer_token(tmp_path: Path):
         "/v3/jobs",
         json={"topic": "x"},
         headers={"Authorization": "Bearer wrong"},
-    ).status_code == 401
+    ).status_code == 403
 
 
 def test_v3_job_runs_bounded_golden_and_status(tmp_path: Path, golden_dir: Path):
@@ -76,6 +76,75 @@ def test_v3_job_runs_bounded_golden_and_status(tmp_path: Path, golden_dir: Path)
     assert payload["status"] == "done"
     assert payload["phases"] == {"data": "done", "render_gates": "done"}
     assert all(report["blocked"] is False for report in payload["gates"])
+
+
+def test_v3_submit_idempotent_replay_same_hash(tmp_path: Path, golden_dir: Path):
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+            v3_runtime_factory=lambda: _fixture_runtime(golden_dir),
+            v3_phases_factory=bounded_golden_pipeline,
+        )
+    )
+    headers = {"Authorization": "Bearer secret", "Idempotency-Key": "same"}
+    contract = {"domain": "paper", "topic": "bounded golden"}
+
+    first = tc.post("/v3/jobs", json=contract, headers=headers)
+    second = tc.post("/v3/jobs", json=contract, headers=headers)
+
+    assert first.status_code == 202
+    assert second.status_code == 200
+    assert first.json()["job_id"] == second.json()["job_id"]
+    assert second.json()["idempotent_replay"] is True
+
+
+def test_v3_submit_conflict_different_hash(tmp_path: Path, golden_dir: Path):
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+            v3_runtime_factory=lambda: _fixture_runtime(golden_dir),
+            v3_phases_factory=bounded_golden_pipeline,
+        )
+    )
+    headers = {"Authorization": "Bearer secret", "Idempotency-Key": "same"}
+
+    first = tc.post("/v3/jobs", json={"domain": "paper", "topic": "a"}, headers=headers)
+    second = tc.post("/v3/jobs", json={"domain": "paper", "topic": "b"}, headers=headers)
+
+    assert first.status_code == 202
+    assert second.status_code == 409
+
+
+def test_v3_job_creation_lock_blocks_unclaimed_duplicate(tmp_path: Path):
+    contract = {"domain": "paper", "topic": "locked"}
+    import engine_v3.routes as routes
+
+    job_id = routes._job_id(contract)
+    lock_dir = tmp_path / "_locks_v3"
+    lock_dir.mkdir()
+    (lock_dir / (job_id + ".lock")).write_text("busy", encoding="utf-8")
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+        )
+    )
+
+    response = tc.post(
+        "/v3/jobs",
+        json=contract,
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 409
 
 
 def test_v3_routes_absent_without_flag(tmp_path: Path):
