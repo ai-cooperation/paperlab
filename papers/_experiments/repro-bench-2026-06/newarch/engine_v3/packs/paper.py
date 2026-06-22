@@ -31,13 +31,14 @@ PAPER_SKILL_BUNDLE = [
 
 
 PAPER_PHASES = [
-    "contract",
     "data",
     "gap",
     "structure",
+    "claim_evidence",
     "write",
-    "review",
-    "render",
+    "render_gates",
+    "review_heal",
+    "format_repair",
 ]
 
 
@@ -160,13 +161,14 @@ def _adapt_gate_check(check: Callable[[dict], Any]) -> Callable[[Any], GateResul
 def _dossier_to_dict(dossier: Any) -> dict[str, Any]:
     if isinstance(dossier, dict):
         return dossier
-    return {
+    base = dict(getattr(dossier, "evidence", {}))
+    base.update({
         "job_id": getattr(dossier, "job_id", ""),
         "domain": getattr(dossier, "domain", ""),
         "phases": dict(getattr(dossier, "phases", {})),
         "artifacts": dict(getattr(dossier, "artifacts", {})),
-        "evidence": dict(getattr(dossier, "evidence", {})),
-    }
+    })
+    return base
 
 
 def _v3_severity(severity: Any) -> GateSeverity:
@@ -178,11 +180,11 @@ def _v3_severity(severity: Any) -> GateSeverity:
 def _gate_phase(gate_name: str) -> str:
     return {
         "A": "data",
-        "B": "write",
-        "C": "render",
-        "D": "review",
+        "B": "claim_evidence",
+        "C": "render_gates",
+        "D": "render_gates",
         "E": "data",
-        "F": "review",
+        "F": "render_gates",
     }.get(gate_name, "")
 
 

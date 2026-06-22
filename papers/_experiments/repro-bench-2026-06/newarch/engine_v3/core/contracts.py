@@ -140,3 +140,4 @@ class PhaseSpec:
     handler: PhaseHandler
     prompt: str = ""
     expected_outputs: List[str] = field(default_factory=list)
+    gate_ids: Optional[List[str]] = None

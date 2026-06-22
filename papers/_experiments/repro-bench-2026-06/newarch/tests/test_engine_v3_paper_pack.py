@@ -73,11 +73,12 @@ def test_paper_pack_pipeline_plan_is_domain_owned():
     plan = PaperPack().pipeline_plan()
 
     assert [phase.id for phase in plan] == [
-        "contract",
         "data",
         "gap",
         "structure",
+        "claim_evidence",
         "write",
-        "review",
-        "render",
+        "render_gates",
+        "review_heal",
+        "format_repair",
     ]

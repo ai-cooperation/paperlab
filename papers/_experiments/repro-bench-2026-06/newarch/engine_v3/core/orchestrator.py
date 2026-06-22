@@ -50,15 +50,25 @@ class EngineV3Orchestrator:
                 self.dossier_store.save(dossier)
                 break
 
-            phase_result = phase.handler(task, context)
-            dossier.evidence[phase.id] = dict(phase_result or {})
+            phase_result = dict(phase.handler(task, context) or {})
+            _apply_phase_result(dossier, phase.id, phase_result)
 
-            gate_report = run_gates(self.domain_pack, dossier, phase=phase.id)
+            only = set(phase.gate_ids) if phase.gate_ids is not None else None
+            gate_report = run_gates(self.domain_pack, dossier, phase=phase.id, only=only)
             dossier.gate_reports.append(
                 {
                     "phase": phase.id,
                     "blocked": gate_report.blocked,
                     "failed_blocks": gate_report.failed_blocks,
+                    "results": [
+                        {
+                            "gate_id": result.gate_id,
+                            "passed": result.passed,
+                            "severity": result.severity.value,
+                            "details": result.details,
+                        }
+                        for result in gate_report.results
+                    ],
                 }
             )
             if gate_report.blocked:
@@ -96,6 +106,17 @@ def _skill_bundle(domain_pack: object) -> list[str]:
     if not callable(skill_bundle):
         return []
     return list(skill_bundle())
+
+
+def _apply_phase_result(
+    dossier: Dossier,
+    phase_id: str,
+    phase_result: dict,
+) -> None:
+    gate_inputs = phase_result.pop("gate_inputs", None)
+    if isinstance(gate_inputs, dict):
+        dossier.evidence.update(gate_inputs)
+    dossier.evidence.setdefault("phases", {})[phase_id] = phase_result
 
 
 def _record_delegation(
