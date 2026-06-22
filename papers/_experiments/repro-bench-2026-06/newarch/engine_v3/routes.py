@@ -51,6 +51,37 @@ def register(
             raise HTTPException(status_code=422, detail="body must be a JSON object")
         return payload
 
+    @app.get("/v3/health")
+    def v3_health() -> dict[str, Any]:
+        return {
+            "status": "ok",
+            "engine": "v3",
+            "jobs_dir": str(jobs_dir),
+        }
+
+    @app.get("/v3/capabilities")
+    def v3_capabilities() -> dict[str, Any]:
+        pack = PaperPack()
+        return {
+            "engine": "v3",
+            "packs": [pack.name],
+            "default_pack": pack.name,
+            "runtimes": ["codex-cli", "hermes-codex", "mock"],
+            "routes": [
+                "GET /v3/health",
+                "GET /v3/capabilities",
+                "GET /v3/schema/{pack}/contract_v3.schema.json",
+                "POST /v3/jobs",
+                "GET /v3/jobs/{job_id}/status",
+            ],
+        }
+
+    @app.get("/v3/schema/{pack}/contract_v3.schema.json")
+    def v3_contract_schema(pack: str) -> dict[str, Any]:
+        if pack != "paper":
+            raise HTTPException(status_code=404, detail="unknown v3 pack")
+        return dict(PaperPack().contract_schema())
+
     @app.post("/v3/jobs", status_code=202)
     async def create_v3_job(
         request: Request,

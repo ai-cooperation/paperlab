@@ -151,3 +151,26 @@ def test_v3_routes_absent_without_flag(tmp_path: Path):
     tc = TestClient(http_app.create_app(jobs_dir=tmp_path, start_worker=False))
 
     assert tc.post("/v3/jobs", json={}).status_code == 404
+
+
+def test_v3_health_capabilities_and_schema(tmp_path: Path):
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+        )
+    )
+
+    health = tc.get("/v3/health")
+    capabilities = tc.get("/v3/capabilities")
+    schema = tc.get("/v3/schema/paper/contract_v3.schema.json")
+
+    assert health.status_code == 200
+    assert health.json()["status"] == "ok"
+    assert capabilities.status_code == 200
+    assert capabilities.json()["engine"] == "v3"
+    assert "paper" in capabilities.json()["packs"]
+    assert schema.status_code == 200
+    assert schema.json()["type"] == "object"
