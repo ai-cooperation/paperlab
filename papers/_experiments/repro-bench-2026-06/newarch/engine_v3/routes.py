@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import os
+import threading
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -157,6 +158,9 @@ def register(
                 "status_url": status_url,
                 "idempotent_replay": True,
             }
+        if run_dir.is_dir() and _lock_path(job_id).exists():
+            response.status_code = 200
+            return _accepted_job(job_id, status_url, idempotent_replay=True)
 
         if not _lock_path(job_id).exists() and max_live_jobs > 0 and _live_count() >= max_live_jobs:
             raise HTTPException(
@@ -164,17 +168,46 @@ def register(
                 detail=f"engine busy ({max_live_jobs} concurrent v3 job max); retry later",
             )
 
-        lock_fd = _claim_lock(_lock_path(job_id))
-        try:
-            run_dir.mkdir(parents=True, exist_ok=False)
-            (run_dir / "research_contract.input.json").write_text(
-                json.dumps(contract, ensure_ascii=False, indent=2),
-                encoding="utf-8",
+        lock_path = _lock_path(job_id)
+        lock_fd = _claim_lock(lock_path)
+        run_dir.mkdir(parents=True, exist_ok=False)
+        (run_dir / "research_contract.input.json").write_text(
+            json.dumps(contract, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        if key_path is not None:
+            _write_json(
+                key_path,
+                {
+                    "request_hash": request_hash,
+                    "job_id": job_id,
+                    "status": "accepted",
+                    "status_url": status_url,
+                },
             )
-            pack = PaperPack()
-            runtime = runtime_factory() if runtime_factory is not None else runtime_from_env()
-            phases = phases_factory() if phases_factory is not None else full_paper_pipeline()
+        thread = threading.Thread(
+            target=_run_v3_job,
+            args=(job_id, run_dir, lock_fd, lock_path, key_path, request_hash, status_url),
+            daemon=True,
+        )
+        thread.start()
+        return _accepted_job(job_id, status_url, idempotent_replay=False)
+
+    def _run_v3_job(
+        job_id: str,
+        run_dir: Path,
+        lock_fd: int,
+        lock_path: Path,
+        key_path: Optional[Path],
+        request_hash: str,
+        status_url: str,
+    ) -> None:
+        store = DossierStore(run_dir)
+        pack = PaperPack()
+        try:
             try:
+                runtime = runtime_factory() if runtime_factory is not None else runtime_from_env()
+                phases = phases_factory() if phases_factory is not None else full_paper_pipeline()
                 dossier = EngineV3Orchestrator(
                     runtime=runtime,
                     domain_pack=pack,
@@ -185,7 +218,7 @@ def register(
                 dossier = _failed_dossier(store, job_id, pack.name, exc)
         finally:
             os.close(lock_fd)
-
+            lock_path.unlink(missing_ok=True)
         status = _status(dossier.phases)
         if key_path is not None:
             _write_json(
@@ -197,25 +230,33 @@ def register(
                     "status_url": status_url,
                 },
             )
-        return {
-            "engine": "v3",
-            "job_id": job_id,
-            "status": status,
-            "status_url": status_url,
-            "idempotent_replay": False,
-        }
 
     @app.get("/v3/jobs/{job_id}/status")
     def v3_status(job_id: str) -> dict[str, Any]:
         run_dir = _run_dir(job_id)
         store = DossierStore(run_dir)
         if not store.exists():
+            if run_dir.is_dir():
+                return {
+                    "engine": "v3",
+                    "job_id": job_id,
+                    "status": "running" if _lock_path(job_id).exists() else "accepted",
+                    "domain": "paper",
+                    "phases": {},
+                    "delegations": [],
+                    "gates": [],
+                    "error": None,
+                    "summary": {"floor_100": None, "delivery": None, "phases_done": []},
+                    "artifacts": {"has_pdf": False, "pdf": None},
+                }
             raise HTTPException(status_code=404, detail="job not found")
         dossier = store.load()
+        dossier_status = _status(dossier.phases)
+        status = "running" if _lock_path(job_id).exists() and dossier_status not in {"blocked", "failed"} else dossier_status
         return {
             "engine": "v3",
             "job_id": dossier.job_id,
-            "status": _status(dossier.phases),
+            "status": status,
             "domain": dossier.domain,
             "phases": dict(dossier.phases),
             "delegations": list(dossier.delegations),
@@ -270,6 +311,16 @@ def _status(phases: dict[str, str]) -> str:
     if any(status == "blocked" for status in phases.values()):
         return "blocked"
     return "done"
+
+
+def _accepted_job(job_id: str, status_url: str, *, idempotent_replay: bool) -> dict[str, Any]:
+    return {
+        "engine": "v3",
+        "job_id": job_id,
+        "status": "accepted",
+        "status_url": status_url,
+        "idempotent_replay": idempotent_replay,
+    }
 
 
 def _failed_dossier(store: DossierStore, job_id: str, domain: str, exc: Exception):

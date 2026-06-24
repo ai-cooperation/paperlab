@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import shutil
+import threading
+import time
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 import http_app
+from engine_v3.core import TaskResult
 from engine_v3.pipelines.paper import (
     BOUNDED_GOLDEN_OUTPUTS,
     DATA_OUTPUTS,
@@ -88,6 +91,19 @@ def _clean_long_draft() -> str:
     return "\n\n".join([sentence for _ in range(90)])
 
 
+def _wait_for_status(tc: TestClient, status_url: str, status: str, timeout_s: float = 5.0) -> dict:
+    deadline = time.time() + timeout_s
+    last: dict = {}
+    while time.time() < deadline:
+        response = tc.get(status_url)
+        if response.status_code == 200:
+            last = response.json()
+            if last.get("status") == status:
+                return last
+        time.sleep(0.05)
+    raise AssertionError(f"timed out waiting for {status}; last={last}")
+
+
 def test_v3_jobs_require_bearer_token(tmp_path: Path):
     tc = TestClient(
         http_app.create_app(
@@ -140,15 +156,54 @@ def test_v3_job_runs_bounded_golden_and_status(tmp_path: Path, golden_dir: Path)
     assert created.status_code == 202
     body = created.json()
     assert body["engine"] == "v3"
-    assert body["status"] == "done"
+    assert body["status"] == "accepted"
     assert body["job_id"].startswith("v3_")
-    status = tc.get(body["status_url"])
-    assert status.status_code == 200
-    payload = status.json()
+    payload = _wait_for_status(tc, body["status_url"], "done")
     assert payload["engine"] == "v3"
     assert payload["status"] == "done"
     assert payload["phases"] == {"data": "done", "render_gates": "done"}
     assert all(report["blocked"] is False for report in payload["gates"])
+
+
+def test_v3_job_submit_returns_before_runtime_finishes(tmp_path: Path):
+    started = threading.Event()
+    release = threading.Event()
+
+    class BlockingRuntime:
+        name = "blocking"
+
+        def prepare(self, _context):
+            return None
+
+        def run_brain(self, task, _context):
+            started.set()
+            release.wait(timeout=3)
+            return TaskResult(status="ok", task_id=task.task_id)
+
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+            v3_runtime_factory=lambda: BlockingRuntime(),
+            v3_phases_factory=bounded_golden_pipeline,
+        )
+    )
+
+    created = tc.post(
+        "/v3/jobs",
+        json={"domain": "paper", "topic": "slow"},
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert created.status_code == 202
+    assert created.json()["status"] == "accepted"
+    assert started.wait(timeout=1)
+    status = tc.get(created.json()["status_url"])
+    assert status.status_code == 200
+    assert status.json()["status"] == "running"
+    release.set()
 
 
 def test_v3_status_includes_project_page_projection(tmp_path: Path, golden_dir: Path):
@@ -174,7 +229,7 @@ def test_v3_status_includes_project_page_projection(tmp_path: Path, golden_dir: 
         headers={"Authorization": "Bearer secret"},
     ).json()
 
-    payload = tc.get(created["status_url"]).json()
+    payload = _wait_for_status(tc, created["status_url"], "done")
 
     assert payload["research_plan"] == {
         "topic": "bounded golden",
@@ -205,6 +260,7 @@ def test_v3_artifact_route_serves_only_indexed_artifacts(tmp_path: Path, golden_
         headers={"Authorization": "Bearer secret"},
     ).json()
     job_id = created["job_id"]
+    _wait_for_status(tc, created["status_url"], "done")
 
     bib = tc.get(f"/v3/jobs/{job_id}/artifact/references.bib")
     nested = tc.get(f"/v3/jobs/{job_id}/artifact/real_experiments/real_results.json")
@@ -339,12 +395,10 @@ def test_v3_worker_crash_sets_failed_state(tmp_path: Path):
     )
 
     assert created.status_code == 202
-    assert created.json()["status"] == "failed"
-    status = tc.get(created.json()["status_url"])
-    assert status.status_code == 200
-    assert status.json()["status"] == "failed"
-    assert status.json()["phases"] == {"system": "error"}
-    assert status.json()["error"]["type"] == "RuntimeError"
+    assert created.json()["status"] == "accepted"
+    status = _wait_for_status(tc, created.json()["status_url"], "failed")
+    assert status["phases"] == {"system": "error"}
+    assert status["error"]["type"] == "RuntimeError"
 
 
 def test_v3_routes_absent_without_flag(tmp_path: Path):
