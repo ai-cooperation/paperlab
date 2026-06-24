@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { buildContract, coerceLevel, grillFramework, nextGrillState, parseGrillState } from "./contracts";
+import { resolveEngineRoutes } from "./engineRoutes";
 import { assertQuota, sha256Hex, textResult } from "./security";
 import {
   addFinding,
@@ -78,7 +79,7 @@ export function registerPaperTools(server: McpServer, env: Env, user: AuthUser):
     "validate_research_contract",
     "Validate a research_contract against the a-side dry-run endpoint.",
     { research_contract: z.record(z.string(), z.unknown()) },
-    async ({ research_contract }) => textResult(await callJobService(env, "/jobs/dry-run", "POST", research_contract))
+    async ({ research_contract }) => textResult(await callJobService(env, routesFor(env).dryRun, "POST", research_contract))
   );
 
   server.tool(
@@ -212,7 +213,7 @@ async function confirmResearchContract(env: Env, user: AuthUser, sessionId: stri
   await audit(env, "confirm_research_contract", { user, sessionId, payload: { job_id: contract.job_id, level: contract.level } });
   return {
     research_contract: contract,
-    validation: await callJobService(env, "/jobs/dry-run", "POST", contract)
+    validation: await callJobService(env, routesFor(env).dryRun, "POST", contract)
   };
 }
 
@@ -231,7 +232,7 @@ async function probeDataSource(env: Env, user: AuthUser, sessionId: string, sour
   const session = await getSession(env, sessionId, user);
   const state = parseGrillState(session.grill_state);
   const contract = buildContract(session, state, { "4": { data_source: source }, job_id: `probe-${crypto.randomUUID()}` });
-  const result = await callJobService(env, "/jobs/probe-data-source", "POST", contract);
+  const result = await callJobService(env, routesFor(env).dataProbe, "POST", contract);
   await audit(env, "probe_data_source", { user, sessionId, payload: { source, result } });
   return result;
 }
@@ -263,11 +264,12 @@ async function probeViability(env: Env, user: AuthUser, sessionId: string, contr
   // The a-side owns the corpus + the canonical contract_hash; b stores the verdict +
   // approves the lock if viable (b never recomputes the hash). Thin handoff: only the
   // structured contract crosses, never dense numbers (a-side rejects those too).
-  const verdict = await callJobService(env, "/jobs/viability-probe", "POST", contract) as {
+  const routes = routesFor(env);
+  const verdict = await callJobService(env, routes.viabilityProbe, "POST", contract) as {
     contract_hash: string; viable: boolean; [k: string]: unknown };
   await storeViabilityLock(env, sessionId, user, {
     contract_hash: verdict.contract_hash, viable: verdict.viable,
-    engine_base_url: env.PAPER_JOB_SERVICE_URL, approved: !!verdict.viable
+    engine_base_url: viabilityLockIssuer(env, routes.viabilityProbe), approved: !!verdict.viable
   });
   await audit(env, "probe_viability", { user, sessionId, payload: { contract_hash: verdict.contract_hash, viable: verdict.viable } });
   return { ...verdict, lock_stored: true, approved: !!verdict.viable };
@@ -276,17 +278,29 @@ async function probeViability(env: Env, user: AuthUser, sessionId: string, contr
 async function submitToPipeline(env: Env, user: AuthUser, sessionId: string | null, contract: ResearchContract, key: string, confirm: boolean) {
   if (!confirm) throw new Error("submit_to_pipeline requires confirm=true because it triggers real compute");
   assertQuota(user);
-  const endpoint = env.A_ENGINE_ENDPOINT || "/jobs";
-  // The /v2 engine requires an approved, hash-matched, viable lock (§4). The old /jobs
-  // path is unchanged (A/B-safe; default until a golden A/B passes).
-  if (endpoint.includes("/v2/")) {
-    if (!sessionId) throw new Error("v2 submit requires session_id (for the viability-lock)");
-    const lock = await readViabilityLock(env, sessionId, user);
-    if (!lock || !lock.approved) throw new Error("submit refused: run probe_viability first to obtain an approved viability-lock");
-    if (lock.engine_base_url !== env.PAPER_JOB_SERVICE_URL) throw new Error("submit refused: viability-lock was issued for a different engine");
-    const reprobe = await callJobService(env, "/jobs/viability-probe", "POST", contract) as { contract_hash?: string; viable?: boolean };
-    if (!reprobe.viable) throw new Error("submit refused: contract is non-viable");
-    if (reprobe.contract_hash !== lock.contract_hash) throw new Error("submit refused: scope changed since approval (hash mismatch) — re-probe + re-approve");
+  const routes = routesFor(env);
+  // Hermes engines require an approved, hash-matched, viable lock (§4). The old /jobs
+  // path is unchanged for A/B rollback.
+  if (routes.requiresViabilityLock) {
+    if (!sessionId) throw new Error(`${routes.engine} submit requires session_id (for the viability-lock)`);
+    let lock = await readViabilityLock(env, sessionId, user);
+    if (!lock || !lock.approved) {
+      // Auto-probe inline: the flip must not refuse a VIABLE contract just because the
+      // grill did not pre-call probe_viability. The viability GATE still holds —
+      // probeViability approves only when the a-side reports viable, so a non-viable
+      // contract is still refused below.
+      await probeViability(env, user, sessionId, contract);
+      lock = await readViabilityLock(env, sessionId, user);
+      if (!lock || !lock.approved) throw new Error("submit refused: contract is non-viable");
+    } else {
+      // An explicit lock exists — re-probe to confirm still viable + scope unchanged (hash match).
+      if (!viabilityLockMatches(env, routes.viabilityProbe, routes.engine, lock.engine_base_url)) {
+        throw new Error("submit refused: viability-lock was issued for a different engine");
+      }
+      const reprobe = await callJobService(env, routes.viabilityProbe, "POST", contract) as { contract_hash?: string; viable?: boolean };
+      if (!reprobe.viable) throw new Error("submit refused: contract is non-viable");
+      if (reprobe.contract_hash !== lock.contract_hash) throw new Error("submit refused: scope changed since approval (hash mismatch) — re-probe + re-approve");
+    }
   }
   const requestHash = await sha256Hex(JSON.stringify(contract));
   const existing = await readIdempotency(env, key, user);
@@ -294,7 +308,7 @@ async function submitToPipeline(env: Env, user: AuthUser, sessionId: string | nu
     if (existing.request_hash !== requestHash) throw new Error("idempotency_key already used with a different research_contract");
     return { ...JSON.parse(existing.response_json), idempotent_replay: true };
   }
-  const result = await callJobService(env, endpoint, "POST", contract, { "Idempotency-Key": key });
+  const result = await callJobService(env, routes.submit, "POST", contract, { "Idempotency-Key": key });
   const jobId = extractJobId(result);
   await writeIdempotency(env, key, user, requestHash, jobId, result);
   await recordJob(env, user, sessionId, jobId, "submitted", result);
@@ -307,13 +321,13 @@ async function submitToPipeline(env: Env, user: AuthUser, sessionId: string | nu
 }
 
 async function getJobStatus(env: Env, user: AuthUser, jobId: string) {
-  const result = await callJobService(env, `/jobs/${encodeURIComponent(jobId)}/status`, "GET");
+  const result = await callJobService(env, routesFor(env).status(jobId), "GET");
   await recordJob(env, user, null, jobId, extractStatus(result), result);
   return result;
 }
 
 async function getPaperResult(env: Env, user: AuthUser, jobId: string) {
-  const result = await callJobService(env, `/jobs/${encodeURIComponent(jobId)}/result`, "GET");
+  const result = await callJobService(env, routesFor(env).result(jobId), "GET");
   await recordJob(env, user, null, jobId, extractStatus(result), result);
   await audit(env, "get_paper_result", { user, jobId, payload: { status: extractStatus(result) } });
   return result;
@@ -341,6 +355,21 @@ async function callJobService(env: Env, path: string, method: "GET" | "POST", bo
   const result = await fetchJson(`${base}${path}`, method, body, headers);
   if (!result.ok) throw new Error(`job service ${path} failed with HTTP ${result.status}: ${JSON.stringify(result.payload)}`);
   return result.payload;
+}
+
+function routesFor(env: Env) {
+  return resolveEngineRoutes(env.A_ENGINE_ENDPOINT);
+}
+
+function viabilityLockIssuer(env: Env, viabilityProbePath: string): string {
+  const base = env.PAPER_JOB_SERVICE_URL.replace(/\/+$/, "");
+  return `${base}${viabilityProbePath}`;
+}
+
+function viabilityLockMatches(env: Env, viabilityProbePath: string, engine: string, lockIssuer: string): boolean {
+  const current = viabilityLockIssuer(env, viabilityProbePath);
+  if (lockIssuer === current) return true;
+  return engine === "v2" && lockIssuer === env.PAPER_JOB_SERVICE_URL;
 }
 
 async function fetchJson(url: string, method: "GET" | "POST", body: unknown, headers: Record<string, string>): Promise<RemoteResponse> {
