@@ -78,6 +78,37 @@ def test_v3_job_runs_bounded_golden_and_status(tmp_path: Path, golden_dir: Path)
     assert all(report["blocked"] is False for report in payload["gates"])
 
 
+def test_v3_artifact_route_serves_only_indexed_artifacts(tmp_path: Path, golden_dir: Path):
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+            v3_runtime_factory=lambda: _fixture_runtime(golden_dir),
+            v3_phases_factory=bounded_golden_pipeline,
+        )
+    )
+    created = tc.post(
+        "/v3/jobs",
+        json={"domain": "paper", "topic": "artifact route"},
+        headers={"Authorization": "Bearer secret"},
+    ).json()
+    job_id = created["job_id"]
+
+    bib = tc.get(f"/v3/jobs/{job_id}/artifact/references.bib")
+    nested = tc.get(f"/v3/jobs/{job_id}/artifact/real_experiments/real_results.json")
+    missing = tc.get(f"/v3/jobs/{job_id}/artifact/not-indexed.txt")
+    traversal = tc.get(f"/v3/jobs/{job_id}/artifact/../../research_contract.input.json")
+
+    assert bib.status_code == 200
+    assert "@article" in bib.text or "@misc" in bib.text
+    assert nested.status_code == 200
+    assert nested.json()["meta"]["pooled"]
+    assert missing.status_code == 404
+    assert traversal.status_code == 404
+
+
 def test_v3_submit_idempotent_replay_same_hash(tmp_path: Path, golden_dir: Path):
     tc = TestClient(
         http_app.create_app(

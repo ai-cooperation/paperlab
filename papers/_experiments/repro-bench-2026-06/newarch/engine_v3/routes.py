@@ -8,8 +8,10 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from fastapi import FastAPI, Header, HTTPException, Request, Response
+from fastapi.responses import FileResponse
 
 from engine_v3.core import DossierStore
+from engine_v3.core.dossier import hash_file
 from engine_v3.core.orchestrator import EngineV3Orchestrator
 from engine_v3.packs.paper import PaperPack
 from engine_v3.pipelines.paper import bounded_golden_pipeline
@@ -73,6 +75,7 @@ def register(
                 "GET /v3/schema/{pack}/contract_v3.schema.json",
                 "POST /v3/jobs",
                 "GET /v3/jobs/{job_id}/status",
+                "GET /v3/jobs/{job_id}/artifact/{artifact_id}",
             ],
         }
 
@@ -180,6 +183,24 @@ def register(
             },
         }
 
+    @app.get("/v3/jobs/{job_id}/artifact/{artifact_id:path}")
+    def v3_artifact(job_id: str, artifact_id: str) -> FileResponse:
+        run_dir = _run_dir(job_id)
+        store = DossierStore(run_dir)
+        if not store.exists():
+            raise HTTPException(status_code=404, detail="job not found")
+        dossier = store.load()
+        ref = dossier.artifacts.get(artifact_id)
+        if ref is None:
+            raise HTTPException(status_code=404, detail="artifact not found")
+
+        path = _indexed_artifact_path(run_dir, ref.path)
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="artifact file not found")
+        if hash_file(path) != ref.sha256:
+            raise HTTPException(status_code=409, detail="artifact hash mismatch")
+        return FileResponse(path)
+
 
 def _require_post_auth(authorization: Optional[str], auth_token: Optional[str]) -> None:
     if not auth_token:
@@ -230,3 +251,13 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     tmp.replace(path)
+
+
+def _indexed_artifact_path(run_dir: Path, artifact_path: str) -> Path:
+    base = run_dir.resolve()
+    path = (run_dir / artifact_path).resolve()
+    try:
+        path.relative_to(base)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="artifact not found") from exc
+    return path
