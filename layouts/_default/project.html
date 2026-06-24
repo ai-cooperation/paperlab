@@ -124,13 +124,23 @@
     incomplete: ['未完成', 'bg-gray-200 text-gray-700'] };
   let timer = null, fails = 0;
 
+  function currentPhase(s) {
+    if (s.phase) return s.phase;
+    const phases = s.phases && typeof s.phases === 'object' ? s.phases : {};
+    const active = Object.entries(phases).find(([, status]) => ['running', 'blocked', 'failed'].includes(status));
+    if (active) return active[0];
+    const keys = Object.keys(phases);
+    return keys.length ? keys[keys.length - 1] : '';
+  }
+
   function render(s) {
     $('pp-err').classList.add('hidden');
     if (s.data_warning) { $('pp-err').textContent = '資料警告：' + esc(s.data_warning); $('pp-err').classList.remove('hidden'); }
     const rp = s.research_plan || {};
+    const phase = currentPhase(s);
     $('pp-topic').textContent = rp.topic || '(未命名專案)';
     $('pp-job').textContent = s.job_id || JOB || '';
-    $('pp-phase').textContent = PHASE_LABEL[s.phase] || s.phase || '—';
+    $('pp-phase').textContent = PHASE_LABEL[phase] || phase || '—';
     $('pp-updated').textContent = new Date().toLocaleTimeString('zh-TW');
     $('pp-rq').textContent = rp.research_question || '—';
     $('pp-contrib').textContent = rp.contribution || '—';
@@ -175,8 +185,8 @@
 
     // phase timeline: known phases in order; if the current phase is unknown, append it.
     let order = PHASE_ORDER.slice();
-    if (s.phase && !order.includes(s.phase)) order = order.concat([s.phase]);
-    const curIdx = order.indexOf(s.phase);
+    if (phase && !order.includes(phase)) order = order.concat([phase]);
+    const curIdx = order.indexOf(phase);
     $('pp-steps').innerHTML = order.map((p, i) => {
       const done = curIdx >= 0 && i <= curIdx;
       const cls = done ? 'bg-primary text-white border-primary' : 'bg-white text-gray-500 border-gray-300';
