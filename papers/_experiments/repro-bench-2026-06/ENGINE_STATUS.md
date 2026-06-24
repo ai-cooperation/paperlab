@@ -46,10 +46,23 @@ node node_modules/typescript/bin/tsc --noEmit
 # pass
 ```
 
+Isolated ac-2012 smoke, not production-mounted:
+
+```text
+Remote copy: ac-2012:~/engine-v3-smoke-ec8058b0
+Command shape: PAPER_ENGINE_V3=1 PAPER_ENGINE_V3_TOKEN=smoke-token PAPER_ENGINE_V3_RUNTIME=mock
+               PAPER_JOBS_DIR=$PWD/jobs-v3-smoke uvicorn http_app:app --host 127.0.0.1 --port 8897
+
+GET  /v3/health                 -> HTTP 200
+GET  /v3/capabilities           -> HTTP 200
+POST /v3/jobs without token     -> HTTP 401
+POST /v3/jobs/viability-probe   -> HTTP 200 with Bearer smoke-token
+```
+
 Not yet claimed complete:
 
-- No live `/v3` smoke has been run against ac-2012 in this v3 rebuild.
 - No production deployment or `paper-mcp` Worker deploy has been performed.
+- Production `paper-a.cooperation.tw` still returns 404 for `/v3/health`; prod env currently has `PAPER_ENGINE_V2=1` only.
 - No live v3 golden A/B score has replaced the v2 live golden proof below.
 
 ## 1. What is built (newarch/, branch `engine-build`, 16 commits, 154 tests pass)
