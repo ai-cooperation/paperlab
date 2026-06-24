@@ -46,6 +46,19 @@ def test_v3_jobs_require_bearer_token(tmp_path: Path):
     ).status_code == 403
 
 
+def test_v3_viability_probe_requires_bearer_token(tmp_path: Path):
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+        )
+    )
+
+    assert tc.post("/v3/jobs/viability-probe", json={}).status_code == 401
+
+
 def test_v3_job_runs_bounded_golden_and_status(tmp_path: Path, golden_dir: Path):
     tc = TestClient(
         http_app.create_app(
@@ -205,3 +218,30 @@ def test_v3_health_capabilities_and_schema(tmp_path: Path):
     assert "paper" in capabilities.json()["packs"]
     assert schema.status_code == 200
     assert schema.json()["type"] == "object"
+
+
+def test_v3_viability_probe_uses_paper_pack(tmp_path: Path, load_fixture_json):
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+        )
+    )
+    response = tc.post(
+        "/v3/jobs/viability-probe",
+        json={
+            "contract": load_fixture_json("contract_paper.json"),
+            "sources": {"corpus": load_fixture_json("corpus_exercise.json")},
+        },
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["engine"] == "v3"
+    assert body["domain"] == "paper"
+    assert body["viable"] is True
+    assert body["metric"]["max_poolable_k"] == 8
+    assert body["contract_hash"]

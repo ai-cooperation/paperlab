@@ -82,3 +82,16 @@ def test_paper_pack_pipeline_plan_is_domain_owned():
         "review_heal",
         "format_repair",
     ]
+
+
+def test_paper_pack_viability_probe_delegates_to_real_paper_logic(load_fixture_json):
+    pack = PaperPack()
+
+    verdict = pack.viability_probe(
+        load_fixture_json("contract_paper.json"),
+        {"corpus": load_fixture_json("corpus_exercise.json")},
+    )
+
+    assert verdict.viable is True
+    assert verdict.metric["max_poolable_k"] == 8
+    assert verdict.contract_hash

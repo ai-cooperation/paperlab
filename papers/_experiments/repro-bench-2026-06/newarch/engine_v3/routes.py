@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import os
+from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -84,6 +85,24 @@ def register(
         if pack != "paper":
             raise HTTPException(status_code=404, detail="unknown v3 pack")
         return dict(PaperPack().contract_schema())
+
+    @app.post("/v3/jobs/viability-probe")
+    async def v3_viability_probe(
+        request: Request,
+        authorization: Optional[str] = Header(default=None, alias="Authorization"),
+    ) -> dict[str, Any]:
+        _require_post_auth(authorization, auth_token)
+        payload = await _json(request)
+        contract = payload.get("contract") if isinstance(payload.get("contract"), dict) else payload
+        sources = payload.get("sources") if isinstance(payload.get("sources"), dict) else {}
+        pack = PaperPack()
+        verdict = pack.viability_probe(contract, sources)
+        body = _jsonable(verdict)
+        return {
+            "engine": "v3",
+            "domain": pack.name,
+            **body,
+        }
 
     @app.post("/v3/jobs", status_code=202)
     async def create_v3_job(
@@ -251,6 +270,16 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     tmp.replace(path)
+
+
+def _jsonable(value: Any) -> dict[str, Any]:
+    if is_dataclass(value):
+        data = asdict(value)
+    elif isinstance(value, dict):
+        data = value
+    else:
+        raise TypeError("value is not JSON object shaped: %s" % type(value).__name__)
+    return dict(data)
 
 
 def _indexed_artifact_path(run_dir: Path, artifact_path: str) -> Path:

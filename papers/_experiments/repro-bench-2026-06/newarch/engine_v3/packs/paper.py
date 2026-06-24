@@ -106,6 +106,9 @@ class PaperPack:
     def tool_provider(self) -> PaperToolProvider:
         return PaperToolProvider()
 
+    def viability_probe(self, contract: Mapping[str, Any], sources: Mapping[str, Any]) -> Any:
+        return self._v2.viability_probe(dict(contract), dict(sources))
+
     def pipeline_plan(self) -> list[PhaseSpec]:
         return [
             PhaseSpec(id=phase_id, handler=_pending_phase_handler(phase_id))
