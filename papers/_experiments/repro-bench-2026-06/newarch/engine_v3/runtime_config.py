@@ -6,10 +6,11 @@ from engine_v3.runtimes import CodexCliRuntime, HermesCodexRuntime, MockRuntime
 
 
 RUNTIME_ENV = "PAPER_ENGINE_V3_RUNTIME"
+DEFAULT_RUNTIME = "hermes-codex"
 
 
 def runtime_from_env():
-    name = os.environ.get(RUNTIME_ENV, "codex-cli").strip().lower()
+    name = os.environ.get(RUNTIME_ENV, DEFAULT_RUNTIME).strip().lower()
     if name in ("codex", "codex-cli"):
         return CodexCliRuntime()
     if name in ("hermes", "hermes-codex"):

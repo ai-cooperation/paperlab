@@ -73,7 +73,7 @@ WRITE_OUTPUTS = [
     "sections/conclusion.md",
     "paper_draft_v0.qmd",
 ]
-REVIEW_OUTPUTS = ["quality_review_round1.json"]
+REVIEW_OUTPUTS = ["quality_review_round1.json", "quality_review_log.md"]
 FORMAT_REPAIR_OUTPUTS = ["paper_draft_v0.pdf"]
 
 REVIEW_HEAL_PROMPT = """Run review and self-heal, not review-only.
@@ -84,9 +84,16 @@ inside the run directory, then write quality_review_round1.json.
 
 Hard requirements for quality_review_round1.json:
 - Include top-level p0_count, delivery, and floor_100 fields for the R gate.
+- Include top-level review_loop with status, rounds, reviewer_model, fixer_model,
+  floor_failed, and independent_reviewer fields.
 - Set delivery to "pass" only if no P0 issues remain and the manuscript can be delivered.
 - If issues remain, include actionable findings and keep delivery as "revise".
 - Do not stop at review_only when the issue is fixable; modify the affected artifacts.
+
+Hard requirements for quality_review_log.md:
+- Record each evaluator/fixer round in order.
+- Record every blocking finding, exact edit/fix applied, and recheck result.
+- If the loop cannot clear, write the terminal blocker instead of passing.
 """
 
 FULL_PIPELINE_OUTPUTS = (
@@ -179,7 +186,8 @@ def full_paper_pipeline() -> list[PhaseSpec]:
             expected_outputs=list(REVIEW_OUTPUTS),
             gate_ids=["R"],
             repair_prompt=REVIEW_HEAL_PROMPT,
-            max_repair_attempts=1,
+            max_repair_attempts=3,
+            review_rounds=3,
         ),
         PhaseSpec(
             id="format_repair",
@@ -204,4 +212,8 @@ def _collect_gate_inputs(
                 gate_inputs["review"] = review
         except json.JSONDecodeError:
             gate_inputs["review"] = {"p0_count": 1, "delivery": "invalid-json"}
+    review_log_path = context.run_dir / "quality_review_log.md"
+    gate_inputs["review_log_present"] = review_log_path.is_file() and bool(
+        review_log_path.read_text(encoding="utf-8", errors="ignore").strip()
+    )
     return {"gate_inputs": gate_inputs}

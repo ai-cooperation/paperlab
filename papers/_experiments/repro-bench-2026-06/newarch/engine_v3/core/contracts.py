@@ -143,3 +143,4 @@ class PhaseSpec:
     gate_ids: Optional[List[str]] = None
     repair_prompt: str = ""
     max_repair_attempts: int = 0
+    review_rounds: int = 0

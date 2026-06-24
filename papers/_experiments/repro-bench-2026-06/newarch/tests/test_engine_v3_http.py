@@ -69,7 +69,15 @@ def _full_fixture_runtime(golden_dir: Path):
             (cwd / "paper_springer.qmd").write_text(clean_draft, encoding="utf-8")
         if "quality_review_round1.json" in prompt:
             (cwd / "quality_review_round1.json").write_text(
-                '{"p0_count": 0, "delivery": "pass", "floor_100": 82.0}\n',
+                '{"p0_count": 0, "delivery": "pass", "floor_100": 82.0, '
+                '"review_loop": {"status": "passed", "rounds": 1, '
+                '"reviewer_model": "codex-class", "fixer_model": "big-pickle", '
+                '"independent_reviewer": true, "floor_failed": false}}\n',
+                encoding="utf-8",
+            )
+        if "quality_review_log.md" in prompt:
+            (cwd / "quality_review_log.md").write_text(
+                "# Quality review log\n\n- round 1: passed; no P0; floor ok\n",
                 encoding="utf-8",
             )
         if "paper_draft_v0.pdf" in prompt:

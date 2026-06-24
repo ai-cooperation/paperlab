@@ -8,16 +8,16 @@ from engine_v3.runtimes import CodexCliRuntime, HermesCodexRuntime, MockRuntime
 pytestmark = pytest.mark.unit
 
 
-def test_runtime_from_env_defaults_to_codex_cli(monkeypatch):
+def test_runtime_from_env_defaults_to_hermes_codex(monkeypatch):
     monkeypatch.delenv("PAPER_ENGINE_V3_RUNTIME", raising=False)
 
-    assert isinstance(runtime_from_env(), CodexCliRuntime)
-
-
-def test_runtime_from_env_selects_hermes(monkeypatch):
-    monkeypatch.setenv("PAPER_ENGINE_V3_RUNTIME", "hermes-codex")
-
     assert isinstance(runtime_from_env(), HermesCodexRuntime)
+
+
+def test_runtime_from_env_selects_codex_only_when_explicit(monkeypatch):
+    monkeypatch.setenv("PAPER_ENGINE_V3_RUNTIME", "codex-cli")
+
+    assert isinstance(runtime_from_env(), CodexCliRuntime)
 
 
 def test_runtime_from_env_selects_mock(monkeypatch):

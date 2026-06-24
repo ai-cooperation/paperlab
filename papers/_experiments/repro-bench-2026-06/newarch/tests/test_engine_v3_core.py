@@ -435,3 +435,82 @@ def test_orchestrator_accepts_repair_outputs_when_gate_passes_despite_runtime_er
     assert dossier.phases["data"] == "done"
     assert [report["blocked"] for report in dossier.gate_reports] == [True, False]
     assert dossier.delegations[-1]["status"] == "error"
+
+
+def test_orchestrator_repair_attempt_numbers_continue_on_resume(tmp_path: Path):
+    class ResumeRepairRuntime(MockRuntime):
+        name = "resume-repair"
+
+        def __init__(self):
+            self.calls = []
+
+        def run_brain(self, task: BrainTask, context: RuntimeContext):
+            self.calls.append(task.task_id)
+            refs = context.run_dir / "references.bib"
+            refs.write_text(
+                "@article{one}\n@article{two}\n"
+                if task.task_id == "data:repair:2" else
+                "@article{one}\n",
+                encoding="utf-8",
+            )
+            return TaskResult(
+                task_id=task.task_id,
+                status="ok",
+                outputs={"references.bib": refs},
+                changed_files=["references.bib"],
+            )
+
+    class RefFloorPack:
+        name = "demo"
+
+        def gate_registry(self):
+            def check(dossier):
+                count = int(dossier.evidence.get("ref_count") or 0)
+                if count >= 2:
+                    return GateResult.pass_("A", "bib_count=%s" % count)
+                return GateResult.fail("A", details="bib_count=%s (floor 2)" % count)
+
+            return [{"id": "A", "phase": "data", "severity": GateSeverity.BLOCK, "check": check}]
+
+    def handler(_task: BrainTask, context: RuntimeContext):
+        refs = context.run_dir / "references.bib"
+        return {"gate_inputs": {"ref_count": refs.read_text(encoding="utf-8").count("@article")}}
+
+    store = DossierStore(tmp_path)
+    dossier = store.create(job_id="job-1", domain="demo")
+    dossier.mark_phase("data", "blocked")
+    dossier.delegations.append(
+        {
+            "task_id": "data:repair:1",
+            "phase": "data",
+            "runtime": "resume-repair",
+            "class": "brain",
+            "status": "error",
+            "declared_outputs": ["references.bib"],
+            "changed_files": [],
+            "blockers": ["prior failed repair"],
+        }
+    )
+    store.save(dossier)
+
+    runtime = ResumeRepairRuntime()
+    final = EngineV3Orchestrator(
+        runtime=runtime,
+        domain_pack=RefFloorPack(),
+        phases=[
+            PhaseSpec(
+                id="data",
+                handler=handler,
+                prompt="collect refs",
+                expected_outputs=["references.bib"],
+                gate_ids=["A"],
+                repair_prompt="repair refs",
+                max_repair_attempts=1,
+            )
+        ],
+        dossier_store=store,
+    ).run(job_id="job-1", resume=True)
+
+    assert runtime.calls == ["data:brain", "data:repair:2"]
+    assert final.phases["data"] == "done"
+    assert final.delegations[-1]["task_id"] == "data:repair:2"

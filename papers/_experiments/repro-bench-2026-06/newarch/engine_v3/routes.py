@@ -243,11 +243,13 @@ def register(
                     "status": "running" if _lock_path(job_id).exists() else "accepted",
                     "domain": "paper",
                     "phases": {},
-                    "delegations": [],
-                    "gates": [],
-                    "error": None,
-                    "summary": {"floor_100": None, "delivery": None, "phases_done": []},
-                    "artifacts": {"has_pdf": False, "pdf": None},
+            "delegations": [],
+            "gates": [],
+            "runtime_policy": None,
+            "trace": [],
+            "error": None,
+            "summary": {"floor_100": None, "delivery": None, "phases_done": []},
+            "artifacts": {"has_pdf": False, "pdf": None},
                 }
             raise HTTPException(status_code=404, detail="job not found")
         dossier = store.load()
@@ -261,6 +263,9 @@ def register(
             "phases": dict(dossier.phases),
             "delegations": list(dossier.delegations),
             "gates": list(dossier.gate_reports),
+            "runtime_policy": dossier.evidence.get("runtime_policy"),
+            "runtime_fallback": bool((dossier.evidence.get("runtime_policy") or {}).get("fallback")),
+            "trace": list(dossier.evidence.get("trace") or []),
             "error": dossier.evidence.get("error"),
             **_project_status(dossier, run_dir),
         }
@@ -364,6 +369,13 @@ def _project_status(dossier: Any, run_dir: Path) -> dict[str, Any]:
             "floor_100": review.get("floor_100"),
             "delivery": delivery,
             "phases_done": [phase for phase, phase_status in dossier.phases.items() if phase_status == "done"],
+            "runtime": (dossier.evidence.get("runtime_policy") or {}).get("selected"),
+            "runtime_fallback": bool((dossier.evidence.get("runtime_policy") or {}).get("fallback")),
+            "repair_delegations": sum(
+                1
+                for delegation in dossier.delegations
+                if ":repair:" in str(delegation.get("task_id") or "")
+            ),
         },
         "artifacts": artifacts,
     }

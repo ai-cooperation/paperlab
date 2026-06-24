@@ -216,17 +216,35 @@ def _gate_review(dossier: Any) -> GateResult:
     floor = review.get("floor_100")
     if floor is None:
         floor = review.get("quality_gate", {}).get("floor_100") if isinstance(review.get("quality_gate"), dict) else None
-    ok = p0_count == 0 and delivery in ("pass", "passed", "ok") and isinstance(floor, (int, float))
+    loop = review.get("review_loop") if isinstance(review.get("review_loop"), dict) else {}
+    loop_ok = _review_loop_ok(loop, bool(data.get("review_log_present")))
+    ok = (
+        p0_count == 0
+        and delivery in ("pass", "passed", "ok")
+        and isinstance(floor, (int, float))
+        and loop_ok
+    )
     return GateResult(
         gate_id="R",
         passed=ok,
         severity=GateSeverity.BLOCK,
         details=(
-            "review passed: no P0, delivery pass, floor_100=%s" % floor
+            "review passed: no P0, delivery pass, floor_100=%s, loop ok" % floor
             if ok else
-            "review failed: p0_count=%s, delivery=%s, floor_100=%s" % (p0_count, delivery or None, floor)
+            "review failed: p0_count=%s, delivery=%s, floor_100=%s, loop_ok=%s" % (
+                p0_count,
+                delivery or None,
+                floor,
+                loop_ok,
+            )
         ),
-        evidence={"p0_count": p0_count, "delivery": delivery, "floor_100": floor},
+        evidence={
+            "p0_count": p0_count,
+            "delivery": delivery,
+            "floor_100": floor,
+            "review_loop": loop,
+            "review_log_present": bool(data.get("review_log_present")),
+        },
     )
 
 
@@ -255,6 +273,26 @@ def _review_delivery(review: Mapping[str, Any]) -> str:
     if isinstance(summary, dict) and summary.get("blocking_for_final_submission"):
         return "revise"
     return str(review.get("overall_status") or "")
+
+
+def _review_loop_ok(loop: Mapping[str, Any], log_present: bool) -> bool:
+    if not log_present:
+        return False
+    status = str(loop.get("status") or "").lower()
+    rounds = loop.get("rounds")
+    reviewer = str(loop.get("reviewer_model") or "")
+    fixer = str(loop.get("fixer_model") or "")
+    independent = bool(loop.get("independent_reviewer"))
+    floor_failed = bool(loop.get("floor_failed"))
+    return (
+        status in {"passed", "pass", "done"}
+        and isinstance(rounds, int)
+        and rounds >= 1
+        and bool(reviewer)
+        and bool(fixer)
+        and independent
+        and not floor_failed
+    )
 
 
 def _gate_delivery(dossier: Any) -> GateResult:

@@ -69,6 +69,37 @@ def test_paper_pack_gate_registry_runs_through_v3_lifecycle():
     assert report.results[0].passed is True
 
 
+def test_review_gate_requires_self_heal_loop_and_log():
+    pack = PaperPack()
+    thin_review = {
+        "review": {"p0_count": 0, "delivery": "pass", "floor_100": 90},
+        "review_log_present": False,
+    }
+    complete_review = {
+        "review": {
+            "p0_count": 0,
+            "delivery": "pass",
+            "floor_100": 90,
+            "review_loop": {
+                "status": "passed",
+                "rounds": 1,
+                "reviewer_model": "codex-class",
+                "fixer_model": "big-pickle",
+                "independent_reviewer": True,
+                "floor_failed": False,
+            },
+        },
+        "review_log_present": True,
+    }
+
+    thin = run_gates(pack, thin_review, only={"R"})
+    complete = run_gates(pack, complete_review, only={"R"})
+
+    assert thin.blocked is True
+    assert "loop_ok=False" in thin.results[0].details
+    assert complete.blocked is False
+
+
 def test_paper_pack_pipeline_plan_is_domain_owned():
     plan = PaperPack().pipeline_plan()
 

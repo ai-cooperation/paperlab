@@ -29,14 +29,27 @@ class EngineV3Orchestrator:
             domain = getattr(self.domain_pack, "name", "unknown")
             dossier = self.dossier_store.create(job_id=job_id, domain=domain)
 
+        runtime_name = getattr(self.runtime, "name", "unknown")
+        dossier.evidence.setdefault("runtime_policy", _runtime_policy(runtime_name))
+        _trace(
+            dossier,
+            "runtime_selected",
+            phase="system",
+            runtime=runtime_name,
+            fallback=dossier.evidence["runtime_policy"]["fallback"],
+        )
         context = RuntimeContext(
             job_id=job_id,
             run_dir=self.dossier_store.run_dir,
-            metadata={"skill_bundle": _skill_bundle(self.domain_pack)},
+            metadata={
+                "skill_bundle": _skill_bundle(self.domain_pack),
+                "runtime_policy": dossier.evidence["runtime_policy"],
+            },
         )
         self.runtime.prepare(context)
         for phase in self.phases:
             if resume and dossier.phases.get(phase.id) == "done":
+                _trace(dossier, "phase_skip_done", phase=phase.id)
                 continue
 
             task = BrainTask(
@@ -48,14 +61,33 @@ class EngineV3Orchestrator:
             runtime_result = self._run_phase_task(task, context, dossier)
             if runtime_result is not None and runtime_result.status != "ok":
                 dossier.mark_phase(phase.id, runtime_result.status)
+                _trace(
+                    dossier,
+                    "phase_runtime_block",
+                    phase=phase.id,
+                    status=runtime_result.status,
+                    blockers=list(runtime_result.blockers),
+                )
                 self.dossier_store.save(dossier)
                 break
 
             gate_report = self._run_phase_handler_and_gates(phase, task, context, dossier)
-            repair_attempt = 0
+            repair_attempt = _prior_repair_attempts(dossier, phase.id)
+            repairs_this_run = 0
             phase_failed = False
-            while gate_report.blocked and repair_attempt < max(0, phase.max_repair_attempts):
+            while gate_report.blocked and repairs_this_run < max(0, phase.max_repair_attempts):
                 repair_attempt += 1
+                repairs_this_run += 1
+                decision = _repair_decision(phase, gate_report)
+                _trace(
+                    dossier,
+                    "repair_decision",
+                    phase=phase.id,
+                    attempt=repair_attempt,
+                    route=decision["route"],
+                    failed_blocks=list(gate_report.failed_blocks),
+                    rationale=decision["rationale"],
+                )
                 repair_task = BrainTask(
                     task_id="%s:repair:%s" % (phase.id, repair_attempt),
                     phase=phase.id,
@@ -66,8 +98,23 @@ class EngineV3Orchestrator:
                 if repair_result is not None and repair_result.status != "ok":
                     gate_report = self._run_phase_handler_and_gates(phase, task, context, dossier)
                     if not gate_report.blocked:
+                        _trace(
+                            dossier,
+                            "repair_nonzero_gate_passed",
+                            phase=phase.id,
+                            attempt=repair_attempt,
+                            status=repair_result.status,
+                        )
                         break
                     dossier.mark_phase(phase.id, repair_result.status)
+                    _trace(
+                        dossier,
+                        "repair_failed",
+                        phase=phase.id,
+                        attempt=repair_attempt,
+                        status=repair_result.status,
+                        blockers=list(repair_result.blockers),
+                    )
                     self.dossier_store.save(dossier)
                     phase_failed = True
                     break
@@ -77,10 +124,18 @@ class EngineV3Orchestrator:
             else:
                 if gate_report.blocked:
                     dossier.mark_phase(phase.id, "blocked")
+                    _trace(
+                        dossier,
+                        "phase_blocked",
+                        phase=phase.id,
+                        failed_blocks=list(gate_report.failed_blocks),
+                        repair_budget=phase.max_repair_attempts,
+                    )
                     self.dossier_store.save(dossier)
                     break
 
             dossier.mark_phase(phase.id, "done")
+            _trace(dossier, "phase_done", phase=phase.id)
             self.dossier_store.save(dossier)
 
         return dossier
@@ -98,6 +153,13 @@ class EngineV3Orchestrator:
         only = set(phase.gate_ids) if phase.gate_ids is not None else None
         gate_report = run_gates(self.domain_pack, dossier, phase=phase.id, only=only)
         dossier.gate_reports.append(_gate_report_dict(phase.id, gate_report))
+        _trace(
+            dossier,
+            "gate_report",
+            phase=phase.id,
+            blocked=gate_report.blocked,
+            failed_blocks=list(gate_report.failed_blocks),
+        )
         return gate_report
 
     def _run_phase_task(
@@ -114,6 +176,16 @@ class EngineV3Orchestrator:
             runtime_name=getattr(self.runtime, "name", "unknown"),
             task=task,
             result=result,
+        )
+        _trace(
+            dossier,
+            "delegation",
+            phase=task.phase,
+            task_id=result.task_id or task.task_id,
+            runtime=getattr(self.runtime, "name", "unknown"),
+            status=result.status,
+            changed_files=list(result.changed_files),
+            blockers=list(result.blockers),
         )
         for rel, path in result.outputs.items():
             dossier.add_artifact(rel, path)
@@ -141,6 +213,63 @@ def _gate_report_dict(phase_id: str, gate_report) -> dict:
             }
             for result in gate_report.results
         ],
+    }
+
+
+def _runtime_policy(runtime_name: str) -> dict:
+    return {
+        "production_target": "hermes-codex",
+        "selected": runtime_name,
+        "fallback": runtime_name != "hermes-codex",
+    }
+
+
+def _trace(dossier: Dossier, event: str, **payload) -> None:
+    trace = dossier.evidence.setdefault("trace", [])
+    if not isinstance(trace, list):
+        trace = []
+        dossier.evidence["trace"] = trace
+    trace.append({"seq": len(trace) + 1, "event": event, **payload})
+
+
+def _prior_repair_attempts(dossier: Dossier, phase_id: str) -> int:
+    prefix = "%s:repair:" % phase_id
+    attempts = []
+    for delegation in dossier.delegations:
+        task_id = str(delegation.get("task_id") or "")
+        if not task_id.startswith(prefix):
+            continue
+        try:
+            attempts.append(int(task_id.rsplit(":", 1)[-1]))
+        except ValueError:
+            continue
+    return max(attempts, default=0)
+
+
+def _repair_decision(phase: PhaseSpec, gate_report) -> dict:
+    failed = set(gate_report.failed_blocks)
+    if "A" in failed:
+        route = "repair_same_phase:data_evidence"
+        rationale = "reference or DOI evidence floor failed"
+    elif "B" in failed:
+        route = "repair_same_phase:claim_evidence"
+        rationale = "claim-evidence consistency failed"
+    elif failed.intersection({"C", "D", "F"}):
+        route = "repair_same_phase:render_quality"
+        rationale = "render, readability, or logic audit failed"
+    elif "R" in failed:
+        route = "review_self_heal"
+        rationale = "review gate failed; reviewer/fixer loop required"
+    elif "Z" in failed:
+        route = "format_repair"
+        rationale = "delivery artifact missing or invalid"
+    else:
+        route = "repair_same_phase"
+        rationale = "blocking gate failed"
+    return {
+        "phase": phase.id,
+        "route": route,
+        "rationale": rationale,
     }
 
 
