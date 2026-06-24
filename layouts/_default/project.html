@@ -1,0 +1,232 @@
+{{ define "main" }}
+{{/*
+  Live project progress page (ENGINE_BUILD_PLAN P9 / DESIGN §5.3).
+  Polls the a-side projection every 5s and renders the research plan, the gap, the tier
+  decision, a phase timeline, and the terminal result (floor / delivery / PDF).
+  Open with ?status=<full status url> (preferred — flip-independent) OR ?job=<id>.
+  The a-side status endpoint is public (read-only projection), so no auth is needed.
+*/}}
+<div class="max-w-3xl mx-auto px-4 sm:px-6 py-10">
+
+  <header class="mb-6">
+    <a href="/projects/" class="text-base text-secondary hover:underline">&larr; 我的研究專案</a>
+    <h1 id="pp-topic" class="text-3xl font-black text-primary mt-3 mb-2 leading-snug">載入中…</h1>
+    <p class="text-gray-500 text-base">
+      Job <span id="pp-job" class="font-mono"></span>
+      · 階段 <span id="pp-phase" class="font-semibold text-primary">—</span>
+      · 更新 <span id="pp-updated"></span>
+    </p>
+  </header>
+
+  <div id="pp-noid" class="hidden bg-tip border-l-4 border-secondary rounded-r-lg p-6 text-gray-700">
+    沒有指定專案。請從 <a href="/projects/" class="text-secondary underline">我的研究專案</a> 點「查即時進度」。
+  </div>
+
+  <!-- polling error (was silently swallowed -> page stuck on 載入中…) -->
+  <div id="pp-err" class="hidden bg-red-50 border-l-4 border-red-400 rounded-r-lg p-4 text-red-700 text-base mb-5"></div>
+
+  <div id="pp-app" class="hidden">
+    <!-- phase timeline -->
+    <div class="bg-white border border-gray-200 rounded-xl p-5 mb-5">
+      <div class="text-sm font-bold uppercase tracking-wide text-secondary mb-3">執行階段</div>
+      <div id="pp-steps" class="flex flex-wrap gap-2"></div>
+    </div>
+
+    <!-- terminal result (shown when done/blocked/failed) -->
+    <div id="pp-result" class="hidden rounded-xl p-5 mb-5"></div>
+
+    <!-- the actual finding (real_results) -->
+    <div id="pp-finding" class="hidden bg-white border border-gray-200 rounded-xl p-5 mb-5">
+      <div class="text-sm font-bold uppercase tracking-wide text-secondary mb-2">研究結果</div>
+      <div id="pp-finding-body" class="text-base text-primary leading-relaxed"></div>
+    </div>
+
+    <div class="grid sm:grid-cols-2 gap-5">
+      <div class="bg-white border border-gray-200 rounded-xl p-5">
+        <div class="text-sm font-bold uppercase tracking-wide text-secondary mb-2">研究計畫</div>
+        <div class="text-sm text-gray-500">研究問題</div>
+        <div id="pp-rq" class="text-base text-primary mb-3">—</div>
+        <div class="text-sm text-gray-500">貢獻</div>
+        <div id="pp-contrib" class="text-base text-primary">—</div>
+      </div>
+      <div class="bg-white border border-gray-200 rounded-xl p-5">
+        <div class="text-sm font-bold uppercase tracking-wide text-secondary mb-2">層級與可行性</div>
+        <div class="text-sm text-gray-500">層級</div>
+        <div id="pp-tier" class="text-base text-primary mb-3">—</div>
+        <div class="text-sm text-gray-500">資料可行性</div>
+        <div id="pp-via" class="text-base text-primary">—</div>
+        <div id="pp-blk" class="hidden mt-3 text-base font-semibold text-red-700"></div>
+      </div>
+      <div class="bg-white border border-gray-200 rounded-xl p-5 sm:col-span-2">
+        <div class="text-sm font-bold uppercase tracking-wide text-secondary mb-2">研究缺口</div>
+        <div id="pp-bgap" class="text-base text-primary mb-3">—</div>
+        <ul id="pp-agap" class="list-disc pl-6 text-base text-gray-700 space-y-1"></ul>
+      </div>
+    </div>
+
+    <p class="text-gray-400 text-sm mt-6">a 段非同步跑完整論文，本頁每 5 秒自動更新；可關閉再回來。</p>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const fmtN = (n) => (typeof n === 'number' ? n.toLocaleString() : esc(n));
+  const q = new URLSearchParams(location.search);
+
+  // status URL: prefer a full ?status= (decoupled from engine versions); else infer from a real engine job id.
+  const API = (q.get('api') || 'https://paper-a.cooperation.tw').replace(/\/+$/, '');
+  let STATUS_URL = q.get('status') || '';
+  const JOB = q.get('job') || '';
+  if (!STATUS_URL && JOB) {
+    if (JOB.startsWith('v3_')) STATUS_URL = `${API}/v3/jobs/${encodeURIComponent(JOB)}/status`;
+    else if (JOB.startsWith('v2_')) STATUS_URL = `${API}/v2/jobs/${encodeURIComponent(JOB)}/status`;
+    else {
+      $('pp-app').classList.add('hidden');
+      $('pp-topic').textContent = '研究專案進度';
+      $('pp-job').textContent = JOB;
+      showError('這不是 engine job id。請使用 v2_ / v3_ job id，或帶入完整 ?status= 進度網址', false);
+      return;
+    }
+  }
+
+  if (!STATUS_URL) { $('pp-noid').classList.remove('hidden'); $('pp-topic').textContent = '研究專案進度'; return; }
+  $('pp-app').classList.remove('hidden');
+
+  function absUrl(path) {
+    if (!path) return '';
+    try { return new URL(path, API + '/').toString(); } catch (e) { return ''; }
+  }
+
+  function paperUrl(s) {
+    const pdf = s && s.artifacts && s.artifacts.pdf;
+    if (pdf) return absUrl(pdf);
+    try {
+      const u = new URL(STATUS_URL);
+      u.search = '';
+      u.hash = '';
+      return u.pathname.includes('/v2/jobs/') ? (u.pathname = u.pathname.replace(/\/status\/?$/, '/paper'), u.toString()) : '';
+    } catch (e) { return ''; }
+  }
+
+  // known paper-pack phases (labels); UNKNOWN phases still render generically so a
+  // different pack / legacy / future phase name does not blank the whole timeline.
+  const PHASE_LABEL = { data: '資料', gap: '缺口', structure: '結構', claim_evidence: '證據',
+    write: '撰寫', render_gates: '渲染', review_heal: '審查', format_repair: '格式', done: '完成' };
+  const PHASE_ORDER = Object.keys(PHASE_LABEL);
+  const BADGE = { running: ['執行中', 'bg-amber-100 text-amber-700'], done: ['完成', 'bg-green-100 text-green-700'],
+    blocked: ['卡住', 'bg-red-100 text-red-700'], failed: ['失敗', 'bg-red-100 text-red-700'],
+    incomplete: ['未完成', 'bg-gray-200 text-gray-700'] };
+  let timer = null, fails = 0;
+
+  function render(s) {
+    $('pp-err').classList.add('hidden');
+    if (s.data_warning) { $('pp-err').textContent = '資料警告：' + esc(s.data_warning); $('pp-err').classList.remove('hidden'); }
+    const rp = s.research_plan || {};
+    $('pp-topic').textContent = rp.topic || '(未命名專案)';
+    $('pp-job').textContent = s.job_id || JOB || '';
+    $('pp-phase').textContent = PHASE_LABEL[s.phase] || s.phase || '—';
+    $('pp-updated').textContent = new Date().toLocaleTimeString('zh-TW');
+    $('pp-rq').textContent = rp.research_question || '—';
+    $('pp-contrib').textContent = rp.contribution || '—';
+    $('pp-tier').textContent = s.tier || '—';
+
+    // data feasibility: the REAL viability verdict (nullable) + pooled-effects count as a
+    // separate DATA-EXTENT fact — never claim 可行 just because effects were pooled.
+    const v = s.viability || {};
+    const verdict = v.viable === true ? '可行' : v.viable === false ? '不足' : '尚未評估';
+    $('pp-via').textContent = verdict + (v.pooled_k != null ? `（已合併 ${v.pooled_k} 個效應量）` : '');
+
+    // research gap: b-side grill gap (if any) + the engine's actual gaps (a_gap = objects)
+    $('pp-bgap').textContent = s.b_gap || '（直接提交，無前端 grill 缺口）';
+    $('pp-agap').innerHTML = (s.a_gap && s.a_gap.length)
+      ? s.a_gap.map((g) => { const t = typeof g === 'string' ? g : g.gap; const d = (g && g.description) || '';
+          return `<li><b>${esc(t)}</b>${d ? '：' + esc(d) : ''}</li>`; }).join('')
+      : '<li class="text-gray-400">尚未判定</li>';
+
+    // the actual finding (pooled result) — language-neutral numbers; significance only
+    // when the backend could assert it (zero-null scales), never guessed on the page.
+    const kr = s.key_result;
+    if (kr && kr.pooled_effect != null) {
+      const lo = kr.ci_low, hi = kr.ci_high;
+      const sig = kr.is_significant === false ? '（95% 信賴區間跨越無效值，未達統計顯著）'
+        : kr.is_significant === true ? '（95% 信賴區間未跨越無效值，達統計顯著）' : '';
+      $('pp-finding-body').innerHTML =
+        `合併效應量（${esc(String(kr.scale || '').toUpperCase())}）：<b>${esc(kr.pooled_effect)}</b>`
+        + (lo != null && hi != null ? `，95% CI [${esc(lo)}, ${esc(hi)}]` : '') + esc(sig)
+        + `<br>合併 <b>${esc(kr.k_effects)}</b> 個效應量`
+        + (kr.n_studies != null ? `（來自 ${esc(kr.n_studies)} 篇有可萃取效應的研究）` : '')
+        + (kr.i2_percent != null ? `，異質性 I&sup2; = ${esc(kr.i2_percent)}%` : '')
+        + (kr.n_identified != null ? `<br>文獻篩選：${fmtN(kr.n_identified)} 筆 → ${esc(kr.n_studies)} 篇有可萃取效應` : '');
+      $('pp-finding').classList.remove('hidden');
+    } else if (s.synthesis_type || s.lane) {
+      // GENERIC non-meta summary: this research did not produce a poolable statistic
+      // (different lane/output type) — show what kind it was, honestly, no fake numbers.
+      $('pp-finding-body').innerHTML = `研究類型：<b>${esc(s.synthesis_type || '—')}</b>`
+        + (s.lane ? `（lane: ${esc(s.lane)}）` : '')
+        + `<br><span class="text-gray-500 text-sm">此研究未產生可合併的統計效應量；完整產出見論文 PDF。</span>`;
+      $('pp-finding').classList.remove('hidden');
+    } else { $('pp-finding').classList.add('hidden'); }
+
+    // phase timeline: known phases in order; if the current phase is unknown, append it.
+    let order = PHASE_ORDER.slice();
+    if (s.phase && !order.includes(s.phase)) order = order.concat([s.phase]);
+    const curIdx = order.indexOf(s.phase);
+    $('pp-steps').innerHTML = order.map((p, i) => {
+      const done = curIdx >= 0 && i <= curIdx;
+      const cls = done ? 'bg-primary text-white border-primary' : 'bg-white text-gray-500 border-gray-300';
+      return `<span class="px-3 py-1 rounded-full text-sm border ${cls}">${esc(PHASE_LABEL[p] || p)}</span>`;
+    }).join('');
+
+    // terminal result (done | blocked | failed | incomplete) — show blockers/error, not just generic text
+    const terminal = ['done', 'blocked', 'failed', 'incomplete'].includes(s.status);
+    if (terminal) {
+      const sum = s.summary || {};
+      const [lbl, badge] = BADGE[s.status] || ['—', 'bg-gray-100 text-gray-600'];
+      const ok = s.status === 'done';
+      const box = $('pp-result');
+      box.className = 'rounded-xl p-5 mb-5 border ' + (ok ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200');
+      let html = `<div class="flex items-center gap-3 mb-2"><span class="px-2.5 py-1 rounded-full text-sm font-bold ${badge}">${lbl}</span>`;
+      if (sum.floor_100 != null || sum.delivery)
+        html += `<span class="text-base text-gray-600">品質 floor <b class="text-primary">${sum.floor_100 != null ? sum.floor_100 : '—'}</b>/100 · 交付 <b>${esc(sum.delivery || '—')}</b></span>`;
+      html += `</div>`;
+      if (s.blocked && (s.blockers || []).length)
+        html += `<div class="text-base text-red-700 mt-1">卡住原因：${(s.blockers || []).map(esc).join('；')}</div>`;
+      if (s.error) html += `<div class="text-sm text-red-700 mt-2">執行中發生錯誤（${esc(String(s.error).slice(0, 200))}）</div>`;
+      const pdfUrl = paperUrl(s);
+      if (s.artifacts && s.artifacts.has_pdf && pdfUrl)
+        html += `<a href="${esc(pdfUrl)}" target="_blank" rel="noreferrer" class="inline-block mt-3 px-5 py-2.5 rounded-lg bg-accent text-primary-dark font-bold hover:bg-accent-dark transition">下載論文 PDF</a>`;
+      box.innerHTML = html;
+      box.classList.remove('hidden');
+      if (timer) { clearInterval(timer); timer = null; }   // stop polling at a terminal state
+    }
+  }
+
+  function showError(msg, retry = true) {
+    $('pp-err').textContent = retry ? msg + '（仍會自動重試）' : msg;
+    $('pp-err').classList.remove('hidden');
+    if ($('pp-topic').textContent === '載入中…') $('pp-topic').textContent = '研究專案進度';
+  }
+
+  async function poll() {
+    try {
+      const r = await fetch(STATUS_URL, { cache: 'no-store' });
+      if (!r.ok) {
+        fails++;
+        if (r.status === 404) { showError('找不到這個專案（job id 不存在）'); if (timer) { clearInterval(timer); timer = null; } return; }
+        if (fails >= 2) showError(`讀取進度失敗：HTTP ${r.status}`);
+        return;
+      }
+      fails = 0;
+      render(await r.json());
+    } catch (e) {
+      fails++;
+      if (fails >= 2) showError('無法連線到進度服務（可能是網路或跨網域設定問題）');
+    }
+  }
+  poll();
+  timer = setInterval(poll, 5000);
+})();
+</script>
+{{ end }}
