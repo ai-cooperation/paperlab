@@ -216,6 +216,7 @@ def test_v3_health_capabilities_and_schema(tmp_path: Path):
     assert capabilities.status_code == 200
     assert capabilities.json()["engine"] == "v3"
     assert "paper" in capabilities.json()["packs"]
+    assert capabilities.json()["default_pipeline"] == "full_paper_pipeline"
     assert schema.status_code == 200
     assert schema.json()["type"] == "object"
 

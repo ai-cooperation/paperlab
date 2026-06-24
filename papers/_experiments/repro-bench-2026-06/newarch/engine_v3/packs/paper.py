@@ -34,8 +34,8 @@ PAPER_PHASES = [
     "data",
     "gap",
     "structure",
-    "claim_evidence",
     "write",
+    "claim_evidence",
     "render_gates",
     "review_heal",
     "format_repair",
@@ -116,7 +116,7 @@ class PaperPack:
         ]
 
     def gate_registry(self) -> list[Mapping[str, Any]]:
-        return [
+        gates = [
             {
                 "id": gate.name,
                 "phase": _gate_phase(gate.name),
@@ -125,6 +125,21 @@ class PaperPack:
             }
             for gate in self._v2.gate_registry()
         ]
+        gates.extend([
+            {
+                "id": "R",
+                "phase": "review_heal",
+                "severity": GateSeverity.BLOCK,
+                "check": _gate_review,
+            },
+            {
+                "id": "Z",
+                "phase": "format_repair",
+                "severity": GateSeverity.BLOCK,
+                "check": _gate_delivery,
+            },
+        ])
+        return gates
 
     def status_projection(
         self,
@@ -188,7 +203,42 @@ def _gate_phase(gate_name: str) -> str:
         "D": "render_gates",
         "E": "data",
         "F": "render_gates",
+        "R": "review_heal",
+        "Z": "format_repair",
     }.get(gate_name, "")
+
+
+def _gate_review(dossier: Any) -> GateResult:
+    data = _dossier_to_dict(dossier)
+    review = data.get("review") if isinstance(data.get("review"), dict) else {}
+    p0_count = int(review.get("p0_count") or 0)
+    delivery = str(review.get("delivery") or "").lower()
+    floor = review.get("floor_100")
+    ok = p0_count == 0 and delivery in ("pass", "passed", "ok") and isinstance(floor, (int, float))
+    return GateResult(
+        gate_id="R",
+        passed=ok,
+        severity=GateSeverity.BLOCK,
+        details=(
+            "review passed: no P0, delivery pass, floor_100=%s" % floor
+            if ok else
+            "review failed: p0_count=%s, delivery=%s, floor_100=%s" % (p0_count, delivery or None, floor)
+        ),
+        evidence={"p0_count": p0_count, "delivery": delivery, "floor_100": floor},
+    )
+
+
+def _gate_delivery(dossier: Any) -> GateResult:
+    artifacts = getattr(dossier, "artifacts", {}) if not isinstance(dossier, dict) else dossier.get("artifacts", {})
+    pdf = artifacts.get("paper_draft_v0.pdf") if isinstance(artifacts, dict) else None
+    ok = pdf is not None and bool(getattr(pdf, "sha256", "") or (isinstance(pdf, dict) and pdf.get("sha256")))
+    return GateResult(
+        gate_id="Z",
+        passed=ok,
+        severity=GateSeverity.BLOCK,
+        details="delivery PDF present" if ok else "delivery PDF missing from artifact index",
+        evidence={"artifact": "paper_draft_v0.pdf", "present": ok},
+    )
 
 
 def _run_dir(args: Mapping[str, Any]) -> Path:
