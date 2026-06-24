@@ -87,6 +87,21 @@ GET /v3/health                  -> HTTP 200
 GET /v3/capabilities            -> HTTP 200
 ```
 
+b-side Worker update (2026-06-24):
+
+```text
+Cloudflare Worker: paper-mcp
+Version ID: 04f4397c-e9a5-4ed7-a9ce-ed205d287fb6
+Secret added: PAPER_JOB_SERVICE_TOKEN
+Config deployed: A_ENGINE_ENDPOINT="/v3/jobs"
+
+Post-deploy checks:
+GET public Worker /health        -> HTTP 200
+wrangler secret list             -> PAPER_JOB_SERVICE_TOKEN present
+```
+
+No production `submit_to_pipeline` smoke was run because it would create a real v3 compute job.
+
 ## 1. What is built (newarch/, branch `engine-build`, 16 commits, 154 tests pass)
 
 ```
