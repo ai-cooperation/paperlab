@@ -210,6 +210,7 @@ def _gate_report_dict(phase_id: str, gate_report) -> dict:
                 "passed": result.passed,
                 "severity": result.severity.value,
                 "details": result.details,
+                "evidence": dict(result.evidence or {}),
             }
             for result in gate_report.results
         ],

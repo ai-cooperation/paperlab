@@ -141,6 +141,16 @@ def test_full_paper_pipeline_runs_all_phases_and_delivery_gate(tmp_path: Path, g
     assert dossier.artifacts["paper_draft_v0.pdf"].sha256
 
 
+def test_claim_evidence_phase_has_gate_b_repair_budget():
+    phases = {phase.id: phase for phase in full_paper_pipeline()}
+
+    claim_evidence = phases["claim_evidence"]
+
+    assert claim_evidence.gate_ids == ["B"]
+    assert claim_evidence.max_repair_attempts == 2
+    assert "flagged Gate B claim" in claim_evidence.repair_prompt
+
+
 def _clean_long_draft() -> str:
     sentence = (
         "The SMD pool included k = 8 effects. "

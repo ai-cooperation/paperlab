@@ -323,6 +323,68 @@ def test_orchestrator_repairs_blocked_gate_before_terminal_block(tmp_path: Path)
     assert dossier.delegations[-1]["task_id"] == "data:repair:1"
 
 
+def test_orchestrator_repair_prompt_includes_gate_evidence(tmp_path: Path):
+    class CapturingRuntime(MockRuntime):
+        name = "capturing-runtime"
+
+        def __init__(self):
+            self.prompts = []
+
+        def run_brain(self, task: BrainTask, _context: RuntimeContext):
+            self.prompts.append(task.prompt)
+            return TaskResult(task_id=task.task_id, status="ok")
+
+    class EvidencePack:
+        name = "demo"
+
+        def gate_registry(self):
+            def check(_dossier):
+                return GateResult.fail(
+                    "B",
+                    details="1 P0 overclaim",
+                    evidence={
+                        "flagged": [
+                            {
+                                "claim": "unsupported causal claim",
+                                "reasons": ["causal language exceeds evidence"],
+                            }
+                        ]
+                    },
+                )
+
+            return [
+                {
+                    "id": "B",
+                    "phase": "claim_evidence",
+                    "severity": GateSeverity.BLOCK,
+                    "check": check,
+                }
+            ]
+
+    runtime = CapturingRuntime()
+    dossier = EngineV3Orchestrator(
+        runtime=runtime,
+        domain_pack=EvidencePack(),
+        phases=[
+            PhaseSpec(
+                id="claim_evidence",
+                handler=lambda _task, _context: {},
+                prompt="write claim evidence",
+                expected_outputs=["claim_evidence_map.md"],
+                gate_ids=["B"],
+                repair_prompt="repair claims",
+                max_repair_attempts=1,
+            )
+        ],
+        dossier_store=DossierStore(tmp_path),
+    ).run(job_id="job-1", resume=False)
+
+    assert "unsupported causal claim" in runtime.prompts[-1]
+    assert dossier.gate_reports[0]["results"][0]["evidence"]["flagged"][0]["claim"] == (
+        "unsupported causal claim"
+    )
+
+
 def test_orchestrator_blocks_after_repair_budget_exhausted(tmp_path: Path):
     class StillInsufficientRuntime(MockRuntime):
         name = "still-insufficient"

@@ -51,6 +51,7 @@ artifacts in place.
 
 Hard requirements:
 - Expand the manuscript body to satisfy the readability floor (at least 3000 words).
+- For Gate F failures, inspect evidence.fail_items and fix each concrete logic-audit item.
 - Preserve factual consistency with real_results.json and claim_evidence_map.md.
 - Keep figures and citations referenced by existing artifact paths/keys.
 - Remove placeholders, outline fragments, and underdeveloped sections.
@@ -75,6 +76,23 @@ WRITE_OUTPUTS = [
 ]
 REVIEW_OUTPUTS = ["quality_review_round1.json", "quality_review_log.md"]
 FORMAT_REPAIR_OUTPUTS = ["paper_draft_v0.pdf"]
+
+CLAIM_EVIDENCE_REPAIR_PROMPT = """Repair Gate B claim-evidence failures.
+
+You are continuing an existing run directory. Inspect the blocking gate report below,
+paper_draft_v0.qmd, sections/*.md, claim_evidence_map.md, real_experiments/real_results.json,
+doi_audit.json, and references.bib. Update claim_evidence_map.md and, if the gate evidence
+identifies an overclaim in the manuscript, also rewrite the unsupported sentence in the
+manuscript so every claim is no stronger than the available evidence.
+
+Hard requirements:
+- For every flagged Gate B claim, either add an exact claim-evidence row proving it from
+  real_results/references or downgrade/delete the unsupported claim in the manuscript.
+- Remove or hedge strong causal, universal, state-of-the-art, or outperformance language
+  unless directly supported by real_results and citations.
+- Keep numeric claims exact with real_experiments/real_results.json.
+- Do not stop after explaining the blocker; produce the repaired files.
+"""
 
 REVIEW_HEAL_PROMPT = """Run review and self-heal, not review-only.
 
@@ -169,6 +187,8 @@ def full_paper_pipeline() -> list[PhaseSpec]:
             prompt="Write claim-evidence map for every quantitative manuscript claim.",
             expected_outputs=list(CLAIM_EVIDENCE_OUTPUTS),
             gate_ids=["B"],
+            repair_prompt=CLAIM_EVIDENCE_REPAIR_PROMPT,
+            max_repair_attempts=2,
         ),
         PhaseSpec(
             id="render_gates",
