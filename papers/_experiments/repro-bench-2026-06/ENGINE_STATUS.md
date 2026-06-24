@@ -7,6 +7,51 @@
 > (TDD phases + status), [HERMES_NATIVE_ORCHESTRATOR_DESIGN.md](HERMES_NATIVE_ORCHESTRATOR_DESIGN.md)
 > (design), [BSIDE_WEB_INTEGRATION_PLAN.md](BSIDE_WEB_INTEGRATION_PLAN.md) (next: wire b-side + web).
 
+## 0. Engine v3 rebuild status (2026-06-24)
+
+Engine v3 now exists beside the proven v2 stack under `newarch/engine_v3/`. It is a
+paper-first rebuild of the intended Hermes+Skill architecture, with a generic core seam
+kept separate from `PaperPack`.
+
+Implemented and locally verified:
+
+- Core contracts, dossier store, generic gates, runtime protocol, orchestrator, and mock runtime.
+- `PaperPack` wrapper over existing deterministic v2 paper assets, with pack-declared skills and gates A/E/B/C/D/F/R/Z.
+- `CodexCliRuntime` plus output verification and provider-failure classification.
+- `HermesCodexRuntime` seam with injectable runner and runtime delegation records.
+- Full paper pipeline phases: data, gap, structure, write, claim_evidence, render_gates, review_heal, format_repair.
+- `/v3` HTTP routes: health, capabilities, contract schema, viability-probe, authenticated submit, status, artifact download.
+- POST auth, idempotency-key replay/conflict, per-job creation locks, failed-job dossier state, max-live-job cap.
+- b-side `paper-mcp` routing support for `A_ENGINE_ENDPOINT="/v3/jobs"` with v2 rollback preserved.
+- Status projection now exposes project-page fields: `research_plan`, `b_gap`, `a_gap`, `tier`, `summary`, and PDF artifact URL.
+
+Latest local verification:
+
+```bash
+cd papers/_experiments/repro-bench-2026-06
+/Users/user/projects/ai-paper-workshop/.venv/bin/python3.9 -m pytest \
+  newarch/tests/test_engine_v3_core.py \
+  newarch/tests/test_engine_v3_paper_pack.py \
+  newarch/tests/test_engine_v3_codex_runtime.py \
+  newarch/tests/test_engine_v3_hermes_runtime.py \
+  newarch/tests/test_engine_v3_runtime_config.py \
+  newarch/tests/test_engine_v3_paper_pipeline.py \
+  newarch/tests/test_engine_v3_http.py -q
+# 48 passed
+
+cd /Users/user/projects/ai-paper-workshop/paper-mcp
+node --test test/engine-routes.test.mjs
+# 4 passed
+node node_modules/typescript/bin/tsc --noEmit
+# pass
+```
+
+Not yet claimed complete:
+
+- No live `/v3` smoke has been run against ac-2012 in this v3 rebuild.
+- No production deployment or `paper-mcp` Worker deploy has been performed.
+- No live v3 golden A/B score has replaced the v2 live golden proof below.
+
 ## 1. What is built (newarch/, branch `engine-build`, 16 commits, 154 tests pass)
 
 ```
