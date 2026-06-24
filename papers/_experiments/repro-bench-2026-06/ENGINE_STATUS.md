@@ -61,9 +61,31 @@ POST /v3/jobs/viability-probe   -> HTTP 200 with Bearer smoke-token
 
 Not yet claimed complete:
 
-- No production deployment or `paper-mcp` Worker deploy has been performed.
-- Production `paper-a.cooperation.tw` still returns 404 for `/v3/health`; prod env currently has `PAPER_ENGINE_V2=1` only.
+- Production a-side deployment completed on ac-2012 for `/v3` routes; `paper-mcp` Worker deploy has not been performed.
+- Production `paper-a.cooperation.tw` now returns HTTP 200 for `/v3/health` and `/v3/capabilities`.
 - No live v3 golden A/B score has replaced the v2 live golden proof below.
+
+Production deployment smoke (2026-06-24):
+
+```text
+Backup timestamp: 20260624-155353
+Code deployed to production newarch from local HEAD ca0cfd0a; latest code change in that deploy was ec8058b0.
+Env enabled: PAPER_ENGINE_V3=1, PAPER_ENGINE_V3_TOKEN generated on host, PAPER_ENGINE_V3_MAX_LIVE_JOBS=1.
+Service: systemctl --user restart paper-job-service -> active.
+
+Localhost checks on ac-2012:
+GET  /health                    -> HTTP 200
+GET  /v3/health                 -> HTTP 200
+GET  /v3/capabilities           -> HTTP 200
+POST /v3/jobs missing token     -> HTTP 401
+POST /v3/jobs invalid token     -> HTTP 403
+POST /v3/jobs/viability-probe   -> HTTP 200 with host-side bearer token
+POST /jobs/dry-run              -> HTTP 200
+
+Public tunnel checks:
+GET /v3/health                  -> HTTP 200
+GET /v3/capabilities            -> HTTP 200
+```
 
 ## 1. What is built (newarch/, branch `engine-build`, 16 commits, 154 tests pass)
 
