@@ -31,6 +31,7 @@ def register(
     jobs_dir: Path,
     *,
     auth_token: Optional[str],
+    max_live_jobs: int = 1,
     runtime_factory: Optional[RuntimeFactory] = None,
     phases_factory: Optional[PhasesFactory] = None,
 ) -> None:
@@ -45,6 +46,17 @@ def register(
     def _idempotency_path(key: str) -> Path:
         digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
         return jobs_dir / IDEMPOTENCY_DIRNAME / (digest + ".json")
+
+    def _live_count() -> int:
+        lock_dir = jobs_dir / LOCK_DIRNAME
+        if not lock_dir.is_dir():
+            return 0
+        count = 0
+        for lock_path in lock_dir.glob("*.lock"):
+            job_id = lock_path.stem
+            if not DossierStore(_run_dir(job_id)).exists():
+                count += 1
+        return count
 
     async def _json(request: Request) -> dict[str, Any]:
         try:
@@ -145,6 +157,12 @@ def register(
                 "status_url": status_url,
                 "idempotent_replay": True,
             }
+
+        if not _lock_path(job_id).exists() and max_live_jobs > 0 and _live_count() >= max_live_jobs:
+            raise HTTPException(
+                status_code=429,
+                detail=f"engine busy ({max_live_jobs} concurrent v3 job max); retry later",
+            )
 
         lock_fd = _claim_lock(_lock_path(job_id))
         try:

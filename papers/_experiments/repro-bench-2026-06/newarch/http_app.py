@@ -159,6 +159,7 @@ def create_app(jobs_dir: Path = DEFAULT_HTTP_JOBS_DIR, start_worker: bool = True
                v2_max_concurrent: int = 1,
                engine_v3: bool = False,
                v3_auth_token: str | None = None,
+               v3_max_live_jobs: int | None = None,
                v3_runtime_factory: Any = None,
                v3_phases_factory: Any = None) -> FastAPI:
     app = FastAPI(title="Paper Job Service", version=job_runner.RUNNER_VERSION)
@@ -186,6 +187,9 @@ def create_app(jobs_dir: Path = DEFAULT_HTTP_JOBS_DIR, start_worker: bool = True
             app,
             resolved_jobs_dir,
             auth_token=v3_auth_token or os.environ.get("PAPER_ENGINE_V3_TOKEN"),
+            max_live_jobs=v3_max_live_jobs
+            if v3_max_live_jobs is not None
+            else int(os.environ.get("PAPER_ENGINE_V3_MAX_LIVE_JOBS", "1")),
             runtime_factory=v3_runtime_factory,
             phases_factory=v3_phases_factory,
         )
