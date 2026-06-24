@@ -75,18 +75,44 @@
   const fmtN = (n) => (typeof n === 'number' ? n.toLocaleString() : esc(n));
   const q = new URLSearchParams(location.search);
 
-  // status URL: prefer a full ?status= (decoupled from /jobs vs /v2/jobs); else build from ?job=
+  // status URL: prefer a full ?status= (decoupled from engine versions); else infer from a real engine job id.
+  // Legacy jobs use proj_* on /jobs; v2/v3 jobs use versioned v*_ ids.
   const API = (q.get('api') || 'https://paper-a.cooperation.tw').replace(/\/+$/, '');
   let STATUS_URL = q.get('status') || '';
   const JOB = q.get('job') || '';
-  if (!STATUS_URL && JOB) STATUS_URL = `${API}/v2/jobs/${encodeURIComponent(JOB)}/status`;
+  if (!STATUS_URL && JOB) {
+    if (JOB.startsWith('v3_')) STATUS_URL = `${API}/v3/jobs/${encodeURIComponent(JOB)}/status`;
+    else if (JOB.startsWith('v2_')) STATUS_URL = `${API}/v2/jobs/${encodeURIComponent(JOB)}/status`;
+    else if (JOB.startsWith('proj_')) STATUS_URL = `${API}/jobs/${encodeURIComponent(JOB)}/status`;
+    else {
+      $('pp-app').classList.add('hidden');
+      $('pp-topic').textContent = '研究專案進度';
+      $('pp-job').textContent = JOB;
+      showError('這不是 engine job id。請使用 proj_ / v2_ / v3_ job id，或帶入完整 ?status= 進度網址', false);
+      return;
+    }
+  }
 
   if (!STATUS_URL) { $('pp-noid').classList.remove('hidden'); $('pp-topic').textContent = '研究專案進度'; return; }
   $('pp-app').classList.remove('hidden');
 
-  // robust /paper URL: strip any query/fragment, swap the /status suffix for /paper.
-  const paperUrl = () => { try { const u = new URL(STATUS_URL); u.search = ''; u.hash = '';
-    u.pathname = u.pathname.replace(/\/status\/?$/, '/paper'); return u.toString(); } catch (e) { return ''; } };
+  function absUrl(path) {
+    if (!path) return '';
+    try { return new URL(path, API + '/').toString(); } catch (e) { return ''; }
+  }
+
+  function paperUrl(s) {
+    const pdf = s && s.artifacts && s.artifacts.pdf;
+    if (pdf) return absUrl(pdf);
+    try {
+      const u = new URL(STATUS_URL);
+      u.search = '';
+      u.hash = '';
+      return /\/(v2\/jobs|jobs)\//.test(u.pathname)
+        ? (u.pathname = u.pathname.replace(/\/status\/?$/, '/paper'), u.toString())
+        : '';
+    } catch (e) { return ''; }
+  }
 
   // known paper-pack phases (labels); UNKNOWN phases still render generically so a
   // different pack / legacy / future phase name does not blank the whole timeline.
@@ -172,16 +198,17 @@
       if (s.blocked && (s.blockers || []).length)
         html += `<div class="text-base text-red-700 mt-1">卡住原因：${(s.blockers || []).map(esc).join('；')}</div>`;
       if (s.error) html += `<div class="text-sm text-red-700 mt-2">執行中發生錯誤（${esc(String(s.error).slice(0, 200))}）</div>`;
-      if (s.artifacts && s.artifacts.has_pdf && paperUrl())
-        html += `<a href="${esc(paperUrl())}" target="_blank" rel="noreferrer" class="inline-block mt-3 px-5 py-2.5 rounded-lg bg-accent text-primary-dark font-bold hover:bg-accent-dark transition">下載論文 PDF</a>`;
+      const pdfUrl = paperUrl(s);
+      if (s.artifacts && s.artifacts.has_pdf && pdfUrl)
+        html += `<a href="${esc(pdfUrl)}" target="_blank" rel="noreferrer" class="inline-block mt-3 px-5 py-2.5 rounded-lg bg-accent text-primary-dark font-bold hover:bg-accent-dark transition">下載論文 PDF</a>`;
       box.innerHTML = html;
       box.classList.remove('hidden');
       if (timer) { clearInterval(timer); timer = null; }   // stop polling at a terminal state
     }
   }
 
-  function showError(msg) {
-    $('pp-err').textContent = msg + '（仍會自動重試）';
+  function showError(msg, retry = true) {
+    $('pp-err').textContent = retry ? msg + '（仍會自動重試）' : msg;
     $('pp-err').classList.remove('hidden');
     if ($('pp-topic').textContent === '載入中…') $('pp-topic').textContent = '研究專案進度';
   }
