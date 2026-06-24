@@ -353,6 +353,16 @@ def test_v3_routes_absent_without_flag(tmp_path: Path):
     assert tc.post("/v3/jobs", json={}).status_code == 404
 
 
+def test_app_from_env_mounts_v3_when_enabled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("PAPER_JOBS_DIR", str(tmp_path))
+    monkeypatch.setenv("PAPER_ENGINE_V3", "1")
+    monkeypatch.setenv("PAPER_ENGINE_V3_TOKEN", "secret")
+
+    tc = TestClient(http_app.app_from_env())
+
+    assert tc.get("/v3/health").status_code == 200
+
+
 def test_v3_health_capabilities_and_schema(tmp_path: Path):
     tc = TestClient(
         http_app.create_app(

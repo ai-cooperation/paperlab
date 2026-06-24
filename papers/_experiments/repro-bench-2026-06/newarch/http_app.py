@@ -312,5 +312,14 @@ def create_app(jobs_dir: Path = DEFAULT_HTTP_JOBS_DIR, start_worker: bool = True
     return app
 
 
-# engine-v2 routes mount only when PAPER_ENGINE_V2=1 (A/B opt-in; prod default off)
-app = create_app(engine_v2=os.environ.get("PAPER_ENGINE_V2") == "1")
+def app_from_env() -> FastAPI:
+    jobs_dir = Path(os.environ.get("PAPER_JOBS_DIR", str(job_runner.DEFAULT_JOBS_DIR)))
+    return create_app(
+        jobs_dir=jobs_dir,
+        engine_v2=os.environ.get("PAPER_ENGINE_V2") == "1",
+        engine_v3=os.environ.get("PAPER_ENGINE_V3") == "1",
+    )
+
+
+# Engine v2/v3 routes mount only when the corresponding env flag is set (A/B opt-in).
+app = app_from_env()
