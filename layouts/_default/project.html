@@ -76,17 +76,19 @@
   const q = new URLSearchParams(location.search);
 
   // status URL: prefer a full ?status= (decoupled from engine versions); else infer from a real engine job id.
+  // Legacy jobs use proj_* on /jobs; v2/v3 jobs use versioned v*_ ids.
   const API = (q.get('api') || 'https://paper-a.cooperation.tw').replace(/\/+$/, '');
   let STATUS_URL = q.get('status') || '';
   const JOB = q.get('job') || '';
   if (!STATUS_URL && JOB) {
     if (JOB.startsWith('v3_')) STATUS_URL = `${API}/v3/jobs/${encodeURIComponent(JOB)}/status`;
     else if (JOB.startsWith('v2_')) STATUS_URL = `${API}/v2/jobs/${encodeURIComponent(JOB)}/status`;
+    else if (JOB.startsWith('proj_')) STATUS_URL = `${API}/jobs/${encodeURIComponent(JOB)}/status`;
     else {
       $('pp-app').classList.add('hidden');
       $('pp-topic').textContent = '研究專案進度';
       $('pp-job').textContent = JOB;
-      showError('這不是 engine job id。請使用 v2_ / v3_ job id，或帶入完整 ?status= 進度網址', false);
+      showError('這不是 engine job id。請使用 proj_ / v2_ / v3_ job id，或帶入完整 ?status= 進度網址', false);
       return;
     }
   }
@@ -106,7 +108,9 @@
       const u = new URL(STATUS_URL);
       u.search = '';
       u.hash = '';
-      return u.pathname.includes('/v2/jobs/') ? (u.pathname = u.pathname.replace(/\/status\/?$/, '/paper'), u.toString()) : '';
+      return /\/(v2\/jobs|jobs)\//.test(u.pathname)
+        ? (u.pathname = u.pathname.replace(/\/status\/?$/, '/paper'), u.toString())
+        : '';
     } catch (e) { return ''; }
   }
 
@@ -120,13 +124,23 @@
     incomplete: ['未完成', 'bg-gray-200 text-gray-700'] };
   let timer = null, fails = 0;
 
+  function currentPhase(s) {
+    if (s.phase) return s.phase;
+    const phases = s.phases && typeof s.phases === 'object' ? s.phases : {};
+    const active = Object.entries(phases).find(([, status]) => ['running', 'blocked', 'failed'].includes(status));
+    if (active) return active[0];
+    const keys = Object.keys(phases);
+    return keys.length ? keys[keys.length - 1] : '';
+  }
+
   function render(s) {
     $('pp-err').classList.add('hidden');
     if (s.data_warning) { $('pp-err').textContent = '資料警告：' + esc(s.data_warning); $('pp-err').classList.remove('hidden'); }
     const rp = s.research_plan || {};
+    const phase = currentPhase(s);
     $('pp-topic').textContent = rp.topic || '(未命名專案)';
     $('pp-job').textContent = s.job_id || JOB || '';
-    $('pp-phase').textContent = PHASE_LABEL[s.phase] || s.phase || '—';
+    $('pp-phase').textContent = PHASE_LABEL[phase] || phase || '—';
     $('pp-updated').textContent = new Date().toLocaleTimeString('zh-TW');
     $('pp-rq').textContent = rp.research_question || '—';
     $('pp-contrib').textContent = rp.contribution || '—';
@@ -171,8 +185,8 @@
 
     // phase timeline: known phases in order; if the current phase is unknown, append it.
     let order = PHASE_ORDER.slice();
-    if (s.phase && !order.includes(s.phase)) order = order.concat([s.phase]);
-    const curIdx = order.indexOf(s.phase);
+    if (phase && !order.includes(phase)) order = order.concat([phase]);
+    const curIdx = order.indexOf(phase);
     $('pp-steps').innerHTML = order.map((p, i) => {
       const done = curIdx >= 0 && i <= curIdx;
       const cls = done ? 'bg-primary text-white border-primary' : 'bg-white text-gray-500 border-gray-300';

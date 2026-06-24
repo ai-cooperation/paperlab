@@ -52,8 +52,8 @@ const PJ = (() => {
         const st = p.status || 'ready';
         const badge = BADGE[st] || BADGE.ready;
         const statusLink = p.pipeline_status_url ? `<a href="/project/?status=${encodeURIComponent(p.pipeline_status_url)}" class="text-secondary underline">查即時進度</a>` : '';
-        const hasV2PaperRoute = /\/v2\/jobs\/[^/]+\/status\/?$/.test(String(p.pipeline_status_url || ''));
-        const paperLink = (st === 'done' && hasV2PaperRoute) ? `<a href="${esc(p.pipeline_status_url).replace(/\/status\/?$/, '/paper')}" target="_blank" rel="noreferrer" class="text-green-700 font-bold underline">下載論文 PDF</a>` : '';
+        const hasPaperRoute = /\/(v2\/jobs|jobs)\/[^/]+\/status\/?$/.test(String(p.pipeline_status_url || ''));
+        const paperLink = (st === 'done' && hasPaperRoute) ? `<a href="${esc(p.pipeline_status_url).replace(/\/status\/?$/, '/paper')}" target="_blank" rel="noreferrer" class="text-green-700 font-bold underline">下載論文 PDF</a>` : '';
         return `<div class="bg-white border border-gray-200 rounded-xl p-5">
           <div class="flex items-start justify-between gap-3 mb-2">
             <h3 class="font-bold text-primary flex-1 leading-snug">${esc(p.topic || p.id)}</h3>
