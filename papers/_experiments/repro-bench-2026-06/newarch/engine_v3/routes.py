@@ -155,12 +155,15 @@ def register(
             pack = PaperPack()
             runtime = runtime_factory() if runtime_factory is not None else runtime_from_env()
             phases = phases_factory() if phases_factory is not None else full_paper_pipeline()
-            dossier = EngineV3Orchestrator(
-                runtime=runtime,
-                domain_pack=pack,
-                phases=phases,
-                dossier_store=store,
-            ).run(job_id=job_id, resume=False)
+            try:
+                dossier = EngineV3Orchestrator(
+                    runtime=runtime,
+                    domain_pack=pack,
+                    phases=phases,
+                    dossier_store=store,
+                ).run(job_id=job_id, resume=False)
+            except Exception as exc:  # noqa: BLE001 - failed jobs must be inspectable.
+                dossier = _failed_dossier(store, job_id, pack.name, exc)
         finally:
             os.close(lock_fd)
 
@@ -197,6 +200,7 @@ def register(
             "phases": dict(dossier.phases),
             "delegations": list(dossier.delegations),
             "gates": list(dossier.gate_reports),
+            "error": dossier.evidence.get("error"),
             "artifacts": {
                 name: {"path": ref.path, "sha256": ref.sha256}
                 for name, ref in dossier.artifacts.items()
@@ -249,6 +253,17 @@ def _status(phases: dict[str, str]) -> str:
     if any(status == "blocked" for status in phases.values()):
         return "blocked"
     return "done"
+
+
+def _failed_dossier(store: DossierStore, job_id: str, domain: str, exc: Exception):
+    dossier = store.create(job_id=job_id, domain=domain)
+    dossier.mark_phase("system", "error")
+    dossier.evidence["error"] = {
+        "type": type(exc).__name__,
+        "message": str(exc),
+    }
+    store.save(dossier)
+    return dossier
 
 
 def _claim_lock(path: Path) -> int:

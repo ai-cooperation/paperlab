@@ -191,6 +191,39 @@ def test_v3_job_creation_lock_blocks_unclaimed_duplicate(tmp_path: Path):
     assert response.status_code == 409
 
 
+def test_v3_worker_crash_sets_failed_state(tmp_path: Path):
+    class CrashingRuntime:
+        name = "crashing"
+
+        def prepare(self, _context):
+            raise RuntimeError("runtime exploded")
+
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+            v3_runtime_factory=lambda: CrashingRuntime(),
+            v3_phases_factory=bounded_golden_pipeline,
+        )
+    )
+
+    created = tc.post(
+        "/v3/jobs",
+        json={"domain": "paper", "topic": "crash"},
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert created.status_code == 202
+    assert created.json()["status"] == "failed"
+    status = tc.get(created.json()["status_url"])
+    assert status.status_code == 200
+    assert status.json()["status"] == "failed"
+    assert status.json()["phases"] == {"system": "error"}
+    assert status.json()["error"]["type"] == "RuntimeError"
+
+
 def test_v3_routes_absent_without_flag(tmp_path: Path):
     tc = TestClient(http_app.create_app(jobs_dir=tmp_path, start_worker=False))
 
