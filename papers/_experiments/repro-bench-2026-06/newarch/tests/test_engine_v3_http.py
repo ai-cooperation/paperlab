@@ -7,7 +7,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 import http_app
-from engine_v3.pipelines.paper import BOUNDED_GOLDEN_OUTPUTS, bounded_golden_pipeline
+from engine_v3.pipelines.paper import (
+    BOUNDED_GOLDEN_OUTPUTS,
+    DATA_OUTPUTS,
+    FULL_PIPELINE_OUTPUTS,
+    bounded_golden_pipeline,
+    full_paper_pipeline,
+)
 from engine_v3.runtimes.codex_cli import CliRunResult, CodexCliRuntime
 
 pytestmark = pytest.mark.integration
@@ -26,6 +32,60 @@ def _fixture_runtime(golden_dir: Path):
         return CliRunResult(exit_code=0, stdout="CHILD_OK", stderr="")
 
     return CodexCliRuntime(runner=fixture_runner)
+
+
+def _full_fixture_runtime(golden_dir: Path):
+    clean_draft = _clean_long_draft()
+
+    def fixture_runner(command: list[str], cwd: Path, _timeout_s: int):
+        prompt = command[-1]
+        for rel in DATA_OUTPUTS:
+            if rel in prompt:
+                src = golden_dir / rel
+                dst = cwd / rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(src, dst)
+        if "phase3_positioning.md" in prompt:
+            (cwd / "phase3_positioning.md").write_text("## Gap\nA-side gap.\n", encoding="utf-8")
+        if "phase4_structure.md" in prompt:
+            (cwd / "phase4_structure.md").write_text("## Structure\nIMRaD.\n", encoding="utf-8")
+        if "claim_evidence_map.md" in prompt:
+            (cwd / "claim_evidence_map.md").write_text(
+                "| Claim | Evidence |\n"
+                "|---|---|\n"
+                "| k = 8; SMD -0.4327; I-squared 95.4 | real_results meta pooled |\n",
+                encoding="utf-8",
+            )
+        if "paper_draft_v0.qmd" in prompt:
+            for rel in [p for p in FULL_PIPELINE_OUTPUTS if p.startswith("sections/")]:
+                path = cwd / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("section\n", encoding="utf-8")
+            (cwd / "paper_draft_v0.qmd").write_text(clean_draft, encoding="utf-8")
+        if "paper_springer.qmd" in prompt:
+            (cwd / "paper_springer.qmd").write_text(clean_draft, encoding="utf-8")
+        if "quality_review_round1.json" in prompt:
+            (cwd / "quality_review_round1.json").write_text(
+                '{"p0_count": 0, "delivery": "pass", "floor_100": 82.0}\n',
+                encoding="utf-8",
+            )
+        if "paper_draft_v0.pdf" in prompt:
+            (cwd / "paper_draft_v0.pdf").write_bytes(b"%PDF-1.4\n" + b"x" * 2000)
+        return CliRunResult(exit_code=0, stdout="CHILD_OK", stderr="")
+
+    return CodexCliRuntime(runner=fixture_runner)
+
+
+def _clean_long_draft() -> str:
+    sentence = (
+        "The SMD pool included k = 8 effects. "
+        "The pooled standardised mean difference was -0.4327, which indicates a reduction "
+        "in depressive symptoms favouring exercise. "
+        "Heterogeneity was considerable, with I-squared of 95.4, and this is consistent "
+        "with a diverse study pool spanning different exercise modalities. "
+        "The pooled estimate is directionally informative rather than clinically definitive."
+    )
+    return "\n\n".join([sentence for _ in range(90)])
 
 
 def test_v3_jobs_require_bearer_token(tmp_path: Path):
@@ -89,6 +149,43 @@ def test_v3_job_runs_bounded_golden_and_status(tmp_path: Path, golden_dir: Path)
     assert payload["status"] == "done"
     assert payload["phases"] == {"data": "done", "render_gates": "done"}
     assert all(report["blocked"] is False for report in payload["gates"])
+
+
+def test_v3_status_includes_project_page_projection(tmp_path: Path, golden_dir: Path):
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+            v3_runtime_factory=lambda: _full_fixture_runtime(golden_dir),
+            v3_phases_factory=full_paper_pipeline,
+        )
+    )
+    created = tc.post(
+        "/v3/jobs",
+        json={
+            "domain": "paper",
+            "topic": "bounded golden",
+            "research_question": "Does the intervention improve outcomes?",
+            "contribution": "A reproducible rapid synthesis",
+            "level": "master",
+        },
+        headers={"Authorization": "Bearer secret"},
+    ).json()
+
+    payload = tc.get(created["status_url"]).json()
+
+    assert payload["research_plan"] == {
+        "topic": "bounded golden",
+        "research_question": "Does the intervention improve outcomes?",
+        "contribution": "A reproducible rapid synthesis",
+    }
+    assert payload["tier"] == "master"
+    assert "b_gap" in payload and "a_gap" in payload
+    assert payload["summary"]["delivery"] == "pass"
+    assert payload["artifacts"]["has_pdf"] is True
+    assert payload["artifacts"]["pdf"].endswith("/artifact/paper_draft_v0.pdf")
 
 
 def test_v3_artifact_route_serves_only_indexed_artifacts(tmp_path: Path, golden_dir: Path):

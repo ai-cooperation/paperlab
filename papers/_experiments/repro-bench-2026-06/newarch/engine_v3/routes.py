@@ -7,6 +7,7 @@ import os
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
+from urllib.parse import quote
 
 from fastapi import FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse
@@ -188,7 +189,8 @@ def register(
 
     @app.get("/v3/jobs/{job_id}/status")
     def v3_status(job_id: str) -> dict[str, Any]:
-        store = DossierStore(_run_dir(job_id))
+        run_dir = _run_dir(job_id)
+        store = DossierStore(run_dir)
         if not store.exists():
             raise HTTPException(status_code=404, detail="job not found")
         dossier = store.load()
@@ -201,10 +203,7 @@ def register(
             "delegations": list(dossier.delegations),
             "gates": list(dossier.gate_reports),
             "error": dossier.evidence.get("error"),
-            "artifacts": {
-                name: {"path": ref.path, "sha256": ref.sha256}
-                for name, ref in dossier.artifacts.items()
-            },
+            **_project_status(dossier, run_dir),
         }
 
     @app.get("/v3/jobs/{job_id}/artifact/{artifact_id:path}")
@@ -264,6 +263,70 @@ def _failed_dossier(store: DossierStore, job_id: str, domain: str, exc: Exceptio
     }
     store.save(dossier)
     return dossier
+
+
+def _project_status(dossier: Any, run_dir: Path) -> dict[str, Any]:
+    contract = _read_json(run_dir / "research_contract.input.json") or {}
+    review = _read_json(run_dir / "quality_review_round1.json") or {}
+    status = _status(dossier.phases)
+    artifacts = _artifact_projection(dossier)
+    has_pdf = bool(artifacts.get("has_pdf"))
+    delivery = review.get("delivery")
+    if delivery is None and status == "done":
+        delivery = "pass" if has_pdf and not _has_blocking_gate(dossier) else None
+
+    return {
+        "tier": contract.get("level") or contract.get("tier"),
+        "research_plan": {
+            "topic": contract.get("topic"),
+            "research_question": contract.get("research_question"),
+            "contribution": contract.get("contribution"),
+        },
+        "b_gap": contract.get("b_gap"),
+        "a_gap": _phase_gap(run_dir),
+        "viability": dossier.evidence.get("viability"),
+        "summary": {
+            "floor_100": review.get("floor_100"),
+            "delivery": delivery,
+            "phases_done": [phase for phase, phase_status in dossier.phases.items() if phase_status == "done"],
+        },
+        "artifacts": artifacts,
+    }
+
+
+def _artifact_projection(dossier: Any) -> dict[str, Any]:
+    projected = {
+        name: {
+            "path": ref.path,
+            "sha256": ref.sha256,
+            "url": _artifact_url(dossier.job_id, name),
+        }
+        for name, ref in dossier.artifacts.items()
+    }
+    has_pdf = "paper_draft_v0.pdf" in dossier.artifacts
+    projected["has_pdf"] = has_pdf
+    projected["pdf"] = _artifact_url(dossier.job_id, "paper_draft_v0.pdf") if has_pdf else None
+    return projected
+
+
+def _artifact_url(job_id: str, artifact_id: str) -> str:
+    encoded = "/".join(quote(part, safe="") for part in artifact_id.split("/"))
+    return f"/v3/jobs/{job_id}/artifact/{encoded}"
+
+
+def _phase_gap(run_dir: Path) -> list[dict[str, str]]:
+    path = run_dir / "phase3_positioning.md"
+    if not path.is_file():
+        return []
+    text = path.read_text(encoding="utf-8", errors="ignore").strip()
+    return [{"description": text}] if text else []
+
+
+def _has_blocking_gate(dossier: Any) -> bool:
+    for report in dossier.gate_reports:
+        if report.get("blocked"):
+            return True
+    return False
 
 
 def _claim_lock(path: Path) -> int:
