@@ -256,3 +256,182 @@ def test_orchestrator_blocks_phase_when_runtime_output_missing(tmp_path: Path):
     assert called == []
     assert dossier.phases["write"] == "blocked"
     assert dossier.delegations[0]["status"] == "blocked"
+
+
+def test_orchestrator_repairs_blocked_gate_before_terminal_block(tmp_path: Path):
+    class RepairingRuntime(MockRuntime):
+        name = "repairing-runtime"
+
+        def __init__(self):
+            self.calls = []
+
+        def run_brain(self, task: BrainTask, context: RuntimeContext):
+            self.calls.append(task.task_id)
+            refs = context.run_dir / "references.bib"
+            refs.write_text(
+                "@article{one,title={One}}\n"
+                if ":repair:" not in task.task_id else
+                "@article{one,title={One}}\n@article{two,title={Two}}\n",
+                encoding="utf-8",
+            )
+            return TaskResult(
+                task_id=task.task_id,
+                status="ok",
+                outputs={"references.bib": refs},
+                changed_files=["references.bib"],
+            )
+
+    class RefFloorPack:
+        name = "demo"
+
+        def gate_registry(self):
+            def check(dossier):
+                count = int(dossier.evidence.get("ref_count") or 0)
+                if count >= 2:
+                    return GateResult.pass_("A", "bib_count=%s" % count)
+                return GateResult.fail("A", details="bib_count=%s (floor 2)" % count)
+
+            return [{"id": "A", "phase": "data", "severity": GateSeverity.BLOCK, "check": check}]
+
+    def handler(_task: BrainTask, context: RuntimeContext):
+        refs = context.run_dir / "references.bib"
+        return {"gate_inputs": {"ref_count": refs.read_text(encoding="utf-8").count("@article")}}
+
+    runtime = RepairingRuntime()
+    orchestrator = EngineV3Orchestrator(
+        runtime=runtime,
+        domain_pack=RefFloorPack(),
+        phases=[
+            PhaseSpec(
+                id="data",
+                handler=handler,
+                prompt="collect refs",
+                expected_outputs=["references.bib"],
+                gate_ids=["A"],
+                repair_prompt="repair refs",
+                max_repair_attempts=1,
+            )
+        ],
+        dossier_store=DossierStore(tmp_path),
+    )
+
+    dossier = orchestrator.run(job_id="job-1", resume=False)
+
+    assert runtime.calls == ["data:brain", "data:repair:1"]
+    assert dossier.phases["data"] == "done"
+    assert [report["blocked"] for report in dossier.gate_reports] == [True, False]
+    assert dossier.delegations[-1]["task_id"] == "data:repair:1"
+
+
+def test_orchestrator_blocks_after_repair_budget_exhausted(tmp_path: Path):
+    class StillInsufficientRuntime(MockRuntime):
+        name = "still-insufficient"
+
+        def run_brain(self, task: BrainTask, context: RuntimeContext):
+            refs = context.run_dir / "references.bib"
+            refs.write_text("@article{one,title={One}}\n", encoding="utf-8")
+            return TaskResult(
+                task_id=task.task_id,
+                status="ok",
+                outputs={"references.bib": refs},
+                changed_files=["references.bib"],
+            )
+
+    class RefFloorPack:
+        name = "demo"
+
+        def gate_registry(self):
+            def check(dossier):
+                count = int(dossier.evidence.get("ref_count") or 0)
+                if count >= 2:
+                    return GateResult.pass_("A")
+                return GateResult.fail("A", details="bib_count=%s (floor 2)" % count)
+
+            return [{"id": "A", "phase": "data", "severity": GateSeverity.BLOCK, "check": check}]
+
+    def handler(_task: BrainTask, context: RuntimeContext):
+        refs = context.run_dir / "references.bib"
+        return {"gate_inputs": {"ref_count": refs.read_text(encoding="utf-8").count("@article")}}
+
+    orchestrator = EngineV3Orchestrator(
+        runtime=StillInsufficientRuntime(),
+        domain_pack=RefFloorPack(),
+        phases=[
+            PhaseSpec(
+                id="data",
+                handler=handler,
+                prompt="collect refs",
+                expected_outputs=["references.bib"],
+                gate_ids=["A"],
+                repair_prompt="repair refs",
+                max_repair_attempts=1,
+            )
+        ],
+        dossier_store=DossierStore(tmp_path),
+    )
+
+    dossier = orchestrator.run(job_id="job-1", resume=False)
+
+    assert dossier.phases["data"] == "blocked"
+    assert [report["blocked"] for report in dossier.gate_reports] == [True, True]
+
+
+def test_orchestrator_accepts_repair_outputs_when_gate_passes_despite_runtime_error(tmp_path: Path):
+    class NoisyRepairRuntime(MockRuntime):
+        name = "noisy-repair"
+
+        def run_brain(self, task: BrainTask, context: RuntimeContext):
+            refs = context.run_dir / "references.bib"
+            if ":repair:" in task.task_id:
+                refs.write_text("@article{one}\n@article{two}\n", encoding="utf-8")
+                return TaskResult(
+                    task_id=task.task_id,
+                    status="error",
+                    blockers=["nonzero exit after writing repaired artifacts"],
+                )
+            refs.write_text("@article{one}\n", encoding="utf-8")
+            return TaskResult(
+                task_id=task.task_id,
+                status="ok",
+                outputs={"references.bib": refs},
+                changed_files=["references.bib"],
+            )
+
+    class RefFloorPack:
+        name = "demo"
+
+        def gate_registry(self):
+            def check(dossier):
+                count = int(dossier.evidence.get("ref_count") or 0)
+                if count >= 2:
+                    return GateResult.pass_("A", "bib_count=%s" % count)
+                return GateResult.fail("A", details="bib_count=%s (floor 2)" % count)
+
+            return [{"id": "A", "phase": "data", "severity": GateSeverity.BLOCK, "check": check}]
+
+    def handler(_task: BrainTask, context: RuntimeContext):
+        refs = context.run_dir / "references.bib"
+        return {"gate_inputs": {"ref_count": refs.read_text(encoding="utf-8").count("@article")}}
+
+    orchestrator = EngineV3Orchestrator(
+        runtime=NoisyRepairRuntime(),
+        domain_pack=RefFloorPack(),
+        phases=[
+            PhaseSpec(
+                id="data",
+                handler=handler,
+                prompt="collect refs",
+                expected_outputs=["references.bib"],
+                gate_ids=["A"],
+                repair_prompt="repair refs",
+                max_repair_attempts=1,
+            )
+        ],
+        dossier_store=DossierStore(tmp_path),
+    )
+
+    dossier = orchestrator.run(job_id="job-1", resume=False)
+
+    assert dossier.phases["data"] == "done"
+    assert [report["blocked"] for report in dossier.gate_reports] == [True, False]
+    assert dossier.delegations[-1]["status"] == "error"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Iterable
 
 from .contracts import BrainTask, Dossier, PhaseSpec, RuntimeContext, TaskResult
@@ -50,36 +51,54 @@ class EngineV3Orchestrator:
                 self.dossier_store.save(dossier)
                 break
 
-            phase_result = dict(phase.handler(task, context) or {})
-            _apply_phase_result(dossier, phase.id, phase_result)
-
-            only = set(phase.gate_ids) if phase.gate_ids is not None else None
-            gate_report = run_gates(self.domain_pack, dossier, phase=phase.id, only=only)
-            dossier.gate_reports.append(
-                {
-                    "phase": phase.id,
-                    "blocked": gate_report.blocked,
-                    "failed_blocks": gate_report.failed_blocks,
-                    "results": [
-                        {
-                            "gate_id": result.gate_id,
-                            "passed": result.passed,
-                            "severity": result.severity.value,
-                            "details": result.details,
-                        }
-                        for result in gate_report.results
-                    ],
-                }
-            )
-            if gate_report.blocked:
-                dossier.mark_phase(phase.id, "blocked")
-                self.dossier_store.save(dossier)
+            gate_report = self._run_phase_handler_and_gates(phase, task, context, dossier)
+            repair_attempt = 0
+            phase_failed = False
+            while gate_report.blocked and repair_attempt < max(0, phase.max_repair_attempts):
+                repair_attempt += 1
+                repair_task = BrainTask(
+                    task_id="%s:repair:%s" % (phase.id, repair_attempt),
+                    phase=phase.id,
+                    prompt=_repair_prompt(phase, gate_report, repair_attempt),
+                    expected_outputs=list(phase.expected_outputs),
+                )
+                repair_result = self._run_phase_task(repair_task, context, dossier)
+                if repair_result is not None and repair_result.status != "ok":
+                    gate_report = self._run_phase_handler_and_gates(phase, task, context, dossier)
+                    if not gate_report.blocked:
+                        break
+                    dossier.mark_phase(phase.id, repair_result.status)
+                    self.dossier_store.save(dossier)
+                    phase_failed = True
+                    break
+                gate_report = self._run_phase_handler_and_gates(phase, task, context, dossier)
+            if phase_failed:
                 break
+            else:
+                if gate_report.blocked:
+                    dossier.mark_phase(phase.id, "blocked")
+                    self.dossier_store.save(dossier)
+                    break
 
             dossier.mark_phase(phase.id, "done")
             self.dossier_store.save(dossier)
 
         return dossier
+
+    def _run_phase_handler_and_gates(
+        self,
+        phase: PhaseSpec,
+        task: BrainTask,
+        context: RuntimeContext,
+        dossier: Dossier,
+    ):
+        phase_result = dict(phase.handler(task, context) or {})
+        _apply_phase_result(dossier, phase.id, phase_result)
+
+        only = set(phase.gate_ids) if phase.gate_ids is not None else None
+        gate_report = run_gates(self.domain_pack, dossier, phase=phase.id, only=only)
+        dossier.gate_reports.append(_gate_report_dict(phase.id, gate_report))
+        return gate_report
 
     def _run_phase_task(
         self,
@@ -106,6 +125,36 @@ def _skill_bundle(domain_pack: object) -> list[str]:
     if not callable(skill_bundle):
         return []
     return list(skill_bundle())
+
+
+def _gate_report_dict(phase_id: str, gate_report) -> dict:
+    return {
+        "phase": phase_id,
+        "blocked": gate_report.blocked,
+        "failed_blocks": gate_report.failed_blocks,
+        "results": [
+            {
+                "gate_id": result.gate_id,
+                "passed": result.passed,
+                "severity": result.severity.value,
+                "details": result.details,
+            }
+            for result in gate_report.results
+        ],
+    }
+
+
+def _repair_prompt(phase: PhaseSpec, gate_report, attempt: int) -> str:
+    gate_payload = _gate_report_dict(phase.id, gate_report)
+    base = phase.repair_prompt or (
+        "Repair this phase until all blocking gates pass. Preserve existing valid artifacts, "
+        "replace insufficient artifacts, and do not stop at a diagnostic report."
+    )
+    return "\n\n".join([
+        base,
+        "Repair attempt: %s" % attempt,
+        "Blocking gate report JSON:\n%s" % json.dumps(gate_payload, ensure_ascii=False, indent=2),
+    ])
 
 
 def _apply_phase_result(

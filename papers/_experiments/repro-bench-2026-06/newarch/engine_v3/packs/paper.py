@@ -211,9 +211,11 @@ def _gate_phase(gate_name: str) -> str:
 def _gate_review(dossier: Any) -> GateResult:
     data = _dossier_to_dict(dossier)
     review = data.get("review") if isinstance(data.get("review"), dict) else {}
-    p0_count = int(review.get("p0_count") or 0)
-    delivery = str(review.get("delivery") or "").lower()
+    p0_count = _review_p0_count(review)
+    delivery = str(review.get("delivery") or _review_delivery(review) or "").lower()
     floor = review.get("floor_100")
+    if floor is None:
+        floor = review.get("quality_gate", {}).get("floor_100") if isinstance(review.get("quality_gate"), dict) else None
     ok = p0_count == 0 and delivery in ("pass", "passed", "ok") and isinstance(floor, (int, float))
     return GateResult(
         gate_id="R",
@@ -226,6 +228,33 @@ def _gate_review(dossier: Any) -> GateResult:
         ),
         evidence={"p0_count": p0_count, "delivery": delivery, "floor_100": floor},
     )
+
+
+def _review_p0_count(review: Mapping[str, Any]) -> int:
+    if "p0_count" in review:
+        return int(review.get("p0_count") or 0)
+    findings = review.get("findings")
+    if not isinstance(findings, list):
+        return 0
+    return sum(
+        1
+        for finding in findings
+        if isinstance(finding, dict)
+        and str(finding.get("status") or "").lower() == "open"
+        and str(finding.get("severity") or "").lower() in {"critical", "p0"}
+    )
+
+
+def _review_delivery(review: Mapping[str, Any]) -> str:
+    quality_gate = review.get("quality_gate")
+    if isinstance(quality_gate, dict):
+        status = str(quality_gate.get("status") or "").lower()
+        if status in {"pass", "passed", "ok"}:
+            return "pass"
+    summary = review.get("summary")
+    if isinstance(summary, dict) and summary.get("blocking_for_final_submission"):
+        return "revise"
+    return str(review.get("overall_status") or "")
 
 
 def _gate_delivery(dossier: Any) -> GateResult:

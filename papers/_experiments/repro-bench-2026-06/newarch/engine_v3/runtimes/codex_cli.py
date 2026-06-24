@@ -54,7 +54,14 @@ class CodexCliRuntime:
     ) -> TaskResult:
         self.prepare(context)
         full_prompt = self._build_prompt(phase, prompt, expected_outputs, context)
-        command = [self.command, "exec", "--skip-git-repo-check", full_prompt]
+        command = [
+            self.command,
+            "exec",
+            "--skip-git-repo-check",
+            "--sandbox",
+            "workspace-write",
+            full_prompt,
+        ]
         result = self.runner(command, context.run_dir, self.timeout_s)
         combined = "\n".join([result.stdout or "", result.stderr or ""]).strip()
         stdout_tail = _tail(combined)

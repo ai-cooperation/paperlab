@@ -23,10 +23,40 @@ DATA_OUTPUTS = [
     "figures/fig_prisma_flow.svg",
 ]
 
+DATA_REPAIR_PROMPT = """Repair the paper data phase until the data gates pass.
+
+You are continuing an existing run directory. Inspect the existing artifacts and the
+blocking gate report below, then update the declared data artifacts in place.
+
+Hard requirements:
+- references.bib must meet the journal reference floor: at least 35 real bibliography entries.
+- doi_audit.json must honestly audit DOI/metadata quality for the updated bibliography.
+- real_experiments/real_results.json must be regenerated or updated from the expanded evidence.
+- figures must remain consistent with real_results.json.
+- If the topic cannot yield poolable effects, keep Gate E honest but still satisfy Gate A.
+- Do not stop after explaining the blocker; produce the repaired files.
+"""
+
 RENDER_GATE_OUTPUTS = [
     "paper_draft_v0.qmd",
     "paper_springer.qmd",
 ]
+
+RENDER_REPAIR_PROMPT = """Repair the manuscript render/readability gates.
+
+You are continuing an existing run directory. Inspect the blocking gate report below,
+paper_draft_v0.qmd, paper_springer.qmd, section files, claim_evidence_map.md,
+real_experiments/real_results.json, and references.bib. Update the declared manuscript
+artifacts in place.
+
+Hard requirements:
+- Expand the manuscript body to satisfy the readability floor (at least 3000 words).
+- Preserve factual consistency with real_results.json and claim_evidence_map.md.
+- Keep figures and citations referenced by existing artifact paths/keys.
+- Remove placeholders, outline fragments, and underdeveloped sections.
+- Ensure paper_springer.qmd remains renderable after the expansion.
+- Do not stop after explaining the blocker; produce the repaired files.
+"""
 
 BOUNDED_GOLDEN_OUTPUTS = DATA_OUTPUTS + RENDER_GATE_OUTPUTS
 
@@ -45,6 +75,19 @@ WRITE_OUTPUTS = [
 ]
 REVIEW_OUTPUTS = ["quality_review_round1.json"]
 FORMAT_REPAIR_OUTPUTS = ["paper_draft_v0.pdf"]
+
+REVIEW_HEAL_PROMPT = """Run review and self-heal, not review-only.
+
+Inspect the manuscript, figures, claim_evidence_map.md, references.bib, doi_audit.json,
+real_experiments/real_results.json, and render logs. Fix any P0/P1 issues you can fix
+inside the run directory, then write quality_review_round1.json.
+
+Hard requirements for quality_review_round1.json:
+- Include top-level p0_count, delivery, and floor_100 fields for the R gate.
+- Set delivery to "pass" only if no P0 issues remain and the manuscript can be delivered.
+- If issues remain, include actionable findings and keep delivery as "revise".
+- Do not stop at review_only when the issue is fixable; modify the affected artifacts.
+"""
 
 FULL_PIPELINE_OUTPUTS = (
     DATA_OUTPUTS
@@ -92,6 +135,8 @@ def full_paper_pipeline() -> list[PhaseSpec]:
             prompt="Run paper data phase: verified refs, real results, and figures.",
             expected_outputs=list(DATA_OUTPUTS),
             gate_ids=["A", "E"],
+            repair_prompt=DATA_REPAIR_PROMPT,
+            max_repair_attempts=2,
         ),
         PhaseSpec(
             id="gap",
@@ -122,15 +167,19 @@ def full_paper_pipeline() -> list[PhaseSpec]:
             id="render_gates",
             handler=_collect_gate_inputs,
             prompt="Render journal source and run manuscript gates.",
-            expected_outputs=["paper_springer.qmd"],
+            expected_outputs=list(RENDER_GATE_OUTPUTS),
             gate_ids=["C", "D", "F"],
+            repair_prompt=RENDER_REPAIR_PROMPT,
+            max_repair_attempts=2,
         ),
         PhaseSpec(
             id="review_heal",
             handler=_collect_gate_inputs,
-            prompt="Run review/heal pass and write structured review result.",
+            prompt=REVIEW_HEAL_PROMPT,
             expected_outputs=list(REVIEW_OUTPUTS),
             gate_ids=["R"],
+            repair_prompt=REVIEW_HEAL_PROMPT,
+            max_repair_attempts=1,
         ),
         PhaseSpec(
             id="format_repair",

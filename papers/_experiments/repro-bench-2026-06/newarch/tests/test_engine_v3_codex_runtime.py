@@ -26,6 +26,25 @@ def test_codex_runtime_returns_ok_only_when_declared_outputs_exist(tmp_path: Pat
     assert result.outputs == {"sections/intro.md": tmp_path / "sections/intro.md"}
 
 
+def test_codex_runtime_uses_workspace_write_sandbox(tmp_path: Path):
+    seen = {}
+
+    def runner(command, cwd: Path, timeout_s: int):
+        seen["command"] = command
+        (cwd / "out.txt").write_text("ok", encoding="utf-8")
+        return CliRunResult(exit_code=0, stdout="CHILD_OK", stderr="")
+
+    runtime = CodexCliRuntime(runner=runner)
+
+    result = runtime.run_brain(
+        BrainTask(phase="data", prompt="write", expected_outputs=["out.txt"]),
+        RuntimeContext(job_id="job-1", run_dir=tmp_path),
+    )
+
+    assert result.status == "ok"
+    assert seen["command"][:5] == ["codex", "exec", "--skip-git-repo-check", "--sandbox", "workspace-write"]
+
+
 def test_codex_runtime_blocks_when_declared_outputs_are_missing(tmp_path: Path):
     runtime = CodexCliRuntime(
         runner=lambda _command, _cwd, _timeout_s: CliRunResult(

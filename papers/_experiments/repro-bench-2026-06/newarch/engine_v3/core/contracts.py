@@ -141,3 +141,5 @@ class PhaseSpec:
     prompt: str = ""
     expected_outputs: List[str] = field(default_factory=list)
     gate_ids: Optional[List[str]] = None
+    repair_prompt: str = ""
+    max_repair_attempts: int = 0

@@ -252,7 +252,7 @@ def register(
             raise HTTPException(status_code=404, detail="job not found")
         dossier = store.load()
         dossier_status = _status(dossier.phases)
-        status = "running" if _lock_path(job_id).exists() and dossier_status not in {"blocked", "failed"} else dossier_status
+        status = "running" if _lock_path(job_id).exists() and dossier_status not in {"blocked", "failed", "done"} else dossier_status
         return {
             "engine": "v3",
             "job_id": dossier.job_id,
@@ -310,7 +310,13 @@ def _status(phases: dict[str, str]) -> str:
         return "failed"
     if any(status == "blocked" for status in phases.values()):
         return "blocked"
-    return "done"
+    if phases.get("format_repair") == "done":
+        return "done"
+    if any(phase in phases for phase in ("gap", "structure", "write", "claim_evidence", "review_heal")):
+        return "running"
+    if phases.get("render_gates") == "done":
+        return "done"
+    return "running"
 
 
 def _accepted_job(job_id: str, status_url: str, *, idempotent_replay: bool) -> dict[str, Any]:
