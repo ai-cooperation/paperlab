@@ -16,7 +16,7 @@ from engine_v3.core.dossier import hash_file
 from engine_v3.core.orchestrator import EngineV3Orchestrator
 from engine_v3.packs.paper import PaperPack
 from engine_v3.pipelines.paper import full_paper_pipeline
-from engine_v3.runtimes.codex_cli import CodexCliRuntime
+from engine_v3.runtime_config import runtime_from_env
 
 
 RuntimeFactory = Callable[[], object]
@@ -153,7 +153,7 @@ def register(
                 encoding="utf-8",
             )
             pack = PaperPack()
-            runtime = runtime_factory() if runtime_factory is not None else CodexCliRuntime()
+            runtime = runtime_factory() if runtime_factory is not None else runtime_from_env()
             phases = phases_factory() if phases_factory is not None else full_paper_pipeline()
             dossier = EngineV3Orchestrator(
                 runtime=runtime,
