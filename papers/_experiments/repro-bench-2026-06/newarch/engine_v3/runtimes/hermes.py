@@ -155,7 +155,7 @@ class HermesCodexRuntime:
         mode = "bounded worker" if worker_mode else "codex brain"
         parts = [
             "Engine v3 Hermes phase: %s (%s)." % (phase, mode),
-            _skill_context(self.skill_root, context.metadata.get("skill_bundle", [])),
+            _skill_context_reference(self.skill_root, context.metadata.get("skill_bundle", []), context.run_dir),
             prompt,
         ]
         expected = list(expected_outputs)
@@ -211,6 +211,19 @@ def _skill_context(skill_root: Optional[Path], skill_bundle: Iterable[str]) -> s
     if not blocks:
         return ""
     return "Loaded skill bundle:\n\n" + "\n\n".join(blocks)
+
+
+def _skill_context_reference(skill_root: Optional[Path], skill_bundle: Iterable[str], run_dir: Path) -> str:
+    skill_text = _skill_context(skill_root, skill_bundle)
+    if not skill_text:
+        return ""
+    context_path = run_dir / "engine_v3_skill_context.md"
+    context_path.write_text(skill_text, encoding="utf-8")
+    return (
+        "Loaded skill bundle is stored in engine_v3_skill_context.md. "
+        "Before acting, read that file and apply every hard requirement relevant to this phase. "
+        "Do not proceed from memory or ignore missing/contradictory skill requirements."
+    )
 
 
 def _missing_skills(skill_root: Optional[Path], skill_bundle: Iterable[str]) -> list[str]:

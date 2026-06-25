@@ -72,7 +72,36 @@ def test_hermes_runtime_loads_pack_skill_bundle(tmp_path: Path):
     )
 
     assert result.status == "ok"
-    assert "paper rules" in seen["prompt"]
+    assert "engine_v3_skill_context.md" in seen["prompt"]
+    assert "paper rules" not in seen["prompt"]
+    assert (tmp_path / "engine_v3_skill_context.md").read_text(encoding="utf-8").count("paper rules") == 1
+
+
+def test_hermes_runtime_keeps_large_skill_bundle_out_of_argv(tmp_path: Path):
+    skill_root = tmp_path / "skills"
+    skill_dir = skill_root / "qmd-writer"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("table rule\n" * 10000, encoding="utf-8")
+    seen = {}
+
+    def runner(command: list[str], cwd: Path, timeout_s: int):
+        seen["prompt"] = command[command.index("-z") + 1]
+        return HermesRunResult(exit_code=0, stdout="CHILD_OK", stderr="")
+
+    runtime = HermesCodexRuntime(runner=runner, skill_root=skill_root)
+    result = runtime.run_brain(
+        BrainTask(phase="review", prompt="review"),
+        RuntimeContext(
+            job_id="job-1",
+            run_dir=tmp_path,
+            metadata={"skill_bundle": ["qmd-writer"]},
+        ),
+    )
+
+    assert result.status == "ok"
+    assert len(seen["prompt"]) < 1000
+    assert "table rule" not in seen["prompt"]
+    assert (tmp_path / "engine_v3_skill_context.md").stat().st_size > 100_000
 
 
 def test_hermes_runtime_errors_when_declared_skill_is_missing(tmp_path: Path):
