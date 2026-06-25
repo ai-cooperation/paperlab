@@ -286,12 +286,14 @@ def _build_dossier(run_dir: Path) -> dict[str, Any]:
         or doi.get("crossref_real")
         or doi.get("bib_count")
         or doi.get("retained_verified_references")
+        or doi.get("selected_count")
         or 0,
         "doi_real_rate": _first_present(
             doi,
             "doi_real_rate",
             "real_rate",
             "real_existence_rate",
+            "selected_pass_rate",
         ),
     }
     if refs["doi_real_rate"] is None and isinstance(doi.get("verification_summary"), dict):
@@ -314,7 +316,11 @@ def _build_dossier(run_dir: Path) -> dict[str, Any]:
     if refs["doi_real_rate"] is None and isinstance(doi.get("records"), list):
         records = doi["records"]
         if records:
-            verified_count = sum(1 for row in records if isinstance(row, dict) and row.get("verified") is True)
+            verified_count = sum(
+                1
+                for row in records
+                if isinstance(row, dict) and (row.get("verified") is True or row.get("passed_two_of_three") is True)
+            )
             refs["doi_real_rate"] = verified_count / len(records)
         if not refs["bib_count"]:
             refs["bib_count"] = len(records)

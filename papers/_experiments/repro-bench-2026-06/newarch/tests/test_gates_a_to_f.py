@@ -656,6 +656,47 @@ def test_paperctl_gates_derive_values_from_doi_backed_summary_schema(tmp_path, c
     assert out_e["evidence"]["max_poolable_k"] == 5
 
 
+def test_paperctl_gate_a_derives_selected_pass_rate_schema(tmp_path, capsys):
+    import paperctl
+
+    run_dir = tmp_path / "run"
+    (run_dir / "real_experiments").mkdir(parents=True)
+    (run_dir / "doi_audit.json").write_text(
+        json.dumps(
+            {
+                "selected_count": 35,
+                "selected_pass_count": 35,
+                "selected_pass_rate": 1.0,
+                "records": [
+                    {"doi": "10.1000/example.1", "passed_two_of_three": True},
+                    {"doi": "10.1000/example.2", "passed_two_of_three": True},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "real_experiments" / "real_results.json").write_text(
+        json.dumps(
+            {
+                "abstract_level_effects": [
+                    {"doi": "10.1000/example.1", "estimate": 0.4},
+                ],
+                "reference_pool": {
+                    "selected_n": 35,
+                    "two_of_three_verification_rate": 1.0,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rc_a = paperctl.main(["gate", "A", "--run-dir", str(run_dir)])
+    out_a = json.loads(capsys.readouterr().out)
+
+    assert rc_a == 0
+    assert out_a["evidence"] == {"bib_count": 35, "doi_real_rate": 1.0}
+
+
 def test_paperctl_gate_b_blocks_on_overclaim_draft(tmp_path, golden_dir, fixtures_dir, capsys):
     import paperctl
 
