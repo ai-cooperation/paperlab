@@ -56,6 +56,8 @@ def register(
         for lock_path in lock_dir.glob("*.lock"):
             job_id = lock_path.stem
             if not DossierStore(_run_dir(job_id)).exists():
+                if not _lock_owner_alive(lock_path):
+                    continue
                 count += 1
         return count
 
@@ -434,9 +436,39 @@ def _has_blocking_gate(dossier: Any) -> bool:
 def _claim_lock(path: Path) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        return os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except FileExistsError as exc:
         raise HTTPException(status_code=409, detail="job creation is already in progress") from exc
+    os.write(fd, json.dumps({"pid": os.getpid()}, ensure_ascii=False).encode("utf-8"))
+    os.fsync(fd)
+    return fd
+
+
+def _lock_owner_alive(path: Path) -> bool:
+    try:
+        raw = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return False
+    # Legacy v3 locks created before owner metadata were empty. After a service
+    # restart they cannot be distinguished from abandoned locks, so they must not
+    # permanently block unrelated submissions.
+    if not raw:
+        return False
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        # Non-empty legacy/foreign lock: keep the conservative busy behavior.
+        return True
+    pid = payload.get("pid") if isinstance(payload, dict) else None
+    if not isinstance(pid, int) or pid <= 0:
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def _read_json(path: Optional[Path]) -> dict[str, Any] | None:

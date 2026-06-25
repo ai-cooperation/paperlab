@@ -397,6 +397,31 @@ def test_v3_submit_respects_max_live_jobs(tmp_path: Path, golden_dir: Path):
     assert "engine busy" in response.json()["detail"]
 
 
+def test_v3_submit_ignores_stale_empty_legacy_lock(tmp_path: Path, golden_dir: Path):
+    lock_dir = tmp_path / "_locks_v3"
+    lock_dir.mkdir()
+    (lock_dir / "v3_stale.lock").write_text("", encoding="utf-8")
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+            v3_max_live_jobs=1,
+            v3_runtime_factory=lambda: _fixture_runtime(golden_dir),
+            v3_phases_factory=bounded_golden_pipeline,
+        )
+    )
+
+    response = tc.post(
+        "/v3/jobs",
+        json={"domain": "paper", "topic": "not busy"},
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 202
+
+
 def test_v3_worker_crash_sets_failed_state(tmp_path: Path):
     class CrashingRuntime:
         name = "crashing"
