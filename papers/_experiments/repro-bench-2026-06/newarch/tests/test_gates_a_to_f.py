@@ -553,6 +553,56 @@ def test_paperctl_gates_derive_values_from_audit_summary_schema(tmp_path, capsys
     assert out_e["evidence"]["max_poolable_k"] == 3
 
 
+def test_paperctl_gates_derive_values_from_included_summary_schema(tmp_path, capsys):
+    import paperctl
+
+    run_dir = tmp_path / "run"
+    (run_dir / "real_experiments").mkdir(parents=True)
+    (run_dir / "doi_audit.json").write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "total_candidates_audited": 37,
+                    "verified_included_references": 35,
+                    "verification_rate_included": 1.0,
+                    "abstract_coverage_included": 35,
+                },
+                "included_keys": ["a", "b", "c"],
+                "audit_records": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "real_experiments" / "real_results.json").write_text(
+        json.dumps(
+            {
+                "abstract_level_outcomes": [
+                    {"doi": "10.1000/example.1", "estimate": -0.8},
+                    {"doi": "10.1000/example.2", "estimate": -0.6},
+                    {"doi": "10.1000/example.3", "estimate": -0.4},
+                    {"doi": "10.1000/example.4", "estimate": -0.3},
+                ],
+                "abstract_numeric_evidence_index": [
+                    {"doi": "10.1000/example.1"},
+                    {"doi": "10.1000/example.2"},
+                ],
+                "screening_counts": {"verified_included_references": 35},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rc_a = paperctl.main(["gate", "A", "--run-dir", str(run_dir)])
+    out_a = json.loads(capsys.readouterr().out)
+    rc_e = paperctl.main(["gate", "E", "--run-dir", str(run_dir)])
+    out_e = json.loads(capsys.readouterr().out)
+
+    assert rc_a == 0
+    assert out_a["evidence"] == {"bib_count": 35, "doi_real_rate": 1.0}
+    assert rc_e == 0
+    assert out_e["evidence"]["max_poolable_k"] == 4
+
+
 def test_paperctl_gate_b_blocks_on_overclaim_draft(tmp_path, golden_dir, fixtures_dir, capsys):
     import paperctl
 
