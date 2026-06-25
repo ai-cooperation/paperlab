@@ -371,6 +371,39 @@ def test_paperctl_gate_a_accepts_v3_doi_audit_schema(tmp_path, capsys):
     assert out["evidence"] == {"bib_count": 36, "doi_real_rate": 1.0}
 
 
+def test_paperctl_gate_a_prefers_v3_1_canonical_data(tmp_path, capsys):
+    import paperctl
+
+    run_dir = tmp_path / "run"
+    (run_dir / "artifacts" / "data").mkdir(parents=True)
+    (run_dir / "doi_audit.json").write_text(
+        json.dumps({"bib_count": 35, "doi_real_rate": 0.0}),
+        encoding="utf-8",
+    )
+    (run_dir / "artifacts" / "data" / "canonical.v3_1.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "paperlab.data.v3.1",
+                "references": {"count": 40},
+                "verification": {"two_source_rate": 1.0},
+                "effects": {"poolable_k": 9, "abstract_level_count": 9},
+                "figures": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rc_a = paperctl.main(["gate", "A", "--run-dir", str(run_dir)])
+    out_a = json.loads(capsys.readouterr().out)
+    rc_e = paperctl.main(["gate", "E", "--run-dir", str(run_dir)])
+    out_e = json.loads(capsys.readouterr().out)
+
+    assert rc_a == 0
+    assert out_a["evidence"] == {"bib_count": 40, "doi_real_rate": 1.0}
+    assert rc_e == 0
+    assert out_e["evidence"]["max_poolable_k"] == 9
+
+
 def test_paperctl_gate_e_accepts_v3_real_results_schema(tmp_path, capsys):
     import paperctl
 

@@ -276,9 +276,11 @@ def _build_dossier(run_dir: Path) -> dict[str, Any]:
       viability   <- recomputed poolable-k over the seeded corpus cache (Gate E)
     """
     import synthesis
+    from engine_v3.artifacts import load_or_build_canonical_data
 
     draft = _read_text(run_dir, "paper_draft_v0.qmd", "paper_springer.qmd")
     real_results = _read_json(run_dir, "real_experiments/real_results.json")
+    canonical_data = load_or_build_canonical_data(run_dir)
 
     doi = _read_json(run_dir, "doi_audit.json")
     refs = {
@@ -357,6 +359,16 @@ def _build_dossier(run_dir: Path) -> dict[str, Any]:
         import re as _re
         bibtext = _read_text(run_dir, "references.bib")
         refs["bib_count"] = len(_re.findall(r"^@\w+\s*\{", bibtext, _re.MULTILINE))
+
+    canonical_refs = canonical_data.get("references") if isinstance(canonical_data, dict) else None
+    canonical_verification = canonical_data.get("verification") if isinstance(canonical_data, dict) else None
+    if isinstance(canonical_refs, dict) and isinstance(canonical_refs.get("count"), int) and canonical_refs["count"] > 0:
+        refs["bib_count"] = canonical_refs["count"]
+    if isinstance(canonical_verification, dict) and isinstance(
+        canonical_verification.get("two_source_rate"),
+        (int, float),
+    ):
+        refs["doi_real_rate"] = canonical_verification["two_source_rate"]
 
     # Gate E: recompute viability (max poolable-k) over the run's frozen corpus cache.
     viability: dict[str, Any] = {}
@@ -444,6 +456,11 @@ def _build_dossier(run_dir: Path) -> dict[str, Any]:
         ):
             count = real_results["prisma_counts"]["abstract_extractable_effects_in_quantitative_synthesis"]
             viability = {"poolable_k": {"abstract_level": count}, "max_poolable_k": count}
+
+    canonical_effects = canonical_data.get("effects") if isinstance(canonical_data, dict) else None
+    if isinstance(canonical_effects, dict) and isinstance(canonical_effects.get("poolable_k"), int):
+        count = canonical_effects["poolable_k"]
+        viability = {"poolable_k": {"abstract_level": count}, "max_poolable_k": count}
 
     return {
         "draft_text": draft,

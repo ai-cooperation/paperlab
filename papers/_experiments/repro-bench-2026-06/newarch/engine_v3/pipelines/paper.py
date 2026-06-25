@@ -227,6 +227,9 @@ def _collect_gate_inputs(
     _task: BrainTask,
     context: RuntimeContext,
 ) -> Mapping[str, object]:
+    from engine_v3.artifacts import load_or_build_canonical_data
+
+    load_or_build_canonical_data(context.run_dir, write=True)
     gate_inputs = paperctl._build_dossier(context.run_dir)
     review_path = context.run_dir / "quality_review_round1.json"
     if review_path.is_file():
