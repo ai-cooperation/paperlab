@@ -301,7 +301,17 @@ def _build_dossier(run_dir: Path) -> dict[str, Any]:
         if refs["doi_real_rate"] is None and summary.get("all_bib_entries_two_source_verified") is True:
             refs["doi_real_rate"] = 1.0
         if not refs["bib_count"]:
-            refs["bib_count"] = summary.get("bib_entries_written") or summary.get("references_selected") or 0
+            refs["bib_count"] = (
+                summary.get("bib_entries_written")
+                or summary.get("references_selected")
+                or summary.get("selected_references")
+                or 0
+            )
+        if refs["doi_real_rate"] is None:
+            selected = summary.get("selected_references")
+            passing = summary.get("selected_passing_two_source_rule")
+            if isinstance(selected, (int, float)) and selected > 0 and isinstance(passing, (int, float)):
+                refs["doi_real_rate"] = passing / selected
     # bib_count falls back to counting references.bib entries.
     if not refs["bib_count"]:
         import re as _re
@@ -336,6 +346,22 @@ def _build_dossier(run_dir: Path) -> dict[str, Any]:
                 "poolable_k": {"abstract_level": len(real_results["effects"])},
                 "max_poolable_k": len(real_results["effects"]),
             }
+        elif isinstance(real_results.get("included_effects"), list):
+            viability = {
+                "poolable_k": {"abstract_level": len(real_results["included_effects"])},
+                "max_poolable_k": len(real_results["included_effects"]),
+            }
+        elif isinstance(real_results.get("pooled_smd"), dict) and isinstance(real_results["pooled_smd"].get("k"), int):
+            viability = {
+                "poolable_k": {"abstract_level": real_results["pooled_smd"]["k"]},
+                "max_poolable_k": real_results["pooled_smd"]["k"],
+            }
+        elif isinstance(real_results.get("prisma_counts"), dict) and isinstance(
+            real_results["prisma_counts"].get("abstract_extractable_effects_in_quantitative_synthesis"),
+            int,
+        ):
+            count = real_results["prisma_counts"]["abstract_extractable_effects_in_quantitative_synthesis"]
+            viability = {"poolable_k": {"abstract_level": count}, "max_poolable_k": count}
 
     return {
         "draft_text": draft,
