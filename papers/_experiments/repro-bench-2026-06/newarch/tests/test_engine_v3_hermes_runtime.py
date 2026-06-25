@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import signal
 import stat
 import time
 from pathlib import Path
@@ -7,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from engine_v3.core import BrainTask, RuntimeContext, WorkerTask
-from engine_v3.runtimes.hermes import HermesCodexRuntime, HermesRunResult
+from engine_v3.runtimes.hermes import HermesCodexRuntime, HermesRunResult, _terminate_run_dir_processes
 
 pytestmark = pytest.mark.unit
 
@@ -279,3 +280,36 @@ time.sleep(30)
     ]
     assert time.monotonic() - started < 5
     assert "terminated after no declared outputs appeared" in result.stdout_tail
+
+
+def test_hermes_runtime_terminates_orphan_process_groups_in_run_dir(tmp_path: Path, monkeypatch):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    nested_dir = run_dir / "real_experiments"
+    nested_dir.mkdir()
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    (proc_root / "123").mkdir()
+    (proc_root / "124").mkdir()
+    (proc_root / "999").mkdir()
+    (proc_root / "123" / "cwd").symlink_to(run_dir)
+    (proc_root / "124" / "cwd").symlink_to(nested_dir)
+    (proc_root / "999" / "cwd").symlink_to(tmp_path)
+
+    def fake_getpgid(pid: int) -> int:
+        return {123: 9001, 124: 9002, 999: 9999}[pid]
+
+    killed = []
+    monkeypatch.setattr("engine_v3.runtimes.hermes.os.getpgid", fake_getpgid)
+    monkeypatch.setattr("engine_v3.runtimes.hermes.os.getpid", lambda: 111)
+    monkeypatch.setattr("engine_v3.runtimes.hermes.os.killpg", lambda pgid, sig: killed.append((pgid, sig)))
+    monkeypatch.setattr("engine_v3.runtimes.hermes.time.sleep", lambda _seconds: None)
+
+    _terminate_run_dir_processes(run_dir, proc_root=proc_root, grace_s=0)
+
+    assert killed == [
+        (9001, signal.SIGTERM),
+        (9002, signal.SIGTERM),
+        (9001, signal.SIGKILL),
+        (9002, signal.SIGKILL),
+    ]

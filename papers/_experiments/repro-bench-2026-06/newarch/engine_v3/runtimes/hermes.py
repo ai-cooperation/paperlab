@@ -242,6 +242,7 @@ def _subprocess_runner(
             now = time.monotonic()
             if now - started > timeout_s:
                 _terminate_process_group(proc)
+                _terminate_run_dir_processes(cwd)
                 exit_code = 124
                 break
             existing = _existing_outputs(cwd, expected)
@@ -250,6 +251,7 @@ def _subprocess_runner(
                     outputs_seen_at = now
                 elif now - outputs_seen_at >= output_complete_grace_s:
                     _terminate_process_group(proc)
+                    _terminate_run_dir_processes(cwd)
                     exit_code = 0
                     terminated_after_outputs = True
                     break
@@ -262,6 +264,7 @@ def _subprocess_runner(
                         partial_seen_at = now
                     elif partial_seen_at is not None and now - partial_seen_at >= output_partial_idle_s:
                         _terminate_process_group(proc)
+                        _terminate_run_dir_processes(cwd)
                         exit_code = 0
                         terminated_after_partial_idle = True
                         break
@@ -270,6 +273,7 @@ def _subprocess_runner(
                     partial_seen_at = None
                     if now - started >= output_startup_idle_s:
                         _terminate_process_group(proc)
+                        _terminate_run_dir_processes(cwd)
                         exit_code = 0
                         terminated_after_startup_idle = True
                         break
@@ -314,6 +318,58 @@ def _terminate_process_group(proc: subprocess.Popen) -> None:
     except ProcessLookupError:
         return
     proc.wait(timeout=5)
+
+
+def _terminate_run_dir_processes(run_dir: Path, *, proc_root: Path = Path("/proc"), grace_s: float = 1.0) -> None:
+    """Terminate orphan process groups whose cwd is inside the Hermes run directory.
+
+    Some Hermes child shells start their own process group and can survive after the
+    Hermes parent is terminated. Leaving them alive corrupts terminal job status by
+    writing declared outputs after the orchestrator has already marked the phase
+    blocked.
+    """
+    pgids = _process_groups_with_cwd(run_dir, proc_root=proc_root)
+    if not pgids:
+        return
+    for pgid in sorted(pgids):
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    time.sleep(grace_s)
+    for pgid in sorted(pgids):
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+def _process_groups_with_cwd(run_dir: Path, *, proc_root: Path = Path("/proc")) -> set[int]:
+    if not proc_root.is_dir():
+        return set()
+    try:
+        resolved_run_dir = run_dir.resolve()
+    except OSError:
+        return set()
+    current_pid = os.getpid()
+    pgids: set[int] = set()
+    for entry in proc_root.iterdir():
+        if not entry.name.isdigit():
+            continue
+        pid = int(entry.name)
+        if pid == current_pid:
+            continue
+        try:
+            cwd = (entry / "cwd").resolve()
+        except OSError:
+            continue
+        if cwd != resolved_run_dir and resolved_run_dir not in cwd.parents:
+            continue
+        try:
+            pgids.add(os.getpgid(pid))
+        except ProcessLookupError:
+            continue
+    return pgids
 
 
 def _existing_outputs(run_dir: Path, expected_outputs: Iterable[str]) -> dict[str, Path]:
