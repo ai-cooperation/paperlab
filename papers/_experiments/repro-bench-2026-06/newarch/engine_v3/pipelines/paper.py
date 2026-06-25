@@ -341,7 +341,12 @@ def _validate_delivery_pdf(pdf, run_dir=None) -> dict[str, object]:
 def _validate_table_widths(run_dir: Path) -> dict[str, object]:
     qmd = run_dir / "paper_springer.qmd"
     if not qmd.is_file():
-        return {"table_count": 0, "valid": True, "findings": []}
+        return {
+            "table_count": 0,
+            "tables": [],
+            "valid": False,
+            "findings": ["paper_springer.qmd missing; cannot validate table layout"],
+        }
     text = qmd.read_text(encoding="utf-8", errors="ignore")
     findings = []
     tables = []
@@ -365,6 +370,8 @@ def _validate_table_widths(run_dir: Path) -> dict[str, object]:
         if total != 100:
             findings.append("table %s tbl-colwidths sum to %s, expected 100" % (table_id, total))
         tables.append({"id": table_id, "widths": widths, "sum": total})
+    if len(tables) < 2:
+        findings.append("paper requires at least 2 real Quarto tables; found %d" % len(tables))
     return {
         "table_count": len(tables),
         "tables": tables,

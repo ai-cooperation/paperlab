@@ -187,7 +187,10 @@ def test_table_width_validation_requires_tbl_colwidths(tmp_path: Path):
     invalid = _validate_table_widths(tmp_path)
 
     assert invalid["valid"] is False
-    assert invalid["findings"] == ["table main missing tbl-colwidths"]
+    assert invalid["findings"] == [
+        "table main missing tbl-colwidths",
+        "paper requires at least 2 real Quarto tables; found 1",
+    ]
 
     qmd.write_text(
         "| Method | Long text result | Score | Notes | Risk |\n"
@@ -197,10 +200,34 @@ def test_table_width_validation_requires_tbl_colwidths(tmp_path: Path):
         encoding="utf-8",
     )
 
+    one_table = _validate_table_widths(tmp_path)
+
+    assert one_table["valid"] is False
+    assert one_table["findings"] == ["paper requires at least 2 real Quarto tables; found 1"]
+
+    qmd.write_text(
+        "| Method | Long text result | Score | Notes | Risk |\n"
+        "|---|---|---|---|---|\n"
+        "| A | long prose | 0.5 | note | risk |\n\n"
+        ': Main Results {#tbl-main tbl-colwidths="[25,25,15,20,15]"}\n\n'
+        "| Ablation | Result |\n"
+        "|---|---|\n"
+        "| no evidence repair | lower consistency |\n\n"
+        ': Ablation Results {#tbl-ablation tbl-colwidths="[35,65]"}\n',
+        encoding="utf-8",
+    )
+
     valid = _validate_table_widths(tmp_path)
 
     assert valid["valid"] is True
-    assert valid["tables"][0]["sum"] == 100
+    assert [table["sum"] for table in valid["tables"]] == [100, 100]
+
+
+def test_table_layout_validation_fails_without_rendered_qmd(tmp_path: Path):
+    result = _validate_table_widths(tmp_path)
+
+    assert result["valid"] is False
+    assert result["findings"] == ["paper_springer.qmd missing; cannot validate table layout"]
 
 
 def _clean_long_draft() -> str:
