@@ -603,6 +603,59 @@ def test_paperctl_gates_derive_values_from_included_summary_schema(tmp_path, cap
     assert out_e["evidence"]["max_poolable_k"] == 4
 
 
+def test_paperctl_gates_derive_values_from_doi_backed_summary_schema(tmp_path, capsys):
+    import paperctl
+
+    run_dir = tmp_path / "run"
+    (run_dir / "real_experiments").mkdir(parents=True)
+    (run_dir / "doi_audit.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "paperlab.doi_audit.v3",
+                "summary": {
+                    "included_doi_backed_references": 35,
+                    "crossref_pass": 35,
+                    "europepmc_pass": 35,
+                    "doi_org_resolves": 23,
+                    "two_source_pass_rate": 1.0,
+                },
+                "items": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "real_experiments" / "real_results.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "paperlab.real_results.v3",
+                "forest_style_data": [
+                    {"key": "a", "abstract_direction_score": 1.1},
+                    {"key": "b", "abstract_direction_score": 0.9},
+                    {"key": "c", "abstract_direction_score": 0.7},
+                    {"key": "d", "abstract_direction_score": 0.5},
+                    {"key": "e", "abstract_direction_score": 0.3},
+                ],
+                "doi_verification_summary": {
+                    "included_doi_backed_references": 35,
+                    "two_source_pass_rate": 1.0,
+                },
+                "screening": {"included_references": 35},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rc_a = paperctl.main(["gate", "A", "--run-dir", str(run_dir)])
+    out_a = json.loads(capsys.readouterr().out)
+    rc_e = paperctl.main(["gate", "E", "--run-dir", str(run_dir)])
+    out_e = json.loads(capsys.readouterr().out)
+
+    assert rc_a == 0
+    assert out_a["evidence"] == {"bib_count": 35, "doi_real_rate": 1.0}
+    assert rc_e == 0
+    assert out_e["evidence"]["max_poolable_k"] == 5
+
+
 def test_paperctl_gate_b_blocks_on_overclaim_draft(tmp_path, golden_dir, fixtures_dir, capsys):
     import paperctl
 
