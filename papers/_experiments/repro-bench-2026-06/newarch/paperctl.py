@@ -298,6 +298,26 @@ def _build_dossier(run_dir: Path) -> dict[str, Any]:
         verification_summary = doi["verification_summary"]
         if verification_summary.get("all_retained_verified_by_at_least_two_sources") is True:
             refs["doi_real_rate"] = 1.0
+    if isinstance(doi.get("audit_summary"), dict):
+        audit_summary = doi["audit_summary"]
+        total = audit_summary.get("total")
+        verified = audit_summary.get("verified_at_least_two_sources")
+        if not refs["bib_count"] and isinstance(total, (int, float)):
+            refs["bib_count"] = int(total)
+        if (
+            refs["doi_real_rate"] is None
+            and isinstance(total, (int, float))
+            and total > 0
+            and isinstance(verified, (int, float))
+        ):
+            refs["doi_real_rate"] = verified / total
+    if refs["doi_real_rate"] is None and isinstance(doi.get("records"), list):
+        records = doi["records"]
+        if records:
+            verified_count = sum(1 for row in records if isinstance(row, dict) and row.get("verified") is True)
+            refs["doi_real_rate"] = verified_count / len(records)
+        if not refs["bib_count"]:
+            refs["bib_count"] = len(records)
     if refs["doi_real_rate"] is None and isinstance(doi.get("summary"), dict):
         summary = doi["summary"]
         refs["doi_real_rate"] = _first_present(
@@ -363,6 +383,11 @@ def _build_dossier(run_dir: Path) -> dict[str, Any]:
             viability = {
                 "poolable_k": {"abstract_level": len(real_results["abstract_level_effects"])},
                 "max_poolable_k": len(real_results["abstract_level_effects"]),
+            }
+        elif isinstance(real_results.get("abstract_extracted_effects"), list):
+            viability = {
+                "poolable_k": {"abstract_level": len(real_results["abstract_extracted_effects"])},
+                "max_poolable_k": len(real_results["abstract_extracted_effects"]),
             }
         elif isinstance(real_results.get("pooled_smd"), dict) and isinstance(real_results["pooled_smd"].get("k"), int):
             viability = {
