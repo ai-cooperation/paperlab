@@ -408,6 +408,60 @@ def test_orchestrator_repair_prompt_includes_gate_evidence(tmp_path: Path):
     )
 
 
+def test_orchestrator_uses_repair_expected_outputs(tmp_path: Path):
+    class CapturingRuntime(MockRuntime):
+        name = "capturing"
+
+        def __init__(self):
+            self.repair_outputs = []
+
+        def run_brain(self, task: BrainTask, context: RuntimeContext):
+            if ":repair:" in task.task_id:
+                self.repair_outputs = list(task.expected_outputs)
+            for rel in task.expected_outputs:
+                path = context.run_dir / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("ok", encoding="utf-8")
+            return TaskResult(task_id=task.task_id, status="ok")
+
+    class RepairPack:
+        name = "repair-pack"
+
+        def gate_registry(self):
+            calls = {"n": 0}
+
+            def check(_dossier):
+                calls["n"] += 1
+                return GateResult(
+                    gate_id="B",
+                    passed=calls["n"] > 1,
+                    severity=GateSeverity.BLOCK,
+                )
+
+            return [{"id": "B", "phase": "claim_evidence", "severity": GateSeverity.BLOCK, "check": check}]
+
+    runtime = CapturingRuntime()
+    EngineV3Orchestrator(
+        runtime=runtime,
+        domain_pack=RepairPack(),
+        phases=[
+            PhaseSpec(
+                id="claim_evidence",
+                handler=lambda _task, _context: {},
+                prompt="write claims",
+                expected_outputs=["claim_evidence_map.md"],
+                repair_expected_outputs=["claim_evidence_map.md", "paper_draft_v0.qmd"],
+                gate_ids=["B"],
+                repair_prompt="repair",
+                max_repair_attempts=1,
+            )
+        ],
+        dossier_store=DossierStore(tmp_path),
+    ).run(job_id="job-1", resume=False)
+
+    assert runtime.repair_outputs == ["claim_evidence_map.md", "paper_draft_v0.qmd"]
+
+
 def test_orchestrator_blocks_after_repair_budget_exhausted(tmp_path: Path):
     class StillInsufficientRuntime(MockRuntime):
         name = "still-insufficient"

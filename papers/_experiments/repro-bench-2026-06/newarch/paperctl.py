@@ -291,12 +291,17 @@ def _build_dossier(run_dir: Path) -> dict[str, Any]:
         ),
     }
     if refs["doi_real_rate"] is None and isinstance(doi.get("summary"), dict):
+        summary = doi["summary"]
         refs["doi_real_rate"] = _first_present(
-            doi["summary"],
+            summary,
             "doi_real_rate",
             "real_rate",
             "real_existence_rate",
         )
+        if refs["doi_real_rate"] is None and summary.get("all_bib_entries_two_source_verified") is True:
+            refs["doi_real_rate"] = 1.0
+        if not refs["bib_count"]:
+            refs["bib_count"] = summary.get("bib_entries_written") or summary.get("references_selected") or 0
     # bib_count falls back to counting references.bib entries.
     if not refs["bib_count"]:
         import re as _re
@@ -325,6 +330,11 @@ def _build_dossier(run_dir: Path) -> dict[str, Any]:
             viability = {
                 "poolable_k": {"abstract_level": poolable_count},
                 "max_poolable_k": real_results["max_poolable_k"],
+            }
+        elif isinstance(real_results.get("effects"), list):
+            viability = {
+                "poolable_k": {"abstract_level": len(real_results["effects"])},
+                "max_poolable_k": len(real_results["effects"]),
             }
 
     return {

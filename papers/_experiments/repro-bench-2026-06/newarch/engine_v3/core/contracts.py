@@ -142,5 +142,6 @@ class PhaseSpec:
     expected_outputs: List[str] = field(default_factory=list)
     gate_ids: Optional[List[str]] = None
     repair_prompt: str = ""
+    repair_expected_outputs: List[str] = field(default_factory=list)
     max_repair_attempts: int = 0
     review_rounds: int = 0

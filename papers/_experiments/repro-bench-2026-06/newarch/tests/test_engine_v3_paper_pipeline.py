@@ -172,6 +172,10 @@ def test_claim_evidence_phase_has_gate_b_repair_budget():
     assert claim_evidence.gate_ids == ["B"]
     assert claim_evidence.max_repair_attempts == 2
     assert "flagged Gate B claim" in claim_evidence.repair_prompt
+    assert "claim_evidence_map.md" in claim_evidence.expected_outputs
+    assert "paper_draft_v0.qmd" not in claim_evidence.expected_outputs
+    assert "paper_draft_v0.qmd" in claim_evidence.repair_expected_outputs
+    assert "sections/introduction.md" in claim_evidence.repair_expected_outputs
 
 
 def test_table_width_validation_requires_tbl_colwidths(tmp_path: Path):

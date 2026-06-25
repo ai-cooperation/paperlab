@@ -93,7 +93,7 @@ class EngineV3Orchestrator:
                     task_id="%s:repair:%s" % (phase.id, repair_attempt),
                     phase=phase.id,
                     prompt=_repair_prompt(phase, gate_report, repair_attempt),
-                    expected_outputs=list(phase.expected_outputs),
+                    expected_outputs=list(phase.repair_expected_outputs or phase.expected_outputs),
                 )
                 repair_result = self._run_phase_task(repair_task, context, dossier)
                 if repair_result is not None and repair_result.status != "ok":

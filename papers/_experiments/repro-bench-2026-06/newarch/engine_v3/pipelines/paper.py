@@ -193,6 +193,7 @@ def full_paper_pipeline() -> list[PhaseSpec]:
             expected_outputs=list(CLAIM_EVIDENCE_OUTPUTS),
             gate_ids=["B"],
             repair_prompt=CLAIM_EVIDENCE_REPAIR_PROMPT,
+            repair_expected_outputs=list(CLAIM_EVIDENCE_OUTPUTS + WRITE_OUTPUTS),
             max_repair_attempts=2,
         ),
         PhaseSpec(
