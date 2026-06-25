@@ -240,3 +240,42 @@ time.sleep(30)
     assert result.blockers == ["missing declared output: figures/fig_forest_plot.svg"]
     assert time.monotonic() - started < 5
     assert "terminated after partial declared outputs stopped changing" in result.stdout_tail
+
+
+def test_hermes_runtime_unblocks_when_no_declared_outputs_appear(tmp_path: Path):
+    hermes_bin = tmp_path / "hermes-stub"
+    hermes_bin.write_text(
+        """#!/usr/bin/env python3
+from pathlib import Path
+import time
+Path("paper_gate_post_tool.log").write_text("working but no declared outputs", encoding="utf-8")
+time.sleep(30)
+""",
+        encoding="utf-8",
+    )
+    hermes_bin.chmod(hermes_bin.stat().st_mode | stat.S_IXUSR)
+
+    runtime = HermesCodexRuntime(
+        hermes_bin=str(hermes_bin),
+        timeout_s=10,
+        output_startup_idle_s=0.1,
+    )
+
+    started = time.monotonic()
+    result = runtime.run_brain(
+        BrainTask(
+            phase="data",
+            prompt="write",
+            expected_outputs=["references.bib", "doi_audit.json"],
+        ),
+        RuntimeContext(job_id="job-1", run_dir=tmp_path),
+    )
+
+    assert result.status == "blocked"
+    assert result.changed_files == []
+    assert result.blockers == [
+        "missing declared output: references.bib",
+        "missing declared output: doi_audit.json",
+    ]
+    assert time.monotonic() - started < 5
+    assert "terminated after no declared outputs appeared" in result.stdout_tail

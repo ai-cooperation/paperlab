@@ -38,6 +38,7 @@ class HermesCodexRuntime:
         skill_root: Optional[Path] = None,
         require_skill_bundle: bool = True,
         output_complete_grace_s: float = 60.0,
+        output_startup_idle_s: float = 600.0,
         output_partial_idle_s: float = 180.0,
     ) -> None:
         self.hermes_bin = hermes_bin
@@ -51,6 +52,7 @@ class HermesCodexRuntime:
         self.skill_root = Path(skill_root).expanduser() if skill_root else None
         self.require_skill_bundle = require_skill_bundle
         self.output_complete_grace_s = output_complete_grace_s
+        self.output_startup_idle_s = output_startup_idle_s
         self.output_partial_idle_s = output_partial_idle_s
 
     def prepare(self, context: RuntimeContext) -> None:
@@ -118,6 +120,7 @@ class HermesCodexRuntime:
                 self.timeout_s,
                 expected_outputs,
                 output_complete_grace_s=self.output_complete_grace_s,
+                output_startup_idle_s=self.output_startup_idle_s,
                 output_partial_idle_s=self.output_partial_idle_s,
             )
         else:
@@ -197,6 +200,7 @@ def _subprocess_runner(
     expected_outputs: Iterable[str] = (),
     *,
     output_complete_grace_s: float = 60.0,
+    output_startup_idle_s: float = 600.0,
     output_partial_idle_s: float = 180.0,
 ) -> HermesRunResult:
     expected = list(expected_outputs)
@@ -229,6 +233,7 @@ def _subprocess_runner(
         )
         exit_code: Optional[int] = None
         terminated_after_outputs = False
+        terminated_after_startup_idle = False
         terminated_after_partial_idle = False
         while True:
             exit_code = proc.poll()
@@ -263,6 +268,11 @@ def _subprocess_runner(
                 else:
                     partial_signature = ()
                     partial_seen_at = None
+                    if now - started >= output_startup_idle_s:
+                        _terminate_process_group(proc)
+                        exit_code = 0
+                        terminated_after_startup_idle = True
+                        break
             time.sleep(1.0)
 
         stdout_file.seek(0)
@@ -278,6 +288,11 @@ def _subprocess_runner(
         stderr = (stderr + "\n" if stderr else "") + (
             "Hermes process terminated after partial declared outputs stopped changing for "
             "%.1f seconds." % output_partial_idle_s
+        )
+    elif terminated_after_startup_idle:
+        stderr = (stderr + "\n" if stderr else "") + (
+            "Hermes process terminated after no declared outputs appeared for "
+            "%.1f seconds." % output_startup_idle_s
         )
     elif exit_code == 124:
         stderr = (stderr + "\n" if stderr else "") + "Hermes process timed out after %s seconds." % timeout_s
