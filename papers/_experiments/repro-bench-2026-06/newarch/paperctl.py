@@ -333,6 +333,7 @@ def _build_dossier(run_dir: Path) -> dict[str, Any]:
             "real_existence_rate",
             "verification_rate_included",
             "two_source_pass_rate",
+            "included_two_source_verification_rate",
         )
         if refs["doi_real_rate"] is None and summary.get("all_bib_entries_two_source_verified") is True:
             refs["doi_real_rate"] = 1.0
@@ -343,6 +344,7 @@ def _build_dossier(run_dir: Path) -> dict[str, Any]:
                 or summary.get("selected_references")
                 or summary.get("verified_included_references")
                 or summary.get("included_doi_backed_references")
+                or summary.get("included_bib_entries")
                 or 0
             )
         if refs["doi_real_rate"] is None:
@@ -403,6 +405,11 @@ def _build_dossier(run_dir: Path) -> dict[str, Any]:
             viability = {
                 "poolable_k": {"abstract_level": len(real_results["abstract_level_outcomes"])},
                 "max_poolable_k": len(real_results["abstract_level_outcomes"]),
+            }
+        elif isinstance(real_results.get("abstract_level_effects_extracted"), list):
+            viability = {
+                "poolable_k": {"abstract_level": len(real_results["abstract_level_effects_extracted"])},
+                "max_poolable_k": len(real_results["abstract_level_effects_extracted"]),
             }
         elif isinstance(real_results.get("abstract_numeric_evidence_index"), list):
             viability = {
