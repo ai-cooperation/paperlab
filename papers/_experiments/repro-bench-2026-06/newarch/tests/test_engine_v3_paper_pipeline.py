@@ -14,6 +14,7 @@ from engine_v3.pipelines.paper import (
     FULL_PIPELINE_OUTPUTS,
     bounded_golden_pipeline,
     full_paper_pipeline,
+    _validate_delivery_pdf,
     _validate_table_widths,
 )
 from engine_v3.runtimes.codex_cli import CliRunResult, CodexCliRuntime
@@ -234,6 +235,58 @@ def test_table_layout_validation_fails_without_rendered_qmd(tmp_path: Path):
     assert result["findings"] == ["paper_springer.qmd missing; cannot validate table layout"]
 
 
+def test_delivery_pdf_validation_blocks_raw_citations_and_missing_section_numbers(
+    tmp_path: Path,
+    monkeypatch,
+):
+    pdf = tmp_path / "paper_draft_v0.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n" + b"x" * 2000)
+    _write_two_valid_tables(tmp_path)
+
+    def fake_run_text(command: list[str], *, timeout_s: int) -> str:
+        if command[0] == "pdfinfo":
+            return "Producer: xdvipdfmx\nCreator: LaTeX with hyperref\n"
+        if command[0] == "pdftotext":
+            return "Introduction\nPangu-Weather improved forecasts [@Bi_2023].\nMethods\n"
+        return ""
+
+    monkeypatch.setattr(paper_pipeline, "_run_text", fake_run_text)
+
+    result = _validate_delivery_pdf(pdf, tmp_path)
+
+    assert result["valid"] is False
+    assert result["raw_citation_count"] == 1
+    assert result["numbered_section_detected"] is False
+    assert "PDF contains raw Pandoc citation tokens" in result["findings"]
+    assert "PDF has no detected numbered section headings" in result["findings"]
+
+
+def test_delivery_pdf_validation_accepts_resolved_citations_numbering_and_table_widths(
+    tmp_path: Path,
+    monkeypatch,
+):
+    pdf = tmp_path / "paper_draft_v0.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n" + b"x" * 2000)
+    _write_two_valid_tables(tmp_path)
+
+    def fake_run_text(command: list[str], *, timeout_s: int) -> str:
+        if command[0] == "pdfinfo":
+            return "Producer: xdvipdfmx\nCreator: LaTeX with hyperref\n"
+        if command[0] == "pdftotext":
+            return "1. Introduction\nPangu-Weather improved forecasts (Bi et al. 2023).\n2. Methods\n"
+        return ""
+
+    monkeypatch.setattr(paper_pipeline, "_run_text", fake_run_text)
+
+    result = _validate_delivery_pdf(pdf, tmp_path)
+
+    assert result["valid"] is True
+    assert result["raw_citation_count"] == 0
+    assert result["unresolved_marker_count"] == 0
+    assert result["numbered_section_detected"] is True
+    assert result["table_widths"]["valid"] is True
+
+
 def _clean_long_draft() -> str:
     sentence = (
         "The SMD pool included k = 8 effects. "
@@ -244,3 +297,17 @@ def _clean_long_draft() -> str:
         "The pooled estimate is directionally informative rather than clinically definitive."
     )
     return "\n\n".join([sentence for _ in range(90)])
+
+
+def _write_two_valid_tables(run_dir: Path) -> None:
+    (run_dir / "paper_springer.qmd").write_text(
+        "| Method | Long text result | Score | Notes | Risk |\n"
+        "|---|---|---|---|---|\n"
+        "| A | long prose | 0.5 | note | risk |\n\n"
+        ': Main Results {#tbl-main tbl-colwidths="[25,25,15,20,15]"}\n\n'
+        "| Ablation | Result |\n"
+        "|---|---|\n"
+        "| no evidence repair | lower consistency |\n\n"
+        ': Ablation Results {#tbl-ablation tbl-colwidths="[35,65]"}\n',
+        encoding="utf-8",
+    )

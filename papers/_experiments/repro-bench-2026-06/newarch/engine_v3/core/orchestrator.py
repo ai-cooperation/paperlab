@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Iterable
 
+from engine_v3.artifacts import freeze_candidate_outputs
+
 from .contracts import BrainTask, Dossier, PhaseSpec, RuntimeContext, TaskResult
 from .dossier import DossierStore
 from .gates import run_gates
@@ -196,11 +198,22 @@ class EngineV3Orchestrator:
         if not (task.prompt or task.expected_outputs):
             return None
         result = self.runtime.run_brain(task, context)
+        candidate = freeze_candidate_outputs(
+            context.run_dir,
+            phase=task.phase,
+            task_id=result.task_id or task.task_id,
+            status=result.status,
+            declared_outputs=list(task.expected_outputs),
+            outputs=result.outputs,
+            changed_files=list(result.changed_files),
+            blockers=list(result.blockers),
+        )
         _record_delegation(
             dossier=dossier,
             runtime_name=getattr(self.runtime, "name", "unknown"),
             task=task,
             result=result,
+            candidate=candidate,
         )
         _trace(
             dossier,
@@ -211,6 +224,8 @@ class EngineV3Orchestrator:
             status=result.status,
             changed_files=list(result.changed_files),
             blockers=list(result.blockers),
+            candidate_manifest=candidate.get("manifest"),
+            candidate_outputs=list(candidate.get("outputs") or []),
         )
         for rel, path in result.outputs.items():
             dossier.add_artifact(rel, path)
@@ -353,16 +368,19 @@ def _record_delegation(
     runtime_name: str,
     task: BrainTask,
     result: TaskResult,
+    candidate: dict,
 ) -> None:
-    dossier.delegations.append(
-        {
-            "task_id": result.task_id or task.task_id,
-            "phase": task.phase,
-            "runtime": runtime_name,
-            "class": "brain",
-            "status": result.status,
-            "declared_outputs": list(task.expected_outputs),
-            "changed_files": list(result.changed_files),
-            "blockers": list(result.blockers),
-        }
-    )
+    delegation = {
+        "task_id": result.task_id or task.task_id,
+        "phase": task.phase,
+        "runtime": runtime_name,
+        "class": "brain",
+        "status": result.status,
+        "declared_outputs": list(task.expected_outputs),
+        "changed_files": list(result.changed_files),
+        "blockers": list(result.blockers),
+    }
+    if candidate:
+        delegation["candidate_manifest"] = candidate.get("manifest")
+        delegation["candidate_outputs"] = list(candidate.get("outputs") or [])
+    dossier.delegations.append(delegation)

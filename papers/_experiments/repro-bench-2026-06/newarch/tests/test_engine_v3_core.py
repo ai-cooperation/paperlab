@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -219,10 +220,27 @@ def test_orchestrator_records_runtime_delegation_and_artifacts(tmp_path: Path):
             "declared_outputs": ["paper_draft_v0.qmd"],
             "changed_files": ["paper_draft_v0.qmd"],
             "blockers": [],
+            "candidate_manifest": "artifacts/candidates/write/write_brain/manifest.v3_1.json",
+            "candidate_outputs": [
+                "artifacts/candidates/write/write_brain/paper_draft_v0.qmd",
+            ],
         }
     ]
     assert dossier.artifacts["paper_draft_v0.qmd"].path == "paper_draft_v0.qmd"
     assert len(dossier.artifacts["paper_draft_v0.qmd"].sha256) == 64
+
+    manifest_path = tmp_path / "artifacts" / "candidates" / "write" / "write_brain" / "manifest.v3_1.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["schema_version"] == "paperlab.candidate.v3.1"
+    assert manifest["phase"] == "write"
+    assert manifest["task_id"] == "write:brain"
+    assert manifest["declared_outputs"] == ["paper_draft_v0.qmd"]
+    assert manifest["outputs"][0]["declared_path"] == "paper_draft_v0.qmd"
+    assert manifest["outputs"][0]["candidate_path"] == (
+        "artifacts/candidates/write/write_brain/paper_draft_v0.qmd"
+    )
+    assert len(manifest["outputs"][0]["sha256"]) == 64
+    assert (tmp_path / manifest["outputs"][0]["candidate_path"]).read_text(encoding="utf-8") == "draft"
 
 
 def test_orchestrator_indexes_handler_artifacts_without_runtime_task(tmp_path: Path):
