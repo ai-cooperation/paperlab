@@ -117,20 +117,52 @@ def _normalize_tables(body: str) -> str:
         if not m or "tbl-colwidths" in ln:
             continue
         ncol = None
+        sep_idx = None
         for j in range(i - 1, max(-1, i - 60), -1):
             s = lines[j].strip()
             if "|" in s and sep_re.match(s) and "-" in s:
                 ncol = len([c for c in s.strip("|").split("|") if c.strip() != "" or True])
+                sep_idx = j
                 break
         if not ncol or ncol < 5:
             continue  # only wide tables overflow the single column
-        weights = [2.4] + [1.0] * (ncol - 1)
-        tot = sum(weights)
-        widths = [round(w / tot * 100) for w in weights]
+        widths = _table_colwidths(lines, sep_idx or i, i, ncol)
         widths[-1] += 100 - sum(widths)
         attr = m.group(0)[:-1] + f' tbl-colwidths="{widths}"}}'
         lines[i] = ln[: m.start()] + attr + ln[m.end():]
     return "\n".join(lines)
+
+
+def _table_colwidths(lines: list[str], sep_idx: int, caption_idx: int, ncol: int) -> list[int]:
+    rows: list[list[str]] = []
+    for idx in range(max(0, sep_idx - 1), caption_idx):
+        line = lines[idx].strip()
+        if "|" not in line or re.match(r"^\|?[\s:|-]*-[\s:|-]*\|[\s:|-]*$", line):
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if len(cells) == ncol:
+            rows.append(cells)
+    if not rows:
+        weights = [2.4] + [1.0] * (ncol - 1)
+    else:
+        weights = []
+        for col in range(ncol):
+            max_len = max(len(row[col]) for row in rows)
+            numeric = sum(1 for row in rows[1:] if re.fullmatch(r"[-+−]?\d+(?:\.\d+)?%?", row[col] or ""))
+            numeric_ratio = numeric / max(1, len(rows) - 1)
+            if numeric_ratio >= 0.6:
+                weights.append(max(0.8, min(1.2, max_len / 10)))
+            else:
+                weights.append(max(1.0, min(3.4, max_len / 18)))
+    total = sum(weights)
+    widths = [max(6, round(weight / total * 100)) for weight in weights]
+    while sum(widths) > 100:
+        idx = max(range(len(widths)), key=widths.__getitem__)
+        widths[idx] -= 1
+    while sum(widths) < 100:
+        idx = max(range(len(widths)), key=lambda k: weights[k])
+        widths[idx] += 1
+    return widths
 
 
 _FIG_IMG = re.compile(r"!\[[^\]]*\]\([^)]*\)\{#fig-[^}]*\}")

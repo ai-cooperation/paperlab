@@ -32,6 +32,7 @@ class HermesCodexRuntime:
         worker_provider: str = "custom",
         worker_toolsets: str = "file,terminal",
         skill_root: Optional[Path] = None,
+        require_skill_bundle: bool = True,
     ) -> None:
         self.hermes_bin = hermes_bin
         self.runner = runner or _subprocess_runner
@@ -42,6 +43,7 @@ class HermesCodexRuntime:
         self.worker_provider = worker_provider
         self.worker_toolsets = worker_toolsets
         self.skill_root = Path(skill_root).expanduser() if skill_root else None
+        self.require_skill_bundle = require_skill_bundle
 
     def prepare(self, context: RuntimeContext) -> None:
         context.run_dir.mkdir(parents=True, exist_ok=True)
@@ -86,6 +88,14 @@ class HermesCodexRuntime:
         worker_mode: bool,
     ) -> TaskResult:
         self.prepare(context)
+        missing_skills = _missing_skills(self.skill_root, context.metadata.get("skill_bundle", []))
+        if missing_skills and self.require_skill_bundle:
+            return TaskResult(
+                task_id=task_id,
+                status="error",
+                details="missing required skill bundle",
+                blockers=["missing skill: %s" % skill for skill in missing_skills],
+            )
         full_prompt = self._build_prompt(phase, prompt, expected_outputs, context, worker_mode)
         command = [self.hermes_bin, "-z", full_prompt, "-m", model]
         if provider:
@@ -201,6 +211,19 @@ def _skill_context(skill_root: Optional[Path], skill_bundle: Iterable[str]) -> s
     if not blocks:
         return ""
     return "Loaded skill bundle:\n\n" + "\n\n".join(blocks)
+
+
+def _missing_skills(skill_root: Optional[Path], skill_bundle: Iterable[str]) -> list[str]:
+    skills = [str(skill_name) for skill_name in skill_bundle if str(skill_name)]
+    if not skills:
+        return []
+    if skill_root is None:
+        return skills
+    missing = []
+    for skill_name in skills:
+        if not (skill_root / skill_name / "SKILL.md").is_file():
+            missing.append(skill_name)
+    return missing
 
 
 def _provider_failure(output: str) -> str:

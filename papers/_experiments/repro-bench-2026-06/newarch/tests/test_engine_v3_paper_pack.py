@@ -24,6 +24,9 @@ def test_paper_pack_declares_skill_bundle_and_tools():
     assert "refs.audit" in tools["tools"]
     assert "data.meta_analysis" in tools["tools"]
     assert "render" in tools["tools"]
+    assert "dataset-fetch" not in skills
+    assert "survey-weighted-analysis" not in skills
+    assert "number-trace-writing" not in skills
 
 
 def test_paper_tool_provider_calls_paperctl_functions_directly(monkeypatch, tmp_path: Path):

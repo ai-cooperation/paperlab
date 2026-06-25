@@ -75,6 +75,29 @@ def test_hermes_runtime_loads_pack_skill_bundle(tmp_path: Path):
     assert "paper rules" in seen["prompt"]
 
 
+def test_hermes_runtime_errors_when_declared_skill_is_missing(tmp_path: Path):
+    called = False
+
+    def runner(_command: list[str], _cwd: Path, _timeout_s: int):
+        nonlocal called
+        called = True
+        return HermesRunResult(exit_code=0, stdout="CHILD_OK", stderr="")
+
+    runtime = HermesCodexRuntime(runner=runner)
+    result = runtime.run_brain(
+        BrainTask(phase="write", prompt="write"),
+        RuntimeContext(
+            job_id="job-1",
+            run_dir=tmp_path,
+            metadata={"skill_bundle": ["qmd-writer"]},
+        ),
+    )
+
+    assert result.status == "error"
+    assert result.blockers == ["missing skill: qmd-writer"]
+    assert called is False
+
+
 @pytest.mark.parametrize(
     "message",
     [

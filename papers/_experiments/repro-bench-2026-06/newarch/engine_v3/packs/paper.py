@@ -24,9 +24,7 @@ PAPER_SKILL_BUNDLE = [
     "elite-reviewer-audit",
     "paper-logic-audit",
     "figure-table-checker",
-    "dataset-fetch",
-    "survey-weighted-analysis",
-    "number-trace-writing",
+    "pdf",
 ]
 
 

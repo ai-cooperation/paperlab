@@ -224,12 +224,13 @@ def test_v3_status_includes_project_page_projection(tmp_path: Path, golden_dir: 
     monkeypatch.setattr(
         paper_pipeline,
         "_validate_delivery_pdf",
-        lambda _pdf: {
+        lambda _pdf, _run_dir=None: {
             "valid": True,
             "producer": "xdvipdfmx",
             "raw_citation_count": 0,
             "unresolved_marker_count": 0,
             "numbered_section_detected": True,
+            "table_widths": {"valid": True, "findings": []},
             "findings": [],
         },
     )

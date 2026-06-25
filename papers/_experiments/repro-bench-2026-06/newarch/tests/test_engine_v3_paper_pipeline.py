@@ -14,6 +14,7 @@ from engine_v3.pipelines.paper import (
     FULL_PIPELINE_OUTPUTS,
     bounded_golden_pipeline,
     full_paper_pipeline,
+    _validate_table_widths,
 )
 from engine_v3.runtimes.codex_cli import CliRunResult, CodexCliRuntime
 import engine_v3.pipelines.paper as paper_pipeline
@@ -70,12 +71,13 @@ def test_full_paper_pipeline_runs_all_phases_and_delivery_gate(
     monkeypatch.setattr(
         paper_pipeline,
         "_validate_delivery_pdf",
-        lambda _pdf: {
+        lambda _pdf, _run_dir=None: {
             "valid": True,
             "producer": "xdvipdfmx",
             "raw_citation_count": 0,
             "unresolved_marker_count": 0,
             "numbered_section_detected": True,
+            "table_widths": {"valid": True, "findings": []},
             "findings": [],
         },
     )
@@ -170,6 +172,35 @@ def test_claim_evidence_phase_has_gate_b_repair_budget():
     assert claim_evidence.gate_ids == ["B"]
     assert claim_evidence.max_repair_attempts == 2
     assert "flagged Gate B claim" in claim_evidence.repair_prompt
+
+
+def test_table_width_validation_requires_tbl_colwidths(tmp_path: Path):
+    qmd = tmp_path / "paper_springer.qmd"
+    qmd.write_text(
+        "| Method | Long text result | Score | Notes | Risk |\n"
+        "|---|---|---|---|---|\n"
+        "| A | long prose | 0.5 | note | risk |\n\n"
+        ': Main Results {#tbl-main}\n',
+        encoding="utf-8",
+    )
+
+    invalid = _validate_table_widths(tmp_path)
+
+    assert invalid["valid"] is False
+    assert invalid["findings"] == ["table main missing tbl-colwidths"]
+
+    qmd.write_text(
+        "| Method | Long text result | Score | Notes | Risk |\n"
+        "|---|---|---|---|---|\n"
+        "| A | long prose | 0.5 | note | risk |\n\n"
+        ': Main Results {#tbl-main tbl-colwidths="[25,25,15,20,15]"}\n',
+        encoding="utf-8",
+    )
+
+    valid = _validate_table_widths(tmp_path)
+
+    assert valid["valid"] is True
+    assert valid["tables"][0]["sum"] == 100
 
 
 def _clean_long_draft() -> str:

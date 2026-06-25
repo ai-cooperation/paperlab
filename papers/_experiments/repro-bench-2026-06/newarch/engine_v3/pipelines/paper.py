@@ -4,6 +4,7 @@ import json
 import re
 import shutil
 import subprocess
+from pathlib import Path
 from typing import Mapping
 
 import format_repair
@@ -255,7 +256,7 @@ def _format_repair_handler(
     pdf.unlink(missing_ok=True)
 
     repair_result = format_repair.verify_and_repair(context.run_dir, contract)
-    validation = _validate_delivery_pdf(pdf)
+    validation = _validate_delivery_pdf(pdf, context.run_dir)
     artifacts = {"paper_draft_v0.pdf": pdf} if pdf.is_file() else {}
     return {
         "gate_inputs": {
@@ -276,7 +277,7 @@ def _read_json(path):
     return data if isinstance(data, dict) else {}
 
 
-def _validate_delivery_pdf(pdf) -> dict[str, object]:
+def _validate_delivery_pdf(pdf, run_dir=None) -> dict[str, object]:
     findings = []
     evidence: dict[str, object] = {
         "path": str(pdf),
@@ -287,6 +288,7 @@ def _validate_delivery_pdf(pdf) -> dict[str, object]:
         "raw_citation_count": None,
         "unresolved_marker_count": None,
         "numbered_section_detected": False,
+        "table_widths": {},
     }
     if not pdf.is_file():
         findings.append("paper_draft_v0.pdf is missing")
@@ -329,7 +331,46 @@ def _validate_delivery_pdf(pdf) -> dict[str, object]:
     else:
         findings.append("pdftotext could not extract PDF text for validation")
 
+    table_widths = _validate_table_widths(Path(run_dir) if run_dir is not None else pdf.parent)
+    evidence["table_widths"] = table_widths
+    findings.extend(table_widths.get("findings") or [])
+
     return {**evidence, "valid": not findings, "findings": findings}
+
+
+def _validate_table_widths(run_dir: Path) -> dict[str, object]:
+    qmd = run_dir / "paper_springer.qmd"
+    if not qmd.is_file():
+        return {"table_count": 0, "valid": True, "findings": []}
+    text = qmd.read_text(encoding="utf-8", errors="ignore")
+    findings = []
+    tables = []
+    for match in re.finditer(r"(?m)^:\s+.*?\{#tbl-([^}\s]+)([^}]*)\}", text):
+        table_id = match.group(1)
+        attrs = match.group(2) or ""
+        width_match = re.search(r'tbl-colwidths="?\[([^\]]+)\]"?', attrs)
+        if not width_match:
+            findings.append("table %s missing tbl-colwidths" % table_id)
+            tables.append({"id": table_id, "widths": [], "sum": 0})
+            continue
+        widths = []
+        for token in re.split(r"[,\s]+", width_match.group(1).strip()):
+            if not token:
+                continue
+            try:
+                widths.append(int(float(token)))
+            except ValueError:
+                findings.append("table %s has non-numeric tbl-colwidths token: %s" % (table_id, token))
+        total = sum(widths)
+        if total != 100:
+            findings.append("table %s tbl-colwidths sum to %s, expected 100" % (table_id, total))
+        tables.append({"id": table_id, "widths": widths, "sum": total})
+    return {
+        "table_count": len(tables),
+        "tables": tables,
+        "valid": not findings,
+        "findings": findings,
+    }
 
 
 def _run_text(command: list[str], *, timeout_s: int) -> str:
