@@ -286,7 +286,13 @@ def register(
             raise HTTPException(status_code=404, detail="artifact file not found")
         if hash_file(path) != ref.sha256:
             raise HTTPException(status_code=409, detail="artifact hash mismatch")
-        return FileResponse(path)
+        return FileResponse(
+            path,
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+            },
+        )
 
 
 def _require_post_auth(authorization: Optional[str], auth_token: Optional[str]) -> None:
@@ -386,19 +392,28 @@ def _artifact_projection(dossier: Any) -> dict[str, Any]:
         name: {
             "path": ref.path,
             "sha256": ref.sha256,
-            "url": _artifact_url(dossier.job_id, name),
+            "url": _artifact_url(dossier.job_id, name, ref.sha256),
         }
         for name, ref in dossier.artifacts.items()
     }
     has_pdf = "paper_draft_v0.pdf" in dossier.artifacts
     projected["has_pdf"] = has_pdf
-    projected["pdf"] = _artifact_url(dossier.job_id, "paper_draft_v0.pdf") if has_pdf else None
+    projected["pdf"] = (
+        _artifact_url(
+            dossier.job_id,
+            "paper_draft_v0.pdf",
+            dossier.artifacts["paper_draft_v0.pdf"].sha256,
+        )
+        if has_pdf
+        else None
+    )
     return projected
 
 
-def _artifact_url(job_id: str, artifact_id: str) -> str:
+def _artifact_url(job_id: str, artifact_id: str, sha256: str = "") -> str:
     encoded = "/".join(quote(part, safe="") for part in artifact_id.split("/"))
-    return f"/v3/jobs/{job_id}/artifact/{encoded}"
+    cache_buster = ("?sha=" + quote(sha256[:16], safe="")) if sha256 else ""
+    return f"/v3/jobs/{job_id}/artifact/{encoded}{cache_buster}"
 
 
 def _phase_gap(run_dir: Path) -> list[dict[str, str]]:

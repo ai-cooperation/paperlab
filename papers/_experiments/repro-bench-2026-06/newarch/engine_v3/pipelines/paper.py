@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import json
+import re
+import shutil
+import subprocess
 from typing import Mapping
 
+import format_repair
 import paperctl
 
 from engine_v3.core import BrainTask, PhaseSpec, RuntimeContext
@@ -211,9 +215,7 @@ def full_paper_pipeline() -> list[PhaseSpec]:
         ),
         PhaseSpec(
             id="format_repair",
-            handler=_collect_gate_inputs,
-            prompt="Run final format repair and produce delivery PDF.",
-            expected_outputs=list(FORMAT_REPAIR_OUTPUTS),
+            handler=_format_repair_handler,
             gate_ids=["Z"],
         ),
     ]
@@ -237,3 +239,110 @@ def _collect_gate_inputs(
         review_log_path.read_text(encoding="utf-8", errors="ignore").strip()
     )
     return {"gate_inputs": gate_inputs}
+
+
+def _format_repair_handler(
+    _task: BrainTask,
+    context: RuntimeContext,
+) -> Mapping[str, object]:
+    contract = _read_json(context.run_dir / "research_contract.json")
+    if not contract:
+        contract = _read_json(context.run_dir / "research_contract.input.json")
+
+    # Never validate a stale ReportLab/fallback PDF from a previous attempt. The v3
+    # delivery artifact must be produced by the deterministic Quarto renderer here.
+    pdf = context.run_dir / "paper_draft_v0.pdf"
+    pdf.unlink(missing_ok=True)
+
+    repair_result = format_repair.verify_and_repair(context.run_dir, contract)
+    validation = _validate_delivery_pdf(pdf)
+    artifacts = {"paper_draft_v0.pdf": pdf} if pdf.is_file() else {}
+    return {
+        "gate_inputs": {
+            "delivery_pdf_validation": validation,
+        },
+        "artifacts": artifacts,
+        "format_repair": repair_result,
+    }
+
+
+def _read_json(path):
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _validate_delivery_pdf(pdf) -> dict[str, object]:
+    findings = []
+    evidence: dict[str, object] = {
+        "path": str(pdf),
+        "present": pdf.is_file(),
+        "size": pdf.stat().st_size if pdf.is_file() else 0,
+        "producer": "",
+        "creator": "",
+        "raw_citation_count": None,
+        "unresolved_marker_count": None,
+        "numbered_section_detected": False,
+    }
+    if not pdf.is_file():
+        findings.append("paper_draft_v0.pdf is missing")
+        return {**evidence, "valid": False, "findings": findings}
+    if evidence["size"] < 1000:
+        findings.append("paper_draft_v0.pdf is too small to be a rendered manuscript")
+    try:
+        if not pdf.read_bytes().startswith(b"%PDF"):
+            findings.append("paper_draft_v0.pdf does not start with a PDF header")
+    except OSError as exc:
+        findings.append("paper_draft_v0.pdf is unreadable: %s" % exc)
+
+    info = _run_text(["pdfinfo", str(pdf)], timeout_s=30)
+    if info:
+        for line in info.splitlines():
+            if line.startswith("Producer:"):
+                evidence["producer"] = line.split(":", 1)[1].strip()
+            if line.startswith("Creator:"):
+                evidence["creator"] = line.split(":", 1)[1].strip()
+    producer = str(evidence.get("producer") or "")
+    creator = str(evidence.get("creator") or "")
+    if "ReportLab" in producer:
+        findings.append("PDF was produced by ReportLab fallback, not Quarto/Pandoc")
+    if producer and not ("xdvipdfmx" in producer or "TeX" in producer or "LaTeX" in creator or "pandoc" in creator):
+        findings.append("PDF producer/creator does not look like the Quarto/Pandoc render stack")
+
+    text = _run_text(["pdftotext", "-layout", str(pdf), "-"], timeout_s=60)
+    if text:
+        raw_cites = len(re.findall(r"\[@[A-Za-z0-9_:\-.]+", text))
+        unresolved = text.count("?@") + text.count("(?)") + len(re.findall(r"\?\?", text))
+        evidence["raw_citation_count"] = raw_cites
+        evidence["unresolved_marker_count"] = unresolved
+        evidence["numbered_section_detected"] = bool(re.search(r"(?m)^\s*\d+(?:\.\d+)*\.\s+\S", text))
+        if raw_cites:
+            findings.append("PDF contains raw Pandoc citation tokens")
+        if unresolved:
+            findings.append("PDF contains unresolved citation/cross-reference markers")
+        if not evidence["numbered_section_detected"]:
+            findings.append("PDF has no detected numbered section headings")
+    else:
+        findings.append("pdftotext could not extract PDF text for validation")
+
+    return {**evidence, "valid": not findings, "findings": findings}
+
+
+def _run_text(command: list[str], *, timeout_s: int) -> str:
+    if shutil.which(command[0]) is None:
+        return ""
+    try:
+        return subprocess.run(
+            command,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout_s,
+            check=False,
+        ).stdout
+    except Exception:
+        return ""

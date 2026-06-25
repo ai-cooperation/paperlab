@@ -225,6 +225,29 @@ def test_orchestrator_records_runtime_delegation_and_artifacts(tmp_path: Path):
     assert len(dossier.artifacts["paper_draft_v0.qmd"].sha256) == 64
 
 
+def test_orchestrator_indexes_handler_artifacts_without_runtime_task(tmp_path: Path):
+    class NoCallRuntime(MockRuntime):
+        def run_brain(self, task: BrainTask, context: RuntimeContext):
+            raise AssertionError("deterministic handler phase should not call runtime")
+
+    def handler(_task: BrainTask, context: RuntimeContext):
+        pdf = context.run_dir / "paper_draft_v0.pdf"
+        pdf.write_bytes(b"%PDF-1.4\n" + b"x" * 2000)
+        return {"artifacts": {"paper_draft_v0.pdf": pdf}}
+
+    dossier = EngineV3Orchestrator(
+        runtime=NoCallRuntime(),
+        domain_pack=object(),
+        phases=[PhaseSpec(id="format_repair", handler=handler)],
+        dossier_store=DossierStore(tmp_path),
+    ).run(job_id="job-1", resume=False)
+
+    assert dossier.phases["format_repair"] == "done"
+    assert dossier.artifacts["paper_draft_v0.pdf"].path == "paper_draft_v0.pdf"
+    assert len(dossier.artifacts["paper_draft_v0.pdf"].sha256) == 64
+    assert dossier.delegations == []
+
+
 def test_orchestrator_blocks_phase_when_runtime_output_missing(tmp_path: Path):
     class BlockingRuntime(MockRuntime):
         name = "blocked-runtime"

@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import http_app
+import engine_v3.pipelines.paper as paper_pipeline
 from engine_v3.core import TaskResult
 from engine_v3.pipelines.paper import (
     BOUNDED_GOLDEN_OUTPUTS,
@@ -214,7 +215,24 @@ def test_v3_job_submit_returns_before_runtime_finishes(tmp_path: Path):
     release.set()
 
 
-def test_v3_status_includes_project_page_projection(tmp_path: Path, golden_dir: Path):
+def test_v3_status_includes_project_page_projection(tmp_path: Path, golden_dir: Path, monkeypatch):
+    def fake_format_repair(run_dir: Path, _contract: dict):
+        (run_dir / "paper_draft_v0.pdf").write_bytes(b"%PDF-1.4\n" + b"x" * 2000)
+        return {"crossref_ok": True}
+
+    monkeypatch.setattr(paper_pipeline.format_repair, "verify_and_repair", fake_format_repair)
+    monkeypatch.setattr(
+        paper_pipeline,
+        "_validate_delivery_pdf",
+        lambda _pdf: {
+            "valid": True,
+            "producer": "xdvipdfmx",
+            "raw_citation_count": 0,
+            "unresolved_marker_count": 0,
+            "numbered_section_detected": True,
+            "findings": [],
+        },
+    )
     tc = TestClient(
         http_app.create_app(
             jobs_dir=tmp_path,
@@ -248,7 +266,7 @@ def test_v3_status_includes_project_page_projection(tmp_path: Path, golden_dir: 
     assert "b_gap" in payload and "a_gap" in payload
     assert payload["summary"]["delivery"] == "pass"
     assert payload["artifacts"]["has_pdf"] is True
-    assert payload["artifacts"]["pdf"].endswith("/artifact/paper_draft_v0.pdf")
+    assert "/artifact/paper_draft_v0.pdf?sha=" in payload["artifacts"]["pdf"]
 
 
 def test_v3_artifact_route_serves_only_indexed_artifacts(tmp_path: Path, golden_dir: Path):

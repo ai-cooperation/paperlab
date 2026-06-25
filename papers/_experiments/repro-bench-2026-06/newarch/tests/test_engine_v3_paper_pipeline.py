@@ -16,6 +16,7 @@ from engine_v3.pipelines.paper import (
     full_paper_pipeline,
 )
 from engine_v3.runtimes.codex_cli import CliRunResult, CodexCliRuntime
+import engine_v3.pipelines.paper as paper_pipeline
 
 pytestmark = pytest.mark.unit
 
@@ -53,9 +54,31 @@ def test_bounded_golden_pipeline_runs_selected_gates_through_v3(tmp_path: Path, 
     assert dossier.artifacts["paper_draft_v0.qmd"].sha256
 
 
-def test_full_paper_pipeline_runs_all_phases_and_delivery_gate(tmp_path: Path, golden_dir: Path):
+def test_full_paper_pipeline_runs_all_phases_and_delivery_gate(
+    tmp_path: Path,
+    golden_dir: Path,
+    monkeypatch,
+):
     run_dir = tmp_path / "run"
     clean_draft = _clean_long_draft()
+
+    def fake_format_repair(run_dir: Path, _contract: dict):
+        (run_dir / "paper_draft_v0.pdf").write_bytes(b"%PDF-1.4\n" + b"x" * 2000)
+        return {"crossref_ok": True}
+
+    monkeypatch.setattr(paper_pipeline.format_repair, "verify_and_repair", fake_format_repair)
+    monkeypatch.setattr(
+        paper_pipeline,
+        "_validate_delivery_pdf",
+        lambda _pdf: {
+            "valid": True,
+            "producer": "xdvipdfmx",
+            "raw_citation_count": 0,
+            "unresolved_marker_count": 0,
+            "numbered_section_detected": True,
+            "findings": [],
+        },
+    )
 
     def full_runner(command: list[str], cwd: Path, _timeout_s: int):
         prompt = command[-1]
@@ -97,8 +120,6 @@ def test_full_paper_pipeline_runs_all_phases_and_delivery_gate(tmp_path: Path, g
                 "# Quality review log\n\n- round 1: passed; no P0; floor ok\n",
                 encoding="utf-8",
             )
-        if "paper_draft_v0.pdf" in prompt:
-            (cwd / "paper_draft_v0.pdf").write_bytes(b"%PDF-1.4\n" + b"x" * 2000)
         return CliRunResult(exit_code=0, stdout="CHILD_OK", stderr="")
 
     dossier = EngineV3Orchestrator(

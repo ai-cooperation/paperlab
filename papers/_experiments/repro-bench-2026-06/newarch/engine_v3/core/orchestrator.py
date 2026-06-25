@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Iterable
 
 from .contracts import BrainTask, Dossier, PhaseSpec, RuntimeContext, TaskResult
@@ -295,6 +296,10 @@ def _apply_phase_result(
     gate_inputs = phase_result.pop("gate_inputs", None)
     if isinstance(gate_inputs, dict):
         dossier.evidence.update(gate_inputs)
+    artifacts = phase_result.pop("artifacts", None)
+    if isinstance(artifacts, dict):
+        for name, path in artifacts.items():
+            dossier.add_artifact(str(name), Path(str(path)))
     dossier.evidence.setdefault("phases", {})[phase_id] = phase_result
 
 

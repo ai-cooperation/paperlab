@@ -298,13 +298,29 @@ def _review_loop_ok(loop: Mapping[str, Any], log_present: bool) -> bool:
 def _gate_delivery(dossier: Any) -> GateResult:
     artifacts = getattr(dossier, "artifacts", {}) if not isinstance(dossier, dict) else dossier.get("artifacts", {})
     pdf = artifacts.get("paper_draft_v0.pdf") if isinstance(artifacts, dict) else None
-    ok = pdf is not None and bool(getattr(pdf, "sha256", "") or (isinstance(pdf, dict) and pdf.get("sha256")))
+    present = pdf is not None and bool(getattr(pdf, "sha256", "") or (isinstance(pdf, dict) and pdf.get("sha256")))
+    evidence = getattr(dossier, "evidence", {}) if not isinstance(dossier, dict) else dossier.get("evidence", {})
+    validation = evidence.get("delivery_pdf_validation") if isinstance(evidence, dict) else None
+    validation_ok = isinstance(validation, dict) and bool(validation.get("valid"))
+    ok = present and validation_ok
+    findings = []
+    if not present:
+        findings.append("delivery PDF missing from artifact index")
+    if not validation_ok:
+        if isinstance(validation, dict):
+            findings.extend(str(f) for f in validation.get("findings") or [])
+        else:
+            findings.append("delivery PDF validation missing")
     return GateResult(
         gate_id="Z",
         passed=ok,
         severity=GateSeverity.BLOCK,
-        details="delivery PDF present" if ok else "delivery PDF missing from artifact index",
-        evidence={"artifact": "paper_draft_v0.pdf", "present": ok},
+        details="delivery PDF rendered and validated" if ok else "; ".join(findings),
+        evidence={
+            "artifact": "paper_draft_v0.pdf",
+            "present": present,
+            "validation": validation or {},
+        },
     )
 
 

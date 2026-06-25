@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from engine_v3.core import GateSeverity, run_gates
+from engine_v3.core.contracts import ArtifactRef, Dossier
 from engine_v3.packs.paper import PaperPack
 
 pytestmark = pytest.mark.unit
@@ -98,6 +99,38 @@ def test_review_gate_requires_self_heal_loop_and_log():
     assert thin.blocked is True
     assert "loop_ok=False" in thin.results[0].details
     assert complete.blocked is False
+
+
+def test_delivery_gate_requires_pdf_validation():
+    pack = PaperPack()
+    dossier = Dossier(job_id="job-1", domain="paper")
+    dossier.artifacts["paper_draft_v0.pdf"] = ArtifactRef(path="paper_draft_v0.pdf", sha256="abc")
+
+    missing_validation = run_gates(pack, dossier, only={"Z"})
+
+    assert missing_validation.blocked is True
+    assert "validation missing" in missing_validation.results[0].details
+
+    dossier.evidence["delivery_pdf_validation"] = {
+        "valid": False,
+        "findings": ["PDF was produced by ReportLab fallback, not Quarto/Pandoc"],
+    }
+    invalid = run_gates(pack, dossier, only={"Z"})
+
+    assert invalid.blocked is True
+    assert "ReportLab fallback" in invalid.results[0].details
+
+    dossier.evidence["delivery_pdf_validation"] = {
+        "valid": True,
+        "producer": "xdvipdfmx",
+        "raw_citation_count": 0,
+        "unresolved_marker_count": 0,
+        "numbered_section_detected": True,
+        "findings": [],
+    }
+    valid = run_gates(pack, dossier, only={"Z"})
+
+    assert valid.blocked is False
 
 
 def test_paper_pack_pipeline_plan_is_domain_owned():
