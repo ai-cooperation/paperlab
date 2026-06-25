@@ -38,6 +38,7 @@ class HermesCodexRuntime:
         skill_root: Optional[Path] = None,
         require_skill_bundle: bool = True,
         output_complete_grace_s: float = 60.0,
+        output_partial_idle_s: float = 180.0,
     ) -> None:
         self.hermes_bin = hermes_bin
         self.runner = runner
@@ -50,6 +51,7 @@ class HermesCodexRuntime:
         self.skill_root = Path(skill_root).expanduser() if skill_root else None
         self.require_skill_bundle = require_skill_bundle
         self.output_complete_grace_s = output_complete_grace_s
+        self.output_partial_idle_s = output_partial_idle_s
 
     def prepare(self, context: RuntimeContext) -> None:
         context.run_dir.mkdir(parents=True, exist_ok=True)
@@ -116,6 +118,7 @@ class HermesCodexRuntime:
                 self.timeout_s,
                 expected_outputs,
                 output_complete_grace_s=self.output_complete_grace_s,
+                output_partial_idle_s=self.output_partial_idle_s,
             )
         else:
             result = self.runner(command, context.run_dir, self.timeout_s)
@@ -194,6 +197,7 @@ def _subprocess_runner(
     expected_outputs: Iterable[str] = (),
     *,
     output_complete_grace_s: float = 60.0,
+    output_partial_idle_s: float = 180.0,
 ) -> HermesRunResult:
     expected = list(expected_outputs)
     if not expected:
@@ -209,6 +213,8 @@ def _subprocess_runner(
 
     started = time.monotonic()
     outputs_seen_at: Optional[float] = None
+    partial_seen_at: Optional[float] = None
+    partial_signature: tuple[tuple[str, int, int], ...] = ()
     with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as stdout_file, tempfile.TemporaryFile(
         mode="w+",
         encoding="utf-8",
@@ -223,6 +229,7 @@ def _subprocess_runner(
         )
         exit_code: Optional[int] = None
         terminated_after_outputs = False
+        terminated_after_partial_idle = False
         while True:
             exit_code = proc.poll()
             if exit_code is not None:
@@ -232,7 +239,8 @@ def _subprocess_runner(
                 _terminate_process_group(proc)
                 exit_code = 124
                 break
-            if len(_existing_outputs(cwd, expected)) == len(expected):
+            existing = _existing_outputs(cwd, expected)
+            if len(existing) == len(expected):
                 if outputs_seen_at is None:
                     outputs_seen_at = now
                 elif now - outputs_seen_at >= output_complete_grace_s:
@@ -242,6 +250,19 @@ def _subprocess_runner(
                     break
             else:
                 outputs_seen_at = None
+                signature = _output_signature(existing)
+                if signature:
+                    if signature != partial_signature:
+                        partial_signature = signature
+                        partial_seen_at = now
+                    elif partial_seen_at is not None and now - partial_seen_at >= output_partial_idle_s:
+                        _terminate_process_group(proc)
+                        exit_code = 0
+                        terminated_after_partial_idle = True
+                        break
+                else:
+                    partial_signature = ()
+                    partial_seen_at = None
             time.sleep(1.0)
 
         stdout_file.seek(0)
@@ -252,6 +273,11 @@ def _subprocess_runner(
         stderr = (stderr + "\n" if stderr else "") + (
             "Hermes process terminated after all declared outputs existed for "
             "%.1f seconds." % output_complete_grace_s
+        )
+    elif terminated_after_partial_idle:
+        stderr = (stderr + "\n" if stderr else "") + (
+            "Hermes process terminated after partial declared outputs stopped changing for "
+            "%.1f seconds." % output_partial_idle_s
         )
     elif exit_code == 124:
         stderr = (stderr + "\n" if stderr else "") + "Hermes process timed out after %s seconds." % timeout_s
@@ -282,6 +308,17 @@ def _existing_outputs(run_dir: Path, expected_outputs: Iterable[str]) -> dict[st
         if path.is_file():
             outputs[rel] = path
     return outputs
+
+
+def _output_signature(outputs: dict[str, Path]) -> tuple[tuple[str, int, int], ...]:
+    signature = []
+    for rel, path in sorted(outputs.items()):
+        try:
+            stat_result = path.stat()
+        except FileNotFoundError:
+            continue
+        signature.append((rel, stat_result.st_size, stat_result.st_mtime_ns))
+    return tuple(signature)
 
 
 def _skill_context(skill_root: Optional[Path], skill_bundle: Iterable[str]) -> str:
