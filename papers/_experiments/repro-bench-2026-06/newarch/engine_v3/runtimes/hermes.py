@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import subprocess
+import os
+import signal
+import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Optional
@@ -33,9 +37,10 @@ class HermesCodexRuntime:
         worker_toolsets: str = "file,terminal",
         skill_root: Optional[Path] = None,
         require_skill_bundle: bool = True,
+        output_complete_grace_s: float = 60.0,
     ) -> None:
         self.hermes_bin = hermes_bin
-        self.runner = runner or _subprocess_runner
+        self.runner = runner
         self.timeout_s = timeout_s
         self.brain_model = brain_model
         self.brain_provider = brain_provider
@@ -44,6 +49,7 @@ class HermesCodexRuntime:
         self.worker_toolsets = worker_toolsets
         self.skill_root = Path(skill_root).expanduser() if skill_root else None
         self.require_skill_bundle = require_skill_bundle
+        self.output_complete_grace_s = output_complete_grace_s
 
     def prepare(self, context: RuntimeContext) -> None:
         context.run_dir.mkdir(parents=True, exist_ok=True)
@@ -103,7 +109,16 @@ class HermesCodexRuntime:
         if worker_mode:
             command.extend(["--ignore-rules", "--toolsets", self.worker_toolsets])
 
-        result = self.runner(command, context.run_dir, self.timeout_s)
+        if self.runner is None:
+            result = _subprocess_runner(
+                command,
+                context.run_dir,
+                self.timeout_s,
+                expected_outputs,
+                output_complete_grace_s=self.output_complete_grace_s,
+            )
+        else:
+            result = self.runner(command, context.run_dir, self.timeout_s)
         combined = "\n".join([result.stdout or "", result.stderr or ""]).strip()
         stdout_tail = _tail(combined)
         provider_failure = _provider_failure(combined)
@@ -172,16 +187,92 @@ class HermesCodexRuntime:
         return "\n\n".join(part for part in parts if part)
 
 
-def _subprocess_runner(command: list[str], cwd: Path, timeout_s: int) -> HermesRunResult:
-    proc = subprocess.run(
-        command,
-        cwd=str(cwd),
-        text=True,
-        capture_output=True,
-        timeout=timeout_s,
-        check=False,
-    )
-    return HermesRunResult(exit_code=proc.returncode, stdout=proc.stdout, stderr=proc.stderr)
+def _subprocess_runner(
+    command: list[str],
+    cwd: Path,
+    timeout_s: int,
+    expected_outputs: Iterable[str] = (),
+    *,
+    output_complete_grace_s: float = 60.0,
+) -> HermesRunResult:
+    expected = list(expected_outputs)
+    if not expected:
+        proc = subprocess.run(
+            command,
+            cwd=str(cwd),
+            text=True,
+            capture_output=True,
+            timeout=timeout_s,
+            check=False,
+        )
+        return HermesRunResult(exit_code=proc.returncode, stdout=proc.stdout, stderr=proc.stderr)
+
+    started = time.monotonic()
+    outputs_seen_at: Optional[float] = None
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as stdout_file, tempfile.TemporaryFile(
+        mode="w+",
+        encoding="utf-8",
+    ) as stderr_file:
+        proc = subprocess.Popen(
+            command,
+            cwd=str(cwd),
+            text=True,
+            stdout=stdout_file,
+            stderr=stderr_file,
+            start_new_session=True,
+        )
+        exit_code: Optional[int] = None
+        terminated_after_outputs = False
+        while True:
+            exit_code = proc.poll()
+            if exit_code is not None:
+                break
+            now = time.monotonic()
+            if now - started > timeout_s:
+                _terminate_process_group(proc)
+                exit_code = 124
+                break
+            if len(_existing_outputs(cwd, expected)) == len(expected):
+                if outputs_seen_at is None:
+                    outputs_seen_at = now
+                elif now - outputs_seen_at >= output_complete_grace_s:
+                    _terminate_process_group(proc)
+                    exit_code = 0
+                    terminated_after_outputs = True
+                    break
+            else:
+                outputs_seen_at = None
+            time.sleep(1.0)
+
+        stdout_file.seek(0)
+        stderr_file.seek(0)
+        stdout = stdout_file.read()
+        stderr = stderr_file.read()
+    if terminated_after_outputs:
+        stderr = (stderr + "\n" if stderr else "") + (
+            "Hermes process terminated after all declared outputs existed for "
+            "%.1f seconds." % output_complete_grace_s
+        )
+    elif exit_code == 124:
+        stderr = (stderr + "\n" if stderr else "") + "Hermes process timed out after %s seconds." % timeout_s
+    return HermesRunResult(exit_code=exit_code or 0, stdout=stdout, stderr=stderr)
+
+
+def _terminate_process_group(proc: subprocess.Popen) -> None:
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    try:
+        proc.wait(timeout=5)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    proc.wait(timeout=5)
 
 
 def _existing_outputs(run_dir: Path, expected_outputs: Iterable[str]) -> dict[str, Path]:

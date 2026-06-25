@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import stat
+import time
 from pathlib import Path
 
 import pytest
@@ -170,3 +172,34 @@ def test_hermes_runtime_blocks_when_declared_output_missing(tmp_path: Path):
 
     assert result.status == "blocked"
     assert result.blockers == ["missing declared output: missing.md"]
+
+
+def test_hermes_runtime_finishes_when_outputs_exist_but_process_hangs(tmp_path: Path):
+    hermes_bin = tmp_path / "hermes-stub"
+    hermes_bin.write_text(
+        """#!/usr/bin/env python3
+from pathlib import Path
+import time
+Path("done.md").write_text("done", encoding="utf-8")
+time.sleep(30)
+""",
+        encoding="utf-8",
+    )
+    hermes_bin.chmod(hermes_bin.stat().st_mode | stat.S_IXUSR)
+
+    runtime = HermesCodexRuntime(
+        hermes_bin=str(hermes_bin),
+        timeout_s=10,
+        output_complete_grace_s=0.1,
+    )
+
+    started = time.monotonic()
+    result = runtime.run_brain(
+        BrainTask(phase="data", prompt="write", expected_outputs=["done.md"]),
+        RuntimeContext(job_id="job-1", run_dir=tmp_path),
+    )
+
+    assert result.status == "ok"
+    assert result.changed_files == ["done.md"]
+    assert time.monotonic() - started < 5
+    assert "terminated after all declared outputs existed" in result.stdout_tail
