@@ -346,6 +346,54 @@ def test_paperctl_gate_a_to_f_routes_and_blocks(tmp_path, golden_dir, fixtures_d
         assert out["gate"] == gate and out["passed"] is True
 
 
+def test_paperctl_gate_a_accepts_v3_doi_audit_schema(tmp_path, capsys):
+    import paperctl
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "doi_audit.json").write_text(
+        json.dumps(
+            {
+                "bib_count": 36,
+                "doi_count": 36,
+                "doi_real_rate": 1.0,
+                "summary": {"doi_real_rate": 1.0},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rc = paperctl.main(["gate", "A", "--run-dir", str(run_dir)])
+    out = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert out["passed"] is True
+    assert out["evidence"] == {"bib_count": 36, "doi_real_rate": 1.0}
+
+
+def test_paperctl_gate_e_accepts_v3_real_results_schema(tmp_path, capsys):
+    import paperctl
+
+    run_dir = tmp_path / "run"
+    (run_dir / "real_experiments").mkdir(parents=True)
+    (run_dir / "real_experiments" / "real_results.json").write_text(
+        json.dumps(
+            {
+                "max_poolable_k": 6,
+                "poolable_effects": [{"study": str(i)} for i in range(6)],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rc = paperctl.main(["gate", "E", "--run-dir", str(run_dir)])
+    out = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert out["gate"] == "E"
+    assert out["evidence"]["max_poolable_k"] == 6
+
+
 def test_paperctl_gate_b_blocks_on_overclaim_draft(tmp_path, golden_dir, fixtures_dir, capsys):
     import paperctl
 

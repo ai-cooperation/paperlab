@@ -282,9 +282,21 @@ def _build_dossier(run_dir: Path) -> dict[str, Any]:
 
     doi = _read_json(run_dir, "doi_audit.json")
     refs = {
-        "bib_count": doi.get("kept") or doi.get("crossref_real") or 0,
-        "doi_real_rate": doi.get("real_rate") or doi.get("real_existence_rate"),
+        "bib_count": doi.get("kept") or doi.get("crossref_real") or doi.get("bib_count") or 0,
+        "doi_real_rate": _first_present(
+            doi,
+            "doi_real_rate",
+            "real_rate",
+            "real_existence_rate",
+        ),
     }
+    if refs["doi_real_rate"] is None and isinstance(doi.get("summary"), dict):
+        refs["doi_real_rate"] = _first_present(
+            doi["summary"],
+            "doi_real_rate",
+            "real_rate",
+            "real_existence_rate",
+        )
     # bib_count falls back to counting references.bib entries.
     if not refs["bib_count"]:
         import re as _re
@@ -307,6 +319,13 @@ def _build_dossier(run_dir: Path) -> dict[str, Any]:
         pk = {s: int(v.get("k") or 0) for s, v in pooled.items() if isinstance(v, dict)}
         if pk:
             viability = {"poolable_k": pk, "max_poolable_k": max(pk.values(), default=0)}
+        elif isinstance(real_results.get("max_poolable_k"), int):
+            poolable_effects = real_results.get("poolable_effects")
+            poolable_count = len(poolable_effects) if isinstance(poolable_effects, list) else real_results["max_poolable_k"]
+            viability = {
+                "poolable_k": {"abstract_level": poolable_count},
+                "max_poolable_k": real_results["max_poolable_k"],
+            }
 
     return {
         "draft_text": draft,
@@ -317,6 +336,13 @@ def _build_dossier(run_dir: Path) -> dict[str, Any]:
         "viability": viability,
         "render_ok": (run_dir / "paper_draft_v0.pdf").is_file() or None,
     }
+
+
+def _first_present(data: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in data and data[key] is not None:
+            return data[key]
+    return None
 
 
 def _claim_evidence_rows(run_dir: Path) -> list[dict[str, Any]]:
