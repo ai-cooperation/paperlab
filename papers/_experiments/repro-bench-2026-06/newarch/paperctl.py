@@ -282,7 +282,11 @@ def _build_dossier(run_dir: Path) -> dict[str, Any]:
 
     doi = _read_json(run_dir, "doi_audit.json")
     refs = {
-        "bib_count": doi.get("kept") or doi.get("crossref_real") or doi.get("bib_count") or 0,
+        "bib_count": doi.get("kept")
+        or doi.get("crossref_real")
+        or doi.get("bib_count")
+        or doi.get("retained_verified_references")
+        or 0,
         "doi_real_rate": _first_present(
             doi,
             "doi_real_rate",
@@ -290,6 +294,10 @@ def _build_dossier(run_dir: Path) -> dict[str, Any]:
             "real_existence_rate",
         ),
     }
+    if refs["doi_real_rate"] is None and isinstance(doi.get("verification_summary"), dict):
+        verification_summary = doi["verification_summary"]
+        if verification_summary.get("all_retained_verified_by_at_least_two_sources") is True:
+            refs["doi_real_rate"] = 1.0
     if refs["doi_real_rate"] is None and isinstance(doi.get("summary"), dict):
         summary = doi["summary"]
         refs["doi_real_rate"] = _first_present(
@@ -351,11 +359,28 @@ def _build_dossier(run_dir: Path) -> dict[str, Any]:
                 "poolable_k": {"abstract_level": len(real_results["included_effects"])},
                 "max_poolable_k": len(real_results["included_effects"]),
             }
+        elif isinstance(real_results.get("abstract_level_effects"), list):
+            viability = {
+                "poolable_k": {"abstract_level": len(real_results["abstract_level_effects"])},
+                "max_poolable_k": len(real_results["abstract_level_effects"]),
+            }
         elif isinstance(real_results.get("pooled_smd"), dict) and isinstance(real_results["pooled_smd"].get("k"), int):
             viability = {
                 "poolable_k": {"abstract_level": real_results["pooled_smd"]["k"]},
                 "max_poolable_k": real_results["pooled_smd"]["k"],
             }
+        elif isinstance(real_results.get("synthesis"), dict) and isinstance(
+            real_results["synthesis"].get("numeric_effect_count"),
+            int,
+        ):
+            count = real_results["synthesis"]["numeric_effect_count"]
+            viability = {"poolable_k": {"abstract_level": count}, "max_poolable_k": count}
+        elif isinstance(real_results.get("screening"), dict) and isinstance(
+            real_results["screening"].get("abstract_level_numeric_effects_extracted"),
+            int,
+        ):
+            count = real_results["screening"]["abstract_level_numeric_effects_extracted"]
+            viability = {"poolable_k": {"abstract_level": count}, "max_poolable_k": count}
         elif isinstance(real_results.get("prisma_counts"), dict) and isinstance(
             real_results["prisma_counts"].get("abstract_extractable_effects_in_quantitative_synthesis"),
             int,
