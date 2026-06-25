@@ -60,6 +60,32 @@ class EngineV3Orchestrator:
                 expected_outputs=list(phase.expected_outputs),
             )
             runtime_result = self._run_phase_task(task, context, dossier)
+            repair_attempt = _prior_repair_attempts(dossier, phase.id)
+            repairs_this_run = 0
+            while (
+                runtime_result is not None
+                and runtime_result.status != "ok"
+                and _runtime_result_repairable(runtime_result)
+                and repairs_this_run < max(0, phase.max_repair_attempts)
+            ):
+                repair_attempt += 1
+                repairs_this_run += 1
+                _trace(
+                    dossier,
+                    "repair_decision",
+                    phase=phase.id,
+                    attempt=repair_attempt,
+                    route="repair_same_phase:missing_declared_outputs",
+                    failed_blocks=[],
+                    rationale="runtime did not produce declared outputs",
+                )
+                repair_task = BrainTask(
+                    task_id="%s:repair:%s" % (phase.id, repair_attempt),
+                    phase=phase.id,
+                    prompt=_runtime_repair_prompt(phase, runtime_result, repair_attempt),
+                    expected_outputs=list(phase.repair_expected_outputs or phase.expected_outputs),
+                )
+                runtime_result = self._run_phase_task(repair_task, context, dossier)
             if runtime_result is not None and runtime_result.status != "ok":
                 dossier.mark_phase(phase.id, runtime_result.status)
                 _trace(
@@ -73,8 +99,6 @@ class EngineV3Orchestrator:
                 break
 
             gate_report = self._run_phase_handler_and_gates(phase, task, context, dossier)
-            repair_attempt = _prior_repair_attempts(dossier, phase.id)
-            repairs_this_run = 0
             phase_failed = False
             while gate_report.blocked and repairs_this_run < max(0, phase.max_repair_attempts):
                 repair_attempt += 1
@@ -286,6 +310,27 @@ def _repair_prompt(phase: PhaseSpec, gate_report, attempt: int) -> str:
         "Repair attempt: %s" % attempt,
         "Blocking gate report JSON:\n%s" % json.dumps(gate_payload, ensure_ascii=False, indent=2),
     ])
+
+
+def _runtime_result_repairable(result: TaskResult) -> bool:
+    if result.status != "blocked":
+        return False
+    blockers = list(result.blockers or [])
+    return bool(blockers) and all(str(blocker).startswith("missing declared output: ") for blocker in blockers)
+
+
+def _runtime_repair_prompt(phase: PhaseSpec, result: TaskResult, attempt: int) -> str:
+    base = phase.repair_prompt or phase.prompt or "Repair missing declared outputs."
+    return "\n".join(
+        [
+            base,
+            "Repair attempt: %s" % attempt,
+            "The previous runtime attempt ended before producing required declared outputs.",
+            "Missing outputs:",
+            *["- %s" % blocker for blocker in result.blockers],
+            "Inspect the existing run directory, then write the declared outputs in place.",
+        ]
+    )
 
 
 def _apply_phase_result(

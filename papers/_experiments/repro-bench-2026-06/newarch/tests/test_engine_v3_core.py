@@ -281,6 +281,71 @@ def test_orchestrator_blocks_phase_when_runtime_output_missing(tmp_path: Path):
     assert dossier.delegations[0]["status"] == "blocked"
 
 
+def test_orchestrator_repairs_missing_declared_outputs_before_runtime_block(tmp_path: Path):
+    class MissingThenRepairRuntime(MockRuntime):
+        name = "missing-then-repair"
+
+        def __init__(self):
+            self.calls = []
+
+        def run_brain(self, task: BrainTask, context: RuntimeContext):
+            self.calls.append((task.task_id, task.prompt))
+            if task.task_id == "data:brain":
+                return TaskResult(
+                    task_id=task.task_id,
+                    status="blocked",
+                    blockers=["missing declared output: references.bib"],
+                )
+            refs = context.run_dir / "references.bib"
+            refs.write_text("@article{one,title={One}}\n", encoding="utf-8")
+            return TaskResult(
+                task_id=task.task_id,
+                status="ok",
+                outputs={"references.bib": refs},
+                changed_files=["references.bib"],
+            )
+
+    class RefFloorPack:
+        name = "demo"
+
+        def gate_registry(self):
+            def check(dossier):
+                count = int(dossier.evidence.get("ref_count") or 0)
+                if count >= 1:
+                    return GateResult.pass_("A", "bib_count=%s" % count)
+                return GateResult.fail("A", details="bib_count=%s (floor 1)" % count)
+
+            return [{"id": "A", "phase": "data", "severity": GateSeverity.BLOCK, "check": check}]
+
+    def handler(_task: BrainTask, context: RuntimeContext):
+        refs = context.run_dir / "references.bib"
+        return {"gate_inputs": {"ref_count": refs.read_text(encoding="utf-8").count("@article")}}
+
+    runtime = MissingThenRepairRuntime()
+    dossier = EngineV3Orchestrator(
+        runtime=runtime,
+        domain_pack=RefFloorPack(),
+        phases=[
+            PhaseSpec(
+                id="data",
+                handler=handler,
+                prompt="collect refs",
+                expected_outputs=["references.bib"],
+                gate_ids=["A"],
+                repair_prompt="repair missing data outputs",
+                max_repair_attempts=1,
+            )
+        ],
+        dossier_store=DossierStore(tmp_path),
+    ).run(job_id="job-1", resume=False)
+
+    assert [call[0] for call in runtime.calls] == ["data:brain", "data:repair:1"]
+    assert "required declared outputs" in runtime.calls[1][1]
+    assert dossier.phases["data"] == "done"
+    assert dossier.gate_reports[-1]["blocked"] is False
+    assert [delegation["status"] for delegation in dossier.delegations] == ["blocked", "ok"]
+
+
 def test_orchestrator_repairs_blocked_gate_before_terminal_block(tmp_path: Path):
     class RepairingRuntime(MockRuntime):
         name = "repairing-runtime"
