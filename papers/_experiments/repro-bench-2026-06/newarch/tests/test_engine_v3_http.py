@@ -73,7 +73,15 @@ def _full_fixture_runtime(golden_dir: Path):
                 '{"p0_count": 0, "delivery": "pass", "floor_100": 82.0, '
                 '"review_loop": {"status": "passed", "rounds": 1, '
                 '"reviewer_model": "codex-class", "fixer_model": "big-pickle", '
-                '"independent_reviewer": true, "floor_failed": false}}\n',
+                '"independent_reviewer": true, "floor_failed": false}, '
+                '"dimensions": {'
+                '"academic_rigor": {"score": 8.1}, '
+                '"novelty_positioning": {"score": 8.4}, '
+                '"experimental_completeness": {"score": 7.8}, '
+                '"writing_quality": {"score": 8.3}, '
+                '"practical_feasibility": {"score": 8.0}, '
+                '"citation_accuracy": {"score": 8.6}, '
+                '"format_compliance": {"score": 8.5}}}\n',
                 encoding="utf-8",
             )
         if "quality_review_log.md" in prompt:
@@ -169,8 +177,15 @@ def test_v3_job_runs_bounded_golden_and_status(tmp_path: Path, golden_dir: Path)
     assert body["job_id"].startswith("v3_")
     payload = _wait_for_status(tc, body["status_url"], "done")
     assert payload["engine"] == "v3"
+    assert payload["engine_revision"] == "3.2"
     assert payload["status"] == "done"
     assert payload["phases"] == {"data": "done", "render_gates": "done"}
+    data_substeps = {step["id"]: step for step in payload["substeps"]["data"]}
+    assert data_substeps["verify_doi_two_sources"]["status"] == "done"
+    assert data_substeps["top_up_references"]["status"] == "done"
+    assert data_substeps["write_canonical_data"]["status"] == "done"
+    assert data_substeps["data_output_completeness"]["status"] == "done"
+    assert data_substeps["gate_A_E_G"]["status"] == "done"
     assert all(report["blocked"] is False for report in payload["gates"])
 
 

@@ -12,6 +12,17 @@ from packs.paper import PaperPack as V2PaperPack
 from engine_v3.core import GateResult, GateSeverity, PhaseSpec, RuntimeContext, BrainTask
 
 
+REVIEW_DIMENSION_KEYS = {
+    "academic_rigor",
+    "novelty_positioning",
+    "experimental_completeness",
+    "writing_quality",
+    "practical_feasibility",
+    "citation_accuracy",
+    "format_compliance",
+}
+
+
 PAPER_SKILL_BUNDLE = [
     "paper-draft",
     "literature-synthesis",
@@ -125,6 +136,12 @@ class PaperPack:
         ]
         gates.extend([
             {
+                "id": "G",
+                "phase": "data",
+                "severity": GateSeverity.BLOCK,
+                "check": _gate_data_completeness,
+            },
+            {
                 "id": "R",
                 "phase": "review_heal",
                 "severity": GateSeverity.BLOCK,
@@ -201,9 +218,37 @@ def _gate_phase(gate_name: str) -> str:
         "D": "render_gates",
         "E": "data",
         "F": "render_gates",
+        "G": "data",
         "R": "review_heal",
         "Z": "format_repair",
     }.get(gate_name, "")
+
+
+def _gate_data_completeness(dossier: Any) -> GateResult:
+    data = _dossier_to_dict(dossier)
+    completeness = data.get("data_completeness") if isinstance(data.get("data_completeness"), dict) else {}
+    missing = list(completeness.get("missing_outputs") or [])
+    invalid = list(completeness.get("invalid_outputs") or [])
+    status = str(completeness.get("status") or "").lower()
+    ok = status == "done" and not missing and not invalid
+    findings = []
+    if missing:
+        findings.append("missing outputs: %s" % ", ".join(str(path) for path in missing))
+    if invalid:
+        findings.append("invalid outputs: %s" % ", ".join(str(path) for path in invalid))
+    if not completeness:
+        findings.append("data completeness artifact missing")
+    return GateResult(
+        gate_id="G",
+        passed=ok,
+        severity=GateSeverity.BLOCK,
+        details="data declared outputs complete" if ok else "; ".join(findings),
+        evidence={
+            "status": status or None,
+            "missing_outputs": missing,
+            "invalid_outputs": invalid,
+        },
+    )
 
 
 def _gate_review(dossier: Any) -> GateResult:
@@ -211,29 +256,34 @@ def _gate_review(dossier: Any) -> GateResult:
     review = data.get("review") if isinstance(data.get("review"), dict) else {}
     p0_count = _review_p0_count(review)
     delivery = str(review.get("delivery") or _review_delivery(review) or "").lower()
-    floor = review.get("floor_100")
-    if floor is None:
-        floor = review.get("quality_gate", {}).get("floor_100") if isinstance(review.get("quality_gate"), dict) else None
+    floor = _review_floor_score(review)
     loop = review.get("review_loop") if isinstance(review.get("review_loop"), dict) else {}
     loop_ok = _review_loop_ok(loop, bool(data.get("review_log_present")))
+    dimensions = _review_dimensions(review)
+    dimensions_ok = len(dimensions) >= len(REVIEW_DIMENSION_KEYS)
     ok = (
         p0_count == 0
         and delivery in ("pass", "passed", "ok")
         and isinstance(floor, (int, float))
         and loop_ok
+        and dimensions_ok
     )
     return GateResult(
         gate_id="R",
         passed=ok,
         severity=GateSeverity.BLOCK,
         details=(
-            "review passed: no P0, delivery pass, floor_100=%s, loop ok" % floor
+            "review passed: no P0, delivery pass, floor_100=%s, loop ok, dimensions=%s" % (
+                floor,
+                len(dimensions),
+            )
             if ok else
-            "review failed: p0_count=%s, delivery=%s, floor_100=%s, loop_ok=%s" % (
+            "review failed: p0_count=%s, delivery=%s, floor_100=%s, loop_ok=%s, dimensions_ok=%s" % (
                 p0_count,
                 delivery or None,
                 floor,
                 loop_ok,
+                dimensions_ok,
             )
         ),
         evidence={
@@ -242,6 +292,8 @@ def _gate_review(dossier: Any) -> GateResult:
             "floor_100": floor,
             "review_loop": loop,
             "review_log_present": bool(data.get("review_log_present")),
+            "dimensions": dimensions,
+            "required_dimensions": sorted(REVIEW_DIMENSION_KEYS),
         },
     )
 
@@ -259,6 +311,30 @@ def _review_p0_count(review: Mapping[str, Any]) -> int:
         and str(finding.get("status") or "").lower() == "open"
         and str(finding.get("severity") or "").lower() in {"critical", "p0"}
     )
+
+
+def _review_floor_score(review: Mapping[str, Any]) -> float | int | None:
+    floor = review.get("floor_100")
+    if isinstance(floor, (int, float)) and not isinstance(floor, bool):
+        return floor
+    if isinstance(floor, dict):
+        score = floor.get("score")
+        if isinstance(score, (int, float)) and not isinstance(score, bool):
+            return score
+
+    quality_gate = review.get("quality_gate")
+    if isinstance(quality_gate, dict):
+        floor = quality_gate.get("floor_100")
+        if isinstance(floor, (int, float)) and not isinstance(floor, bool):
+            return floor
+        if isinstance(floor, dict):
+            score = floor.get("score")
+            if isinstance(score, (int, float)) and not isinstance(score, bool):
+                return score
+        score = quality_gate.get("score")
+        if isinstance(score, (int, float)) and not isinstance(score, bool):
+            return score
+    return None
 
 
 def _review_delivery(review: Mapping[str, Any]) -> str:
@@ -287,10 +363,31 @@ def _review_loop_ok(loop: Mapping[str, Any], log_present: bool) -> bool:
         and isinstance(rounds, int)
         and rounds >= 1
         and bool(reviewer)
+        and "fallback" not in reviewer.lower()
         and bool(fixer)
         and independent
         and not floor_failed
     )
+
+
+def _review_dimensions(review: Mapping[str, Any]) -> dict[str, float]:
+    candidates = review.get("dimensions")
+    if not isinstance(candidates, dict):
+        candidates = review.get("dimension_scores")
+    if not isinstance(candidates, dict):
+        return {}
+
+    scores: dict[str, float] = {}
+    for key in REVIEW_DIMENSION_KEYS:
+        value = candidates.get(key)
+        if isinstance(value, dict):
+            value = value.get("score")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        score = float(value)
+        if 0 <= score <= 10:
+            scores[key] = score
+    return scores
 
 
 def _gate_delivery(dossier: Any) -> GateResult:

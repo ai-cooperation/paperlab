@@ -113,17 +113,27 @@ class HermesCodexRuntime:
         if worker_mode:
             command.extend(["--ignore-rules", "--toolsets", self.worker_toolsets])
 
+        expected_output_list = list(expected_outputs)
+        fresh_outputs = _fresh_required_outputs(phase, expected_output_list)
+        if fresh_outputs:
+            _quarantine_existing_outputs(context.run_dir, fresh_outputs, task_id)
+
         if self.runner is None:
+            baseline = _output_signature_map(_existing_outputs(context.run_dir, expected_output_list))
+            watch_output_list = _watch_outputs(phase, expected_output_list)
             result = _subprocess_runner(
                 command,
                 context.run_dir,
                 self.timeout_s,
-                expected_outputs,
+                watch_output_list,
+                baseline_signature=baseline,
+                fresh_outputs=fresh_outputs,
                 output_complete_grace_s=self.output_complete_grace_s,
-                output_startup_idle_s=self.output_startup_idle_s,
+                output_startup_idle_s=_startup_idle_for_phase(phase, self.output_startup_idle_s),
                 output_partial_idle_s=self.output_partial_idle_s,
             )
         else:
+            baseline = _output_signature_map(_existing_outputs(context.run_dir, expected_output_list))
             result = self.runner(command, context.run_dir, self.timeout_s)
         combined = "\n".join([result.stdout or "", result.stderr or ""]).strip()
         stdout_tail = _tail(combined)
@@ -145,23 +155,38 @@ class HermesCodexRuntime:
                 stdout_tail=stdout_tail,
             )
 
-        outputs = _existing_outputs(context.run_dir, expected_outputs)
-        missing = [rel for rel in expected_outputs if rel not in outputs]
+        outputs = _existing_outputs(context.run_dir, expected_output_list)
+        missing = [rel for rel in expected_output_list if rel not in outputs]
+        stale = [
+            rel for rel in fresh_outputs
+            if rel in outputs and not _output_changed(outputs[rel], baseline.get(rel))
+        ]
+        stale = sorted(stale)
         if missing:
             return TaskResult(
                 task_id=task_id,
                 status="blocked",
                 details="missing declared outputs",
                 outputs=outputs,
-                changed_files=sorted(outputs),
+                changed_files=sorted(_changed_outputs(outputs, baseline)),
                 blockers=["missing declared output: %s" % rel for rel in missing],
+                stdout_tail=stdout_tail,
+            )
+        if stale:
+            return TaskResult(
+                task_id=task_id,
+                status="blocked",
+                details="stale declared outputs",
+                outputs=outputs,
+                changed_files=sorted(_changed_outputs(outputs, baseline)),
+                blockers=["stale declared output: %s" % rel for rel in stale],
                 stdout_tail=stdout_tail,
             )
         return TaskResult(
             task_id=task_id,
             status="ok",
             outputs=outputs,
-            changed_files=sorted(outputs),
+            changed_files=sorted(_changed_outputs(outputs, baseline)),
             stdout_tail=stdout_tail,
         )
 
@@ -199,11 +224,15 @@ def _subprocess_runner(
     timeout_s: int,
     expected_outputs: Iterable[str] = (),
     *,
+    baseline_signature: dict[str, tuple[int, int]] | None = None,
+    fresh_outputs: Iterable[str] = (),
     output_complete_grace_s: float = 60.0,
     output_startup_idle_s: float = 600.0,
     output_partial_idle_s: float = 180.0,
 ) -> HermesRunResult:
     expected = list(expected_outputs)
+    baseline_signature = baseline_signature or {}
+    fresh_outputs = set(fresh_outputs)
     if not expected:
         proc = subprocess.run(
             command,
@@ -246,7 +275,7 @@ def _subprocess_runner(
                 exit_code = 124
                 break
             existing = _existing_outputs(cwd, expected)
-            if len(existing) == len(expected):
+            if _outputs_complete(existing, expected, baseline_signature, fresh_outputs):
                 if outputs_seen_at is None:
                     outputs_seen_at = now
                 elif now - outputs_seen_at >= output_complete_grace_s:
@@ -379,6 +408,84 @@ def _existing_outputs(run_dir: Path, expected_outputs: Iterable[str]) -> dict[st
         if path.is_file():
             outputs[rel] = path
     return outputs
+
+
+def _quarantine_existing_outputs(run_dir: Path, rel_paths: Iterable[str], task_id: str) -> None:
+    safe_task_id = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in task_id)
+    backup_root = run_dir / "artifacts" / "stale_outputs" / safe_task_id / str(time.time_ns())
+    for rel in sorted(set(rel_paths)):
+        source = run_dir / rel
+        if not source.is_file():
+            continue
+        destination = backup_root / rel
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        source.replace(destination)
+
+
+def _fresh_required_outputs(phase: str, expected_outputs: Iterable[str]) -> set[str]:
+    if phase != "review_heal":
+        return set()
+    expected = set(expected_outputs)
+    return {
+        rel for rel in ("quality_review_round1.json", "quality_review_log.md")
+        if rel in expected
+    }
+
+
+def _watch_outputs(phase: str, expected_outputs: Iterable[str]) -> list[str]:
+    expected = list(expected_outputs)
+    if phase != "review_heal":
+        return expected
+    review_outputs = [rel for rel in expected if rel in {"quality_review_round1.json", "quality_review_log.md"}]
+    return review_outputs or expected
+
+
+def _startup_idle_for_phase(phase: str, configured_s: float) -> float:
+    if phase != "review_heal":
+        return configured_s
+    return min(configured_s, 300.0)
+
+
+def _outputs_complete(
+    outputs: dict[str, Path],
+    expected_outputs: Iterable[str],
+    baseline_signature: dict[str, tuple[int, int]],
+    fresh_outputs: set[str],
+) -> bool:
+    expected = list(expected_outputs)
+    if len(outputs) != len(expected):
+        return False
+    return all(
+        rel not in fresh_outputs or _output_changed(outputs[rel], baseline_signature.get(rel))
+        for rel in expected
+    )
+
+
+def _output_signature_map(outputs: dict[str, Path]) -> dict[str, tuple[int, int]]:
+    mapped: dict[str, tuple[int, int]] = {}
+    for rel, path in outputs.items():
+        try:
+            stat_result = path.stat()
+        except FileNotFoundError:
+            continue
+        mapped[rel] = (stat_result.st_size, stat_result.st_mtime_ns)
+    return mapped
+
+
+def _output_changed(path: Path, baseline: tuple[int, int] | None) -> bool:
+    try:
+        stat_result = path.stat()
+    except FileNotFoundError:
+        return False
+    current = (stat_result.st_size, stat_result.st_mtime_ns)
+    return baseline is None or current != baseline
+
+
+def _changed_outputs(outputs: dict[str, Path], baseline_signature: dict[str, tuple[int, int]]) -> list[str]:
+    return [
+        rel for rel, path in outputs.items()
+        if _output_changed(path, baseline_signature.get(rel))
+    ]
 
 
 def _output_signature(outputs: dict[str, Path]) -> tuple[tuple[str, int, int], ...]:

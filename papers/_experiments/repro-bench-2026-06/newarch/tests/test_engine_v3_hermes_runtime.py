@@ -53,6 +53,81 @@ def test_hermes_runtime_worker_uses_big_pickle_and_writes_declared_file(tmp_path
     assert "--toolsets" in seen["command"]
 
 
+def test_review_heal_requires_fresh_review_json_and_log(tmp_path: Path):
+    (tmp_path / "quality_review_round1.json").write_text('{"old": true}\n', encoding="utf-8")
+    (tmp_path / "quality_review_log.md").write_text("old log\n", encoding="utf-8")
+
+    def stale_runner(_command: list[str], cwd: Path, _timeout_s: int):
+        assert not (cwd / "quality_review_round1.json").exists()
+        assert not (cwd / "quality_review_log.md").exists()
+        return HermesRunResult(exit_code=0, stdout="CHILD_OK", stderr="")
+
+    stale = HermesCodexRuntime(runner=stale_runner).run_brain(
+        BrainTask(
+            phase="review_heal",
+            prompt="review",
+            expected_outputs=["quality_review_round1.json", "quality_review_log.md"],
+        ),
+        RuntimeContext(job_id="job-1", run_dir=tmp_path),
+    )
+
+    assert stale.status == "blocked"
+    assert stale.changed_files == []
+    assert stale.blockers == [
+        "missing declared output: quality_review_round1.json",
+        "missing declared output: quality_review_log.md",
+    ]
+    backups = list((tmp_path / "artifacts" / "stale_outputs").glob("**/quality_review_round1.json"))
+    assert backups
+
+    def fresh_runner(_command: list[str], cwd: Path, _timeout_s: int):
+        time.sleep(0.001)
+        (cwd / "quality_review_round1.json").write_text('{"new": true}\n', encoding="utf-8")
+        (cwd / "quality_review_log.md").write_text("new log\n", encoding="utf-8")
+        return HermesRunResult(exit_code=0, stdout="CHILD_OK", stderr="")
+
+    fresh = HermesCodexRuntime(runner=fresh_runner).run_brain(
+        BrainTask(
+            phase="review_heal",
+            prompt="review",
+            expected_outputs=["quality_review_round1.json", "quality_review_log.md"],
+        ),
+        RuntimeContext(job_id="job-1", run_dir=tmp_path),
+    )
+
+    assert fresh.status == "ok"
+    assert fresh.changed_files == ["quality_review_log.md", "quality_review_round1.json"]
+
+
+def test_review_heal_quarantines_old_review_files_before_runner(tmp_path: Path):
+    (tmp_path / "quality_review_round1.json").write_text('{"old": true}\n', encoding="utf-8")
+    (tmp_path / "quality_review_log.md").write_text("old log\n", encoding="utf-8")
+
+    def runner(_command: list[str], cwd: Path, _timeout_s: int):
+        assert not (cwd / "quality_review_round1.json").exists()
+        assert not (cwd / "quality_review_log.md").exists()
+        (cwd / "quality_review_round1.json").write_text('{"new": true}\n', encoding="utf-8")
+        (cwd / "quality_review_log.md").write_text("new log\n", encoding="utf-8")
+        return HermesRunResult(exit_code=0, stdout="CHILD_OK", stderr="")
+
+    result = HermesCodexRuntime(runner=runner).run_brain(
+        BrainTask(
+            phase="review_heal",
+            prompt="review",
+            expected_outputs=["quality_review_round1.json", "quality_review_log.md"],
+        ),
+        RuntimeContext(job_id="job-1", run_dir=tmp_path),
+    )
+
+    assert result.status == "ok"
+    assert (tmp_path / "quality_review_round1.json").read_text(encoding="utf-8") == '{"new": true}\n'
+    assert (tmp_path / "quality_review_log.md").read_text(encoding="utf-8") == "new log\n"
+    assert any(
+        path.read_text(encoding="utf-8") == '{"old": true}\n'
+        for path in (tmp_path / "artifacts" / "stale_outputs").glob("**/quality_review_round1.json")
+    )
+
+
 def test_hermes_runtime_loads_pack_skill_bundle(tmp_path: Path):
     skill_root = tmp_path / "skills"
     skill_dir = skill_root / "paper-draft"
@@ -280,6 +355,97 @@ time.sleep(30)
     ]
     assert time.monotonic() - started < 5
     assert "terminated after no declared outputs appeared" in result.stdout_tail
+
+
+def test_review_heal_watches_review_artifacts_not_manuscript_edits(tmp_path: Path):
+    (tmp_path / "paper_draft_v0.qmd").write_text("old draft\n", encoding="utf-8")
+    (tmp_path / "paper_springer.qmd").write_text("old springer\n", encoding="utf-8")
+
+    hermes_bin = tmp_path / "hermes-stub"
+    hermes_bin.write_text(
+        """#!/usr/bin/env python3
+from pathlib import Path
+import time
+Path("paper_springer.qmd").write_text("edited but no review\\n", encoding="utf-8")
+time.sleep(30)
+""",
+        encoding="utf-8",
+    )
+    hermes_bin.chmod(hermes_bin.stat().st_mode | stat.S_IXUSR)
+
+    runtime = HermesCodexRuntime(
+        hermes_bin=str(hermes_bin),
+        timeout_s=10,
+        output_startup_idle_s=0.1,
+    )
+
+    started = time.monotonic()
+    result = runtime.run_brain(
+        BrainTask(
+            phase="review_heal",
+            prompt="repair review",
+            expected_outputs=[
+                "quality_review_round1.json",
+                "quality_review_log.md",
+                "paper_draft_v0.qmd",
+                "paper_springer.qmd",
+            ],
+        ),
+        RuntimeContext(job_id="job-1", run_dir=tmp_path),
+    )
+
+    assert result.status == "blocked"
+    assert result.blockers == [
+        "missing declared output: quality_review_round1.json",
+        "missing declared output: quality_review_log.md",
+    ]
+    assert result.changed_files == ["paper_springer.qmd"]
+    assert time.monotonic() - started < 5
+    assert "terminated after no declared outputs appeared" in result.stdout_tail
+
+
+def test_review_heal_finishes_when_fresh_review_artifacts_exist(tmp_path: Path):
+    (tmp_path / "paper_draft_v0.qmd").write_text("draft\n", encoding="utf-8")
+    (tmp_path / "paper_springer.qmd").write_text("springer\n", encoding="utf-8")
+
+    hermes_bin = tmp_path / "hermes-stub"
+    hermes_bin.write_text(
+        """#!/usr/bin/env python3
+from pathlib import Path
+import time
+Path("quality_review_round1.json").write_text('{"p0_count": 0}\\n', encoding="utf-8")
+Path("quality_review_log.md").write_text("reviewed\\n", encoding="utf-8")
+time.sleep(30)
+""",
+        encoding="utf-8",
+    )
+    hermes_bin.chmod(hermes_bin.stat().st_mode | stat.S_IXUSR)
+
+    runtime = HermesCodexRuntime(
+        hermes_bin=str(hermes_bin),
+        timeout_s=10,
+        output_complete_grace_s=0.1,
+    )
+
+    started = time.monotonic()
+    result = runtime.run_brain(
+        BrainTask(
+            phase="review_heal",
+            prompt="repair review",
+            expected_outputs=[
+                "quality_review_round1.json",
+                "quality_review_log.md",
+                "paper_draft_v0.qmd",
+                "paper_springer.qmd",
+            ],
+        ),
+        RuntimeContext(job_id="job-1", run_dir=tmp_path),
+    )
+
+    assert result.status == "ok"
+    assert result.changed_files == ["quality_review_log.md", "quality_review_round1.json"]
+    assert time.monotonic() - started < 5
+    assert "terminated after all declared outputs existed" in result.stdout_tail
 
 
 def test_hermes_runtime_terminates_orphan_process_groups_in_run_dir(tmp_path: Path, monkeypatch):

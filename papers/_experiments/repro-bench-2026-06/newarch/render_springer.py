@@ -66,14 +66,56 @@ def _extract_abstract(fm: str, body: str) -> tuple[str, str, str]:
         if km:
             kw_line = km.group(1).strip().strip("*").strip()
             text = text[: km.start()] + text[km.end():]
-        return " ".join(text.split()), body, kw_line
+        return _sanitize_abstract(" ".join(text.split())), body, kw_line
     fm_abs = re.search(r"(?ms)^abstract:\s*\|?\s*\n((?:[ \t]+.*\n?)+)", fm)
     if fm_abs:
-        return " ".join(fm_abs.group(1).split()), body, ""
+        return _sanitize_abstract(" ".join(fm_abs.group(1).split())), body, ""
     fm_abs1 = re.search(r'(?m)^abstract:\s*"?(.+?)"?\s*$', fm)
     if fm_abs1:
-        return fm_abs1.group(1).strip(), body, ""
+        return _sanitize_abstract(fm_abs1.group(1).strip()), body, ""
     return "", body, ""
+
+
+def _sanitize_abstract(text: str) -> str:
+    """Remove flattened YAML frontmatter that a model can accidentally append to
+    the abstract. This keeps Quarto metadata keys out of the abstract paragraph
+    without trying to interpret the whole frontmatter as YAML."""
+    text = " ".join(text.split())
+    leak = re.search(
+        r"\b(?:keywords|format|bibliography|csl|number-sections|link-citations|toc|geometry)\s*:",
+        text,
+        re.IGNORECASE,
+    )
+    if leak:
+        text = text[: leak.start()].rstrip(" ,-;")
+    return text
+
+
+def _frontmatter_block(fm: str, key: str) -> str:
+    match = re.search(
+        r"(?ms)^" + re.escape(key) + r":\s*\n(.*?)(?=^[A-Za-z0-9_-]+:\s*|\Z)",
+        fm,
+    )
+    return match.group(1) if match else ""
+
+
+def _valid_keyword(keyword: str) -> bool:
+    lowered = keyword.strip().lower()
+    if not (2 < len(keyword) < 40):
+        return False
+    if ":" in keyword or "=" in keyword:
+        return False
+    if lowered in {
+        "format",
+        "bibliography",
+        "csl",
+        "number-sections",
+        "link-citations",
+        "toc",
+        "geometry",
+    }:
+        return False
+    return True
 
 
 def _extract_keywords(fm: str, contract: dict[str, Any], body_kw: str = "") -> list[str]:
@@ -81,11 +123,11 @@ def _extract_keywords(fm: str, contract: dict[str, Any], body_kw: str = "") -> l
     if body_kw:
         found = [k.strip() for k in re.split(r"[;,、；]", body_kw) if k.strip()]
     if not found:
-        block = re.search(r"(?ms)^keywords:\s*\n((?:\s*-\s*.+\n?)+)", fm)
+        block = _frontmatter_block(fm, "keywords")
         if block:
             found = [re.sub(r"^\s*-\s*", "", ln).strip()
-                     for ln in block.group(1).splitlines() if ln.strip()]
-    found = [k for k in found if 2 < len(k) < 40][:8]
+                     for ln in block.splitlines() if re.match(r"^\s*-\s+", ln)]
+    found = [k for k in found if _valid_keyword(k)][:8]
     # Augment when the writer supplied too few (e.g. a single junk keyword
     # "strategy"). The data_source.name carries the English topic terms even when
     # the title is Chinese (so the latin-token seed below isn't empty).

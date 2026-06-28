@@ -54,6 +54,8 @@ def _refresh_artifact_hashes(dossier: Dossier, run_dir: Path) -> None:
     refreshed: Dict[str, ArtifactRef] = {}
     for name, artifact in dossier.artifacts.items():
         path = _artifact_abs_path(artifact.path, run_dir)
+        if not path.is_file():
+            continue
         refreshed[name] = ArtifactRef(
             path=_artifact_rel_path(path, run_dir),
             sha256=hash_file(path),
@@ -101,6 +103,23 @@ def _artifact_abs_path(path: str, run_dir: Path) -> Path:
     p = Path(path)
     if p.is_absolute():
         return p
+    if p.exists():
+        return p.resolve()
+    run_parts = run_dir.parts
+    path_parts = p.parts
+    for index in range(0, len(path_parts)):
+        if path_parts[index:index + len(run_parts)] == run_parts:
+            return p
+    resolved_run = run_dir.resolve()
+    resolved_parts = resolved_run.parts
+    for index in range(0, len(path_parts)):
+        if path_parts[index:index + len(resolved_parts)] == resolved_parts:
+            return p
+    if len(run_parts) >= 3:
+        suffix = run_parts[-3:]
+        for index in range(0, len(path_parts)):
+            if path_parts[index:index + len(suffix)] == suffix:
+                return resolved_run / Path(*path_parts[index + len(suffix):])
     return run_dir / p
 
 

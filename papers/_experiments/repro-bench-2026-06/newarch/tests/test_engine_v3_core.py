@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from engine_v3.core import (
+    ArtifactRef,
     BrainTask,
     DossierStore,
     GateResult,
@@ -121,6 +122,69 @@ def test_dossier_store_persists_artifact_hashes_and_checkpoints(tmp_path: Path):
     assert (run_dir / "dossier.v3.json").exists()
 
 
+def test_dossier_store_normalizes_cwd_relative_run_artifact_paths(tmp_path: Path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    run_dir = workspace / "jobs" / "job-1" / "run"
+    artifact = run_dir / "paper_draft_v0.qmd"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text("draft", encoding="utf-8")
+    monkeypatch.chdir(workspace)
+
+    store = DossierStore(run_dir)
+    dossier = store.create(job_id="job-1", domain="paper")
+    dossier.artifacts["paper_draft_v0.qmd"] = ArtifactRef(
+        path="jobs/job-1/run/paper_draft_v0.qmd",
+        sha256="",
+    )
+
+    store.save(dossier)
+    loaded = store.load()
+
+    assert loaded.artifacts["paper_draft_v0.qmd"].path == "paper_draft_v0.qmd"
+    assert len(loaded.artifacts["paper_draft_v0.qmd"].sha256) == 64
+
+
+def test_dossier_store_normalizes_run_prefixed_artifact_paths_from_other_cwd(tmp_path: Path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    run_dir = workspace / "jobs" / "job-1" / "run"
+    artifact = run_dir / "quality_review_round1.json"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text('{"delivery":"pass"}\n', encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    store = DossierStore(run_dir)
+    dossier = store.create(job_id="job-1", domain="paper")
+    dossier.artifacts["quality_review_round1.json"] = ArtifactRef(
+        path="jobs/job-1/run/quality_review_round1.json",
+        sha256="",
+    )
+
+    store.save(dossier)
+    loaded = store.load()
+
+    assert loaded.artifacts["quality_review_round1.json"].path == "quality_review_round1.json"
+    assert len(loaded.artifacts["quality_review_round1.json"].sha256) == 64
+
+
+def test_dossier_store_drops_missing_stale_artifacts_on_save(tmp_path: Path):
+    run_dir = tmp_path / "run"
+    artifact = run_dir / "quality_review_round1.json"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text('{"delivery":"revise"}\n', encoding="utf-8")
+
+    store = DossierStore(run_dir)
+    dossier = store.create(job_id="job-1", domain="paper")
+    dossier.add_artifact("quality_review_round1.json", artifact)
+    store.save(dossier)
+    artifact.unlink()
+
+    loaded = store.load()
+    store.save(loaded)
+    reloaded = store.load()
+
+    assert "quality_review_round1.json" not in reloaded.artifacts
+
+
 def test_orchestrator_skips_completed_phases_on_resume(tmp_path: Path):
     calls: list[str] = []
 
@@ -176,6 +240,176 @@ def test_orchestrator_passes_pack_skill_bundle_to_runtime_context(tmp_path: Path
     orchestrator.run(job_id="job-1", resume=False)
 
     assert seen["metadata"]["skill_bundle"] == ["domain-skill"]
+    assert seen["metadata"]["engine_revision"] == "3.2"
+
+
+def test_orchestrator_records_engine_revision_in_dossier(tmp_path: Path):
+    orchestrator = EngineV3Orchestrator(
+        runtime=MockRuntime(),
+        domain_pack=object(),
+        phases=[PhaseSpec(id="phase-0", handler=lambda _task, _context: {})],
+        dossier_store=DossierStore(tmp_path),
+    )
+
+    dossier = orchestrator.run(job_id="job-1", resume=False)
+
+    assert dossier.evidence["engine_revision"] == "3.2"
+
+
+def test_orchestrator_records_phase_substeps(tmp_path: Path):
+    def handler(_task: BrainTask, _context: RuntimeContext):
+        return {
+            "substeps": [
+                {
+                    "id": "verify_doi_two_sources",
+                    "owner": "deterministic",
+                    "status": "done",
+                    "outputs": ["artifacts/data/doi_verification.v3_2.json"],
+                }
+            ]
+        }
+
+    orchestrator = EngineV3Orchestrator(
+        runtime=MockRuntime(),
+        domain_pack=object(),
+        phases=[PhaseSpec(id="data", handler=handler)],
+        dossier_store=DossierStore(tmp_path),
+    )
+
+    dossier = orchestrator.run(job_id="job-1", resume=False)
+
+    assert dossier.evidence["substeps"]["data"] == [
+        {
+            "id": "verify_doi_two_sources",
+            "owner": "deterministic",
+            "status": "done",
+            "outputs": ["artifacts/data/doi_verification.v3_2.json"],
+        }
+    ]
+
+
+def test_orchestrator_updates_gate_substep_after_gate_report(tmp_path: Path):
+    class DemoPack:
+        name = "demo"
+
+        def gate_registry(self):
+            return [
+                {
+                    "id": "A",
+                    "phase": "data",
+                    "severity": GateSeverity.BLOCK,
+                    "check": lambda _dossier: GateResult.pass_("A"),
+                }
+            ]
+
+    def handler(_task: BrainTask, _context: RuntimeContext):
+        return {
+            "substeps": [
+                {
+                    "id": "gate_A_E",
+                    "owner": "validator",
+                    "status": "pending",
+                    "outputs": [],
+                }
+            ]
+        }
+
+    orchestrator = EngineV3Orchestrator(
+        runtime=MockRuntime(),
+        domain_pack=DemoPack(),
+        phases=[PhaseSpec(id="data", handler=handler, gate_ids=["A"])],
+        dossier_store=DossierStore(tmp_path),
+    )
+
+    dossier = orchestrator.run(job_id="job-1", resume=False)
+
+    assert dossier.evidence["substeps"]["data"] == [
+        {
+            "id": "gate_A_E",
+            "owner": "validator",
+            "status": "done",
+            "outputs": [],
+            "failed_blocks": [],
+        }
+    ]
+
+
+def test_orchestrator_records_human_checkpoint_for_data_gate_exhaustion(tmp_path: Path):
+    class DemoPack:
+        name = "demo"
+
+        def gate_registry(self):
+            return [
+                {
+                    "id": "A",
+                    "phase": "data",
+                    "severity": GateSeverity.BLOCK,
+                    "check": lambda _dossier: GateResult.fail(
+                        "A",
+                        details="bib_count=12, doi_real_rate=None",
+                        evidence={"bib_count": 12, "doi_real_rate": None},
+                    ),
+                }
+            ]
+
+    orchestrator = EngineV3Orchestrator(
+        runtime=MockRuntime(),
+        domain_pack=DemoPack(),
+        phases=[PhaseSpec(id="data", handler=lambda _task, _context: {}, gate_ids=["A"])],
+        dossier_store=DossierStore(tmp_path),
+    )
+
+    dossier = orchestrator.run(job_id="job-1", resume=False)
+
+    assert dossier.phases["data"] == "blocked"
+    assert dossier.evidence["human_checkpoint"] == {
+        "status": "human_decision_required",
+        "phase": "data",
+        "failed_blocks": ["A"],
+        "reason": "data evidence could not satisfy hard gates within the configured repair budget",
+        "options": [
+            "revise_or_narrow_topic",
+            "provide_more_seed_references",
+            "downgrade_synthesis_type",
+            "stop_job",
+        ],
+    }
+
+
+def test_orchestrator_routes_gate_a_repair_to_reference_top_up(tmp_path: Path):
+    class DemoPack:
+        name = "demo"
+
+        def gate_registry(self):
+            return [
+                {
+                    "id": "A",
+                    "phase": "data",
+                    "severity": GateSeverity.BLOCK,
+                    "check": lambda _dossier: GateResult.fail("A", details="not enough references"),
+                }
+            ]
+
+    orchestrator = EngineV3Orchestrator(
+        runtime=MockRuntime(),
+        domain_pack=DemoPack(),
+        phases=[
+            PhaseSpec(
+                id="data",
+                handler=lambda _task, _context: {},
+                gate_ids=["A"],
+                max_repair_attempts=1,
+            )
+        ],
+        dossier_store=DossierStore(tmp_path),
+    )
+
+    dossier = orchestrator.run(job_id="job-1", resume=False)
+    repair_events = [
+        event for event in dossier.evidence["trace"] if event.get("event") == "repair_decision"
+    ]
+
+    assert repair_events[0]["route"] == "repair:data.verify_doi_two_sources:top_up_references"
 
 
 def test_orchestrator_records_runtime_delegation_and_artifacts(tmp_path: Path):
@@ -364,6 +598,186 @@ def test_orchestrator_repairs_missing_declared_outputs_before_runtime_block(tmp_
     assert [delegation["status"] for delegation in dossier.delegations] == ["blocked", "ok"]
 
 
+def test_orchestrator_can_fallback_to_source_data_artifacts_for_revalidation(tmp_path: Path):
+    jobs_dir = tmp_path / "jobs"
+    source_run = jobs_dir / "v3_source123" / "run"
+    run_dir = jobs_dir / "v3_target456" / "run"
+    source_run.mkdir(parents=True)
+    run_dir.mkdir(parents=True)
+    (run_dir / "research_contract.input.json").write_text(
+        json.dumps({"metadata": {"source_job_id": "v3_source123"}}),
+        encoding="utf-8",
+    )
+    for rel in ["references.bib", "doi_audit.json"]:
+        (source_run / rel).write_text("source %s\n" % rel, encoding="utf-8")
+
+    class MissingRuntime(MockRuntime):
+        name = "missing-runtime"
+
+        def run_brain(self, task: BrainTask, _context: RuntimeContext):
+            return TaskResult(
+                task_id=task.task_id,
+                status="blocked",
+                blockers=[
+                    "missing declared output: references.bib",
+                    "missing declared output: doi_audit.json",
+                ],
+            )
+
+    dossier = EngineV3Orchestrator(
+        runtime=MissingRuntime(),
+        domain_pack=object(),
+        phases=[
+            PhaseSpec(
+                id="data",
+                handler=lambda _task, _context: {},
+                prompt="collect data",
+                expected_outputs=["references.bib", "doi_audit.json"],
+            )
+        ],
+        dossier_store=DossierStore(run_dir),
+    ).run(job_id="v3_target456", resume=False)
+
+    assert dossier.phases["data"] == "done"
+    assert (run_dir / "references.bib").read_text(encoding="utf-8") == "source references.bib\n"
+    assert (run_dir / "doi_audit.json").read_text(encoding="utf-8") == "source doi_audit.json\n"
+    assert [delegation["status"] for delegation in dossier.delegations] == ["blocked", "ok"]
+    assert dossier.delegations[-1]["runtime"] == "missing-runtime+source-fallback"
+    assert dossier.delegations[-1]["task_id"] == "data:source_fallback"
+    assert dossier.artifacts["references.bib"].path == "references.bib"
+    assert any(
+        event.get("event") == "runtime_missing_outputs_fallback_applied"
+        for event in dossier.evidence["trace"]
+    )
+
+
+def test_orchestrator_bootstraps_revalidation_data_from_source_before_runtime(tmp_path: Path):
+    jobs_dir = tmp_path / "jobs"
+    source_run = jobs_dir / "v3_source123" / "run"
+    run_dir = jobs_dir / "v3_target456" / "run"
+    source_run.mkdir(parents=True)
+    run_dir.mkdir(parents=True)
+    (run_dir / "research_contract.input.json").write_text(
+        json.dumps({"metadata": {"revalidation": "v3.2-test", "source_job_id": "v3_source123"}}),
+        encoding="utf-8",
+    )
+    for rel in ["references.bib", "doi_audit.json"]:
+        (source_run / rel).write_text("source %s\n" % rel, encoding="utf-8")
+
+    class NoCallRuntime(MockRuntime):
+        name = "no-call"
+
+        def run_brain(self, _task: BrainTask, _context: RuntimeContext):
+            raise AssertionError("revalidation source bootstrap should avoid data runtime")
+
+    dossier = EngineV3Orchestrator(
+        runtime=NoCallRuntime(),
+        domain_pack=object(),
+        phases=[
+            PhaseSpec(
+                id="data",
+                handler=lambda _task, _context: {},
+                prompt="collect data",
+                expected_outputs=["references.bib", "doi_audit.json"],
+            )
+        ],
+        dossier_store=DossierStore(run_dir),
+    ).run(job_id="v3_target456", resume=False)
+
+    assert dossier.phases["data"] == "done"
+    assert [delegation["status"] for delegation in dossier.delegations] == ["ok"]
+    assert dossier.delegations[0]["runtime"] == "no-call+revalidation-bootstrap+source-fallback"
+    assert any(
+        event.get("event") == "revalidation_source_bootstrap_applied"
+        for event in dossier.evidence["trace"]
+    )
+
+
+def test_orchestrator_blocks_review_heal_when_hermes_missing_review_outputs(tmp_path: Path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    for rel in [
+        "paper_draft_v0.qmd",
+        "paper_springer.qmd",
+        "claim_evidence_map.md",
+        "references.bib",
+        "doi_audit.json",
+        "real_experiments/real_results.json",
+        "sections/introduction.md",
+        "sections/related_work.md",
+        "sections/methods.md",
+        "sections/results.md",
+        "sections/discussion.md",
+        "sections/limitations.md",
+        "sections/conclusion.md",
+    ]:
+        path = run_dir / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("ok\n", encoding="utf-8")
+
+    store = DossierStore(run_dir)
+    existing = store.create(job_id="job-1", domain="paper")
+    existing.gate_reports.extend(
+        [
+            {"phase": "claim_evidence", "blocked": False, "failed_blocks": [], "results": []},
+            {"phase": "render_gates", "blocked": False, "failed_blocks": [], "results": []},
+        ]
+    )
+    store.save(existing)
+
+    class MissingReviewRuntime(MockRuntime):
+        name = "missing-review"
+
+        def run_brain(self, task: BrainTask, _context: RuntimeContext):
+            return TaskResult(
+                task_id=task.task_id,
+                status="blocked",
+                blockers=[
+                    "missing declared output: quality_review_round1.json",
+                    "missing declared output: quality_review_log.md",
+                ],
+            )
+
+    expected_outputs = [
+        "quality_review_round1.json",
+        "quality_review_log.md",
+        "sections/introduction.md",
+        "sections/related_work.md",
+        "sections/methods.md",
+        "sections/results.md",
+        "sections/discussion.md",
+        "sections/limitations.md",
+        "sections/conclusion.md",
+        "paper_draft_v0.qmd",
+        "paper_springer.qmd",
+    ]
+    dossier = EngineV3Orchestrator(
+        runtime=MissingReviewRuntime(),
+        domain_pack=object(),
+        phases=[
+                PhaseSpec(
+                    id="review_heal",
+                    handler=lambda _task, _context: {},
+                    prompt="review",
+                    expected_outputs=expected_outputs,
+                    repair_prompt="repair review",
+                    repair_expected_outputs=expected_outputs,
+                    max_repair_attempts=3,
+                )
+        ],
+        dossier_store=store,
+    ).run(job_id="job-1", resume=True)
+
+    assert dossier.phases["review_heal"] == "blocked"
+    assert not (run_dir / "quality_review_round1.json").exists()
+    assert not (run_dir / "quality_review_log.md").exists()
+    assert "quality_review_round1.json" not in dossier.artifacts
+    assert dossier.delegations[-1]["runtime"] == "missing-review"
+    assert dossier.delegations[-1]["task_id"] == "review_heal:repair:3"
+    assert dossier.delegations[-1]["status"] == "blocked"
+    assert dossier.evidence["trace"][-1]["event"] == "phase_runtime_block"
+
+
 def test_orchestrator_repairs_blocked_gate_before_terminal_block(tmp_path: Path):
     class RepairingRuntime(MockRuntime):
         name = "repairing-runtime"
@@ -427,6 +841,163 @@ def test_orchestrator_repairs_blocked_gate_before_terminal_block(tmp_path: Path)
     assert dossier.phases["data"] == "done"
     assert [report["blocked"] for report in dossier.gate_reports] == [True, False]
     assert dossier.delegations[-1]["task_id"] == "data:repair:1"
+
+
+def test_orchestrator_traces_noop_gate_repair_and_stops_budget(tmp_path: Path):
+    class NoopRepairRuntime(MockRuntime):
+        name = "noop-repair-runtime"
+
+        def __init__(self):
+            self.calls = []
+
+        def run_brain(self, task: BrainTask, context: RuntimeContext):
+            self.calls.append(task.task_id)
+            refs = context.run_dir / "references.bib"
+            if not refs.exists():
+                refs.write_text("@article{one,title={One}}\n", encoding="utf-8")
+            return TaskResult(
+                task_id=task.task_id,
+                status="ok",
+                outputs={"references.bib": refs},
+                changed_files=[] if ":repair:" in task.task_id else ["references.bib"],
+            )
+
+    class RefFloorPack:
+        name = "demo"
+
+        def gate_registry(self):
+            def check(dossier):
+                count = int(dossier.evidence.get("ref_count") or 0)
+                if count >= 2:
+                    return GateResult.pass_("A", "bib_count=%s" % count)
+                return GateResult.fail("A", details="bib_count=%s (floor 2)" % count)
+
+            return [{"id": "A", "phase": "data", "severity": GateSeverity.BLOCK, "check": check}]
+
+    def handler(_task: BrainTask, context: RuntimeContext):
+        refs = context.run_dir / "references.bib"
+        return {"gate_inputs": {"ref_count": refs.read_text(encoding="utf-8").count("@article")}}
+
+    runtime = NoopRepairRuntime()
+    dossier = EngineV3Orchestrator(
+        runtime=runtime,
+        domain_pack=RefFloorPack(),
+        phases=[
+            PhaseSpec(
+                id="data",
+                handler=handler,
+                prompt="collect refs",
+                expected_outputs=["references.bib"],
+                gate_ids=["A"],
+                repair_prompt="repair refs",
+                max_repair_attempts=3,
+            )
+        ],
+        dossier_store=DossierStore(tmp_path),
+    ).run(job_id="job-1", resume=False)
+
+    assert runtime.calls == ["data:brain", "data:repair:1"]
+    assert dossier.phases["data"] == "blocked"
+    assert any(event.get("event") == "repair_noop" for event in dossier.evidence["trace"])
+
+
+def test_review_heal_fresh_review_resets_stale_repair_budget_without_reusing_task_ids(tmp_path: Path):
+    store = DossierStore(tmp_path)
+    existing = store.create(job_id="job-1", domain="demo")
+    existing.phases.update(
+        {
+            "data": "done",
+            "gap": "done",
+            "structure": "done",
+            "write": "done",
+            "claim_evidence": "done",
+            "render_gates": "done",
+            "review_heal": "blocked",
+        }
+    )
+    existing.delegations.extend(
+        {
+            "task_id": "review_heal:repair:%s" % attempt,
+            "phase": "review_heal",
+            "runtime": "hermes-codex",
+            "class": "brain",
+            "status": "blocked",
+            "declared_outputs": ["quality_review_round1.json", "quality_review_log.md"],
+            "changed_files": [],
+            "blockers": ["stale declared output: quality_review_round1.json"],
+        }
+        for attempt in (1, 2, 3)
+    )
+    store.save(existing)
+
+    class ReviewRuntime(MockRuntime):
+        name = "review-runtime"
+
+        def __init__(self):
+            self.calls = []
+
+        def run_brain(self, task: BrainTask, context: RuntimeContext):
+            self.calls.append(task.task_id)
+            review = context.run_dir / "quality_review_round1.json"
+            log = context.run_dir / "quality_review_log.md"
+            if task.task_id == "review_heal:brain":
+                review.write_text('{"delivery":"revise"}\n', encoding="utf-8")
+                log.write_text("real review\n", encoding="utf-8")
+                return TaskResult(
+                    task_id=task.task_id,
+                    status="ok",
+                    outputs={"quality_review_round1.json": review, "quality_review_log.md": log},
+                    changed_files=["quality_review_round1.json", "quality_review_log.md"],
+                )
+            if task.task_id == "review_heal:repair:4":
+                review.write_text('{"delivery":"pass"}\n', encoding="utf-8")
+                log.write_text("real review after repair\n", encoding="utf-8")
+                return TaskResult(
+                    task_id=task.task_id,
+                    status="ok",
+                    outputs={"quality_review_round1.json": review, "quality_review_log.md": log},
+                    changed_files=["quality_review_round1.json", "quality_review_log.md"],
+                )
+            return TaskResult(task_id=task.task_id, status="blocked", blockers=["unexpected repair"])
+
+    class ReviewPack:
+        name = "demo"
+
+        def gate_registry(self):
+            def check(dossier):
+                delivery = dossier.evidence.get("review", {}).get("delivery")
+                if delivery == "pass":
+                    return GateResult.pass_("R", "review passed")
+                return GateResult.fail("R", details="review failed: delivery=revise")
+
+            return [{"id": "R", "phase": "review_heal", "severity": GateSeverity.BLOCK, "check": check}]
+
+    def handler(_task: BrainTask, context: RuntimeContext):
+        review = json.loads((context.run_dir / "quality_review_round1.json").read_text(encoding="utf-8"))
+        return {"gate_inputs": {"review": review, "review_log_present": True}}
+
+    runtime = ReviewRuntime()
+    dossier = EngineV3Orchestrator(
+        runtime=runtime,
+        domain_pack=ReviewPack(),
+        phases=[
+            PhaseSpec(
+                id="review_heal",
+                handler=handler,
+                prompt="review",
+                expected_outputs=["quality_review_round1.json", "quality_review_log.md"],
+                gate_ids=["R"],
+                repair_prompt="repair review",
+                repair_expected_outputs=["quality_review_round1.json", "quality_review_log.md"],
+                max_repair_attempts=3,
+            )
+        ],
+        dossier_store=store,
+    ).run(job_id="job-1", resume=True)
+
+    assert runtime.calls == ["review_heal:brain", "review_heal:repair:4"]
+    assert dossier.phases["review_heal"] == "done"
+    assert [report["blocked"] for report in dossier.gate_reports[-2:]] == [True, False]
 
 
 def test_orchestrator_repair_prompt_includes_gate_evidence(tmp_path: Path):
@@ -659,7 +1230,7 @@ def test_orchestrator_accepts_repair_outputs_when_gate_passes_despite_runtime_er
     assert dossier.delegations[-1]["status"] == "error"
 
 
-def test_orchestrator_repair_attempt_numbers_continue_on_resume(tmp_path: Path):
+def test_orchestrator_does_not_exceed_total_repair_budget_on_resume(tmp_path: Path):
     class ResumeRepairRuntime(MockRuntime):
         name = "resume-repair"
 
@@ -669,12 +1240,7 @@ def test_orchestrator_repair_attempt_numbers_continue_on_resume(tmp_path: Path):
         def run_brain(self, task: BrainTask, context: RuntimeContext):
             self.calls.append(task.task_id)
             refs = context.run_dir / "references.bib"
-            refs.write_text(
-                "@article{one}\n@article{two}\n"
-                if task.task_id == "data:repair:2" else
-                "@article{one}\n",
-                encoding="utf-8",
-            )
+            refs.write_text("@article{one}\n", encoding="utf-8")
             return TaskResult(
                 task_id=task.task_id,
                 status="ok",
@@ -733,6 +1299,6 @@ def test_orchestrator_repair_attempt_numbers_continue_on_resume(tmp_path: Path):
         dossier_store=store,
     ).run(job_id="job-1", resume=True)
 
-    assert runtime.calls == ["data:brain", "data:repair:2"]
-    assert final.phases["data"] == "done"
-    assert final.delegations[-1]["task_id"] == "data:repair:2"
+    assert runtime.calls == ["data:brain"]
+    assert final.phases["data"] == "blocked"
+    assert final.delegations[-1]["task_id"] == "data:brain"

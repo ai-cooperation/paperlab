@@ -24,6 +24,18 @@ def test_runtime_from_env_passes_skill_root_to_hermes(monkeypatch, tmp_path):
     assert runtime.skill_root == tmp_path
 
 
+def test_runtime_from_env_passes_hermes_bin_override(monkeypatch, tmp_path):
+    hermes_bin = tmp_path / "hermes"
+    hermes_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setenv("PAPER_ENGINE_V3_RUNTIME", "hermes-codex")
+    monkeypatch.setenv("PAPER_ENGINE_V3_HERMES_BIN", str(hermes_bin))
+
+    runtime = runtime_from_env()
+
+    assert isinstance(runtime, HermesCodexRuntime)
+    assert runtime.hermes_bin == str(hermes_bin)
+
+
 def test_runtime_from_env_selects_codex_only_when_explicit(monkeypatch):
     monkeypatch.setenv("PAPER_ENGINE_V3_RUNTIME", "codex-cli")
 

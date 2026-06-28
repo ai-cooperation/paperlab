@@ -371,10 +371,11 @@ def inject_figures(run_dir: Path, figspec: list[tuple[str, str, str]] | None = N
         if not (figdir / fname).is_file():
             # the analysis did not produce this figure (e.g. no spline -> no dose-response):
             # neutralize any dangling @fig-stem ref so the PDF has no broken ?@fig-.
-            text = re.sub(rf"\(?\s*@fig-{stem}[A-Za-z_]*\s*\)?", "the results", text)
+            text = re.sub(rf"\(?\s*@fig-{stem}[A-Za-z0-9_-]*\s*\)?", "the results", text)
             continue
-        # 1) normalize varied @-refs (@fig-forest_plot, @fig-forestplot...) -> @fig-forest
-        text = re.sub(rf"@fig-{stem}[A-Za-z_]*", f"@{canon}", text)
+        # 1) normalize varied @-refs (@fig-forest_plot, @fig-forest-plot,
+        #    @fig-forestplot...) -> @fig-forest
+        text = re.sub(rf"@fig-{stem}[A-Za-z0-9_-]*", f"@{canon}", text)
         # 2) DEDUP (the real fix): strip EVERY float embed the writer added for this figure —
         #    keyed by filename OR by the canonical label, any caption/attrs. The injector OWNS the
         #    single embed; we never trust the writer to place it exactly once. The codex writer

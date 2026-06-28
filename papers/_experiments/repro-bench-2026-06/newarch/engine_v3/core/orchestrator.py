@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+import shutil
 from pathlib import Path
 from typing import Iterable
 
@@ -10,6 +12,9 @@ from .contracts import BrainTask, Dossier, PhaseSpec, RuntimeContext, TaskResult
 from .dossier import DossierStore
 from .gates import run_gates
 from .runtime import Runtime
+
+
+ENGINE_REVISION = "3.2"
 
 
 class EngineV3Orchestrator:
@@ -33,6 +38,7 @@ class EngineV3Orchestrator:
             dossier = self.dossier_store.create(job_id=job_id, domain=domain)
 
         runtime_name = getattr(self.runtime, "name", "unknown")
+        dossier.evidence.setdefault("engine_revision", ENGINE_REVISION)
         dossier.evidence.setdefault("runtime_policy", _runtime_policy(runtime_name))
         _trace(
             dossier,
@@ -45,6 +51,7 @@ class EngineV3Orchestrator:
             job_id=job_id,
             run_dir=self.dossier_store.run_dir,
             metadata={
+                "engine_revision": dossier.evidence["engine_revision"],
                 "skill_bundle": _skill_bundle(self.domain_pack),
                 "runtime_policy": dossier.evidence["runtime_policy"],
             },
@@ -61,16 +68,54 @@ class EngineV3Orchestrator:
                 prompt=phase.prompt,
                 expected_outputs=list(phase.expected_outputs),
             )
-            runtime_result = self._run_phase_task(task, context, dossier)
+            runtime_result = _try_revalidation_source_artifact_fallback(
+                phase=phase,
+                task=task,
+                context=context,
+                dossier=dossier,
+                runtime_result=TaskResult(
+                    status="blocked",
+                    task_id=task.task_id,
+                    blockers=[
+                        "missing declared output: %s" % rel
+                        for rel in task.expected_outputs
+                    ],
+                ),
+                runtime_name="%s+revalidation-bootstrap" % runtime_name,
+                require_revalidation=True,
+            )
+            if runtime_result is not None:
+                _trace(
+                    dossier,
+                    "revalidation_source_bootstrap_applied",
+                    phase=phase.id,
+                    task_id=runtime_result.task_id,
+                    source_job_id=runtime_result.metadata.get("source_job_id"),
+                    changed_files=list(runtime_result.changed_files),
+                )
+            if runtime_result is None:
+                runtime_result = self._run_phase_task(task, context, dossier)
             repair_attempt = _prior_repair_attempts(dossier, phase.id)
+            repair_budget_used = repair_attempt
+            if _starts_new_review_repair_budget(phase.id, runtime_result):
+                repair_budget_used = 0
+                _trace(
+                    dossier,
+                    "repair_budget_reset",
+                    phase=phase.id,
+                    latest_task_id=runtime_result.task_id,
+                    next_attempt=repair_attempt + 1,
+                    rationale="fresh Hermes review artifacts supersede prior stale/fallback repair attempts",
+                )
             repairs_this_run = 0
             while (
                 runtime_result is not None
                 and runtime_result.status != "ok"
                 and _runtime_result_repairable(runtime_result)
-                and repairs_this_run < max(0, phase.max_repair_attempts)
+                and repair_budget_used < max(0, phase.max_repair_attempts)
             ):
                 repair_attempt += 1
+                repair_budget_used += 1
                 repairs_this_run += 1
                 _trace(
                     dossier,
@@ -89,6 +134,33 @@ class EngineV3Orchestrator:
                 )
                 runtime_result = self._run_phase_task(repair_task, context, dossier)
             if runtime_result is not None and runtime_result.status != "ok":
+                fallback_result = _try_revalidation_source_artifact_fallback(
+                    phase=phase,
+                    task=task,
+                    context=context,
+                    dossier=dossier,
+                    runtime_result=runtime_result,
+                    runtime_name=runtime_name,
+                )
+                if fallback_result is not None:
+                    runtime_result = fallback_result
+                    _trace(
+                        dossier,
+                        "runtime_missing_outputs_fallback_applied",
+                        phase=phase.id,
+                        task_id=fallback_result.task_id,
+                        source_job_id=fallback_result.metadata.get("source_job_id"),
+                        fallback=fallback_result.metadata.get("fallback"),
+                        changed_files=list(fallback_result.changed_files),
+                    )
+                else:
+                    _trace(
+                        dossier,
+                        "runtime_missing_outputs_fallback_unavailable",
+                        phase=phase.id,
+                        blockers=list(runtime_result.blockers),
+                    )
+            if runtime_result is not None and runtime_result.status != "ok":
                 dossier.mark_phase(phase.id, runtime_result.status)
                 _trace(
                     dossier,
@@ -102,8 +174,9 @@ class EngineV3Orchestrator:
 
             gate_report = self._run_phase_handler_and_gates(phase, task, context, dossier)
             phase_failed = False
-            while gate_report.blocked and repairs_this_run < max(0, phase.max_repair_attempts):
+            while gate_report.blocked and repair_budget_used < max(0, phase.max_repair_attempts):
                 repair_attempt += 1
+                repair_budget_used += 1
                 repairs_this_run += 1
                 decision = _repair_decision(phase, gate_report)
                 _trace(
@@ -146,10 +219,26 @@ class EngineV3Orchestrator:
                     phase_failed = True
                     break
                 gate_report = self._run_phase_handler_and_gates(phase, task, context, dossier)
+                if (
+                    gate_report.blocked
+                    and repair_result is not None
+                    and repair_result.status == "ok"
+                    and not repair_result.changed_files
+                ):
+                    _trace(
+                        dossier,
+                        "repair_noop",
+                        phase=phase.id,
+                        attempt=repair_attempt,
+                        failed_blocks=list(gate_report.failed_blocks),
+                        rationale="repair returned ok without changed files and gates remained blocked",
+                    )
+                    repair_budget_used = max(repair_budget_used, max(0, phase.max_repair_attempts))
             if phase_failed:
                 break
             else:
                 if gate_report.blocked:
+                    _maybe_record_human_checkpoint(dossier, phase.id, gate_report)
                     dossier.mark_phase(phase.id, "blocked")
                     _trace(
                         dossier,
@@ -179,6 +268,7 @@ class EngineV3Orchestrator:
 
         only = set(phase.gate_ids) if phase.gate_ids is not None else None
         gate_report = run_gates(self.domain_pack, dossier, phase=phase.id, only=only)
+        _update_gate_substeps(dossier, phase.id, gate_report)
         dossier.gate_reports.append(_gate_report_dict(phase.id, gate_report))
         _trace(
             dossier,
@@ -287,11 +377,19 @@ def _prior_repair_attempts(dossier: Dossier, phase_id: str) -> int:
     return max(attempts, default=0)
 
 
+def _starts_new_review_repair_budget(phase_id: str, runtime_result: TaskResult | None) -> bool:
+    if phase_id != "review_heal" or runtime_result is None or runtime_result.status != "ok":
+        return False
+    changed = set(runtime_result.changed_files or [])
+    required = {"quality_review_round1.json", "quality_review_log.md"}
+    return required.issubset(changed)
+
+
 def _repair_decision(phase: PhaseSpec, gate_report) -> dict:
     failed = set(gate_report.failed_blocks)
     if "A" in failed:
-        route = "repair_same_phase:data_evidence"
-        rationale = "reference or DOI evidence floor failed"
+        route = "repair:data.verify_doi_two_sources:top_up_references"
+        rationale = "reference or DOI evidence floor failed; top up and re-verify references"
     elif "B" in failed:
         route = "repair_same_phase:claim_evidence"
         rationale = "claim-evidence consistency failed"
@@ -334,6 +432,94 @@ def _runtime_result_repairable(result: TaskResult) -> bool:
     return bool(blockers) and all(str(blocker).startswith("missing declared output: ") for blocker in blockers)
 
 
+def _try_revalidation_source_artifact_fallback(
+    *,
+    phase: PhaseSpec,
+    task: BrainTask,
+    context: RuntimeContext,
+    dossier: Dossier,
+    runtime_result: TaskResult,
+    runtime_name: str,
+    require_revalidation: bool = False,
+) -> TaskResult | None:
+    if phase.id != "data" or not _runtime_result_repairable(runtime_result):
+        return None
+    source_job_id = _revalidation_source_job_id(
+        context.run_dir,
+        require_revalidation=require_revalidation,
+    )
+    if source_job_id is None:
+        return None
+    jobs_dir = context.run_dir.parent.parent
+    source_run_dir = jobs_dir / source_job_id / "run"
+    if not source_run_dir.is_dir():
+        return None
+
+    changed_files: list[str] = []
+    outputs: dict[str, Path] = {}
+    for rel in task.expected_outputs:
+        source = source_run_dir / rel
+        if not source.is_file():
+            return None
+        target = context.run_dir / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        changed_files.append(rel)
+        outputs[rel] = target
+
+    result = TaskResult(
+        status="ok",
+        task_id="%s:source_fallback" % phase.id,
+        outputs=outputs,
+        details="copied declared data outputs from source revalidation job",
+        metadata={"source_job_id": source_job_id, "fallback": "revalidation_source_artifacts"},
+        changed_files=changed_files,
+        blockers=[],
+    )
+    candidate = freeze_candidate_outputs(
+        context.run_dir,
+        phase=phase.id,
+        task_id=result.task_id,
+        status=result.status,
+        declared_outputs=list(task.expected_outputs),
+        outputs=result.outputs,
+        changed_files=result.changed_files,
+        blockers=result.blockers,
+    )
+    _record_delegation(
+        dossier=dossier,
+        runtime_name="%s+source-fallback" % runtime_name,
+        task=task,
+        result=result,
+        candidate=candidate,
+    )
+    for rel, path in result.outputs.items():
+        dossier.add_artifact(rel, path)
+    return result
+
+
+def _revalidation_source_job_id(run_dir: Path, *, require_revalidation: bool = False) -> str | None:
+    input_path = run_dir / "research_contract.input.json"
+    if not input_path.is_file():
+        return None
+    try:
+        contract = json.loads(input_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    metadata = contract.get("metadata")
+    if not isinstance(metadata, dict):
+        return None
+    if require_revalidation and not metadata.get("revalidation"):
+        return None
+    source_job_id = metadata.get("source_job_id")
+    if not isinstance(source_job_id, str):
+        return None
+    source_job_id = source_job_id.strip()
+    if not re.fullmatch(r"v3_[A-Za-z0-9]+", source_job_id):
+        return None
+    return source_job_id
+
+
 def _runtime_repair_prompt(phase: PhaseSpec, result: TaskResult, attempt: int) -> str:
     base = phase.repair_prompt or phase.prompt or "Repair missing declared outputs."
     return "\n".join(
@@ -360,7 +546,49 @@ def _apply_phase_result(
     if isinstance(artifacts, dict):
         for name, path in artifacts.items():
             dossier.add_artifact(str(name), Path(str(path)))
+    substeps = phase_result.pop("substeps", None)
+    if isinstance(substeps, list):
+        dossier.evidence.setdefault("substeps", {})[phase_id] = [
+            dict(step) for step in substeps if isinstance(step, dict)
+        ]
     dossier.evidence.setdefault("phases", {})[phase_id] = phase_result
+
+
+def _update_gate_substeps(dossier: Dossier, phase_id: str, gate_report) -> None:
+    substeps_by_phase = dossier.evidence.get("substeps")
+    if not isinstance(substeps_by_phase, dict):
+        return
+    substeps = substeps_by_phase.get(phase_id)
+    if not isinstance(substeps, list):
+        return
+    failed_blocks = list(gate_report.failed_blocks)
+    for step in substeps:
+        if not isinstance(step, dict):
+            continue
+        if step.get("owner") != "validator":
+            continue
+        if not str(step.get("id") or "").startswith("gate_"):
+            continue
+        step["status"] = "blocked" if gate_report.blocked else "done"
+        step["failed_blocks"] = failed_blocks
+
+
+def _maybe_record_human_checkpoint(dossier: Dossier, phase_id: str, gate_report) -> None:
+    failed_blocks = list(gate_report.failed_blocks)
+    if phase_id != "data" or not set(failed_blocks).intersection({"A", "E"}):
+        return
+    dossier.evidence["human_checkpoint"] = {
+        "status": "human_decision_required",
+        "phase": phase_id,
+        "failed_blocks": failed_blocks,
+        "reason": "data evidence could not satisfy hard gates within the configured repair budget",
+        "options": [
+            "revise_or_narrow_topic",
+            "provide_more_seed_references",
+            "downgrade_synthesis_type",
+            "stop_job",
+        ],
+    }
 
 
 def _record_delegation(

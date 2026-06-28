@@ -206,7 +206,7 @@ def bounded_golden_pipeline() -> list[PhaseSpec]:
             handler=_collect_gate_inputs,
             prompt="Replay bounded golden data artifacts through v3 runtime.",
             expected_outputs=list(DATA_OUTPUTS),
-            gate_ids=["A", "E"],
+            gate_ids=["A", "E", "G"],
         ),
         PhaseSpec(
             id="render_gates",
@@ -225,7 +225,7 @@ def full_paper_pipeline() -> list[PhaseSpec]:
             handler=_collect_gate_inputs,
             prompt=DATA_PHASE_PROMPT,
             expected_outputs=list(DATA_OUTPUTS),
-            gate_ids=["A", "E"],
+            gate_ids=["A", "E", "G"],
             repair_prompt=DATA_REPAIR_PROMPT,
             max_repair_attempts=2,
         ),
@@ -292,13 +292,23 @@ def _collect_gate_inputs(
     _task: BrainTask,
     context: RuntimeContext,
 ) -> Mapping[str, object]:
-    from engine_v3.artifacts import build_data_substeps_v3_2, load_or_build_canonical_data
+    from engine_v3.artifacts import (
+        build_data_substeps_v3_2,
+        load_or_build_canonical_data,
+        run_data_harness_v3_2,
+    )
 
-    load_or_build_canonical_data(context.run_dir, write=True, schema_version="v3.2")
+    data_harness = None
+    if _task.phase == "data":
+        data_harness = run_data_harness_v3_2(context.run_dir, list(DATA_OUTPUTS))
+    else:
+        load_or_build_canonical_data(context.run_dir, write=True, schema_version="v3.2")
     substeps = build_data_substeps_v3_2(context.run_dir)
     if _task.phase == "claim_evidence":
         _augment_traceable_claim_evidence_rows(context.run_dir)
     gate_inputs = paperctl._build_dossier(context.run_dir)
+    if data_harness is not None:
+        gate_inputs["data_completeness"] = data_harness["completeness"]
     review_path = context.run_dir / "quality_review_round1.json"
     if review_path.is_file():
         try:

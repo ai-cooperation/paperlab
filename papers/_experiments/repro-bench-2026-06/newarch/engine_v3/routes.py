@@ -241,17 +241,19 @@ def register(
             if run_dir.is_dir():
                 return {
                     "engine": "v3",
+                    "engine_revision": None,
                     "job_id": job_id,
                     "status": "running" if _lock_path(job_id).exists() else "accepted",
                     "domain": "paper",
                     "phases": {},
-            "delegations": [],
-            "gates": [],
-            "runtime_policy": None,
-            "trace": [],
-            "error": None,
-            "summary": {"floor_100": None, "delivery": None, "phases_done": []},
-            "artifacts": {"has_pdf": False, "pdf": None},
+                    "substeps": {},
+                    "delegations": [],
+                    "gates": [],
+                    "runtime_policy": None,
+                    "trace": [],
+                    "error": None,
+                    "summary": {"floor_100": None, "delivery": None, "phases_done": []},
+                    "artifacts": {"has_pdf": False, "pdf": None},
                 }
             raise HTTPException(status_code=404, detail="job not found")
         dossier = store.load()
@@ -259,10 +261,12 @@ def register(
         status = "running" if _lock_path(job_id).exists() and dossier_status not in {"blocked", "failed", "done"} else dossier_status
         return {
             "engine": "v3",
+            "engine_revision": dossier.evidence.get("engine_revision"),
             "job_id": dossier.job_id,
             "status": status,
             "domain": dossier.domain,
             "phases": dict(dossier.phases),
+            "substeps": dict(dossier.evidence.get("substeps") or {}),
             "delegations": list(dossier.delegations),
             "gates": list(dossier.gate_reports),
             "runtime_policy": dossier.evidence.get("runtime_policy"),
@@ -373,6 +377,7 @@ def _project_status(dossier: Any, run_dir: Path) -> dict[str, Any]:
         "b_gap": contract.get("b_gap"),
         "a_gap": _phase_gap(run_dir),
         "viability": dossier.evidence.get("viability"),
+        "human_checkpoint": dossier.evidence.get("human_checkpoint"),
         "summary": {
             "floor_100": review.get("floor_100"),
             "delivery": delivery,

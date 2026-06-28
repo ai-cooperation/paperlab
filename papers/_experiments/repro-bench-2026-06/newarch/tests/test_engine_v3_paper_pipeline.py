@@ -28,6 +28,7 @@ def test_full_pipeline_data_prompt_includes_gate_a_acceptance_criteria():
     data_phase = full_paper_pipeline()[0]
 
     assert data_phase.id == "data"
+    assert data_phase.gate_ids == ["A", "E", "G"]
     assert "35" in data_phase.prompt
     assert "doi_real_rate" in data_phase.prompt
     assert "0.80" in data_phase.prompt
@@ -173,6 +174,7 @@ def test_full_paper_pipeline_runs_all_phases_and_delivery_gate(
     assert [result["gate_id"] for report in dossier.gate_reports for result in report["results"]] == [
         "A",
         "E",
+        "G",
         "B",
         "C",
         "D",

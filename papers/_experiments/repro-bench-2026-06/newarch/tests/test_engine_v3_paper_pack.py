@@ -73,6 +73,25 @@ def test_paper_pack_gate_registry_runs_through_v3_lifecycle():
     assert report.results[0].passed is True
 
 
+def test_data_completeness_gate_blocks_missing_declared_outputs():
+    pack = PaperPack()
+
+    missing = run_gates(
+        pack,
+        {"data_completeness": {"status": "blocked", "missing_outputs": ["real_experiments/real_results.json"]}},
+        only={"G"},
+    )
+    complete = run_gates(
+        pack,
+        {"data_completeness": {"status": "done", "missing_outputs": [], "invalid_outputs": []}},
+        only={"G"},
+    )
+
+    assert missing.blocked is True
+    assert "real_experiments/real_results.json" in missing.results[0].details
+    assert complete.blocked is False
+
+
 def test_review_gate_requires_self_heal_loop_and_log():
     pack = PaperPack()
     thin_review = {
@@ -92,6 +111,7 @@ def test_review_gate_requires_self_heal_loop_and_log():
                 "independent_reviewer": True,
                 "floor_failed": False,
             },
+            "dimensions": _review_dimensions_fixture(),
         },
         "review_log_present": True,
     }
@@ -102,6 +122,69 @@ def test_review_gate_requires_self_heal_loop_and_log():
     assert thin.blocked is True
     assert "loop_ok=False" in thin.results[0].details
     assert complete.blocked is False
+
+
+def test_review_gate_rejects_thin_loop_without_expert_dimensions():
+    pack = PaperPack()
+    dossier = {
+        "review": {
+            "p0_count": 0,
+            "delivery": "pass",
+            "floor_100": 90,
+            "review_loop": {
+                "status": "passed",
+                "rounds": 1,
+                "reviewer_model": "codex-class",
+                "fixer_model": "big-pickle",
+                "independent_reviewer": True,
+                "floor_failed": False,
+            },
+        },
+        "review_log_present": True,
+    }
+
+    report = run_gates(pack, dossier, only={"R"})
+
+    assert report.blocked is True
+    assert "dimensions_ok=False" in report.results[0].details
+
+
+def test_review_gate_accepts_floor_100_score_object():
+    pack = PaperPack()
+    dossier = {
+        "review": {
+            "p0_count": 0,
+            "delivery": "pass",
+            "floor_100": {"status": "passed", "score": 92, "floor_failed": False},
+            "review_loop": {
+                "status": "passed",
+                "rounds": 2,
+                "reviewer_model": "codex-reviewer",
+                "fixer_model": "codex-fixer",
+                "independent_reviewer": "mechanical independent pass",
+                "floor_failed": False,
+            },
+            "dimension_scores": _review_dimensions_fixture(),
+        },
+        "review_log_present": True,
+    }
+
+    report = run_gates(pack, dossier, only={"R"})
+
+    assert report.blocked is False
+    assert report.results[0].evidence["floor_100"] == 92
+
+
+def _review_dimensions_fixture():
+    return {
+        "academic_rigor": 8.1,
+        "novelty_positioning": 8.4,
+        "experimental_completeness": 7.8,
+        "writing_quality": 8.3,
+        "practical_feasibility": 8.0,
+        "citation_accuracy": 8.6,
+        "format_compliance": 8.5,
+    }
 
 
 def test_delivery_gate_requires_pdf_validation():
