@@ -12,6 +12,7 @@ from engine_v3.pipelines.paper import (
     BOUNDED_GOLDEN_OUTPUTS,
     DATA_OUTPUTS,
     FULL_PIPELINE_OUTPUTS,
+    WRITE_OUTPUTS,
     bounded_golden_pipeline,
     full_paper_pipeline,
     _validate_delivery_pdf,
@@ -21,6 +22,15 @@ from engine_v3.runtimes.codex_cli import CliRunResult, CodexCliRuntime
 import engine_v3.pipelines.paper as paper_pipeline
 
 pytestmark = pytest.mark.unit
+
+
+def test_full_pipeline_data_prompt_includes_gate_a_acceptance_criteria():
+    data_phase = full_paper_pipeline()[0]
+
+    assert data_phase.id == "data"
+    assert "35" in data_phase.prompt
+    assert "doi_real_rate" in data_phase.prompt
+    assert "0.80" in data_phase.prompt
 
 
 def test_bounded_golden_pipeline_runs_selected_gates_through_v3(tmp_path: Path, golden_dir: Path):
@@ -115,7 +125,15 @@ def test_full_paper_pipeline_runs_all_phases_and_delivery_gate(
                 '{"p0_count": 0, "delivery": "pass", "floor_100": 82.0, '
                 '"review_loop": {"status": "passed", "rounds": 1, '
                 '"reviewer_model": "codex-class", "fixer_model": "big-pickle", '
-                '"independent_reviewer": true, "floor_failed": false}}\n',
+                '"independent_reviewer": true, "floor_failed": false}, '
+                '"dimensions": {'
+                '"academic_rigor": {"score": 8.1}, '
+                '"novelty_positioning": {"score": 8.4}, '
+                '"experimental_completeness": {"score": 7.8}, '
+                '"writing_quality": {"score": 8.3}, '
+                '"practical_feasibility": {"score": 8.0}, '
+                '"citation_accuracy": {"score": 8.6}, '
+                '"format_compliance": {"score": 8.5}}}\n',
                 encoding="utf-8",
             )
         if "quality_review_log.md" in prompt:
@@ -171,12 +189,110 @@ def test_claim_evidence_phase_has_gate_b_repair_budget():
     claim_evidence = phases["claim_evidence"]
 
     assert claim_evidence.gate_ids == ["B"]
-    assert claim_evidence.max_repair_attempts == 2
+    assert claim_evidence.max_repair_attempts == 3
     assert "flagged Gate B claim" in claim_evidence.repair_prompt
+    assert "Do not return unchanged files" in claim_evidence.repair_prompt
     assert "claim_evidence_map.md" in claim_evidence.expected_outputs
     assert "paper_draft_v0.qmd" not in claim_evidence.expected_outputs
     assert "paper_draft_v0.qmd" in claim_evidence.repair_expected_outputs
     assert "sections/introduction.md" in claim_evidence.repair_expected_outputs
+
+
+def test_claim_evidence_handler_augments_traceable_numeric_claims(tmp_path: Path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "paper_draft_v0.qmd").write_text(
+        "In the M4 adjusted model, the current-DTP3 row reports a coefficient of "
+        "-0.234 (clustered SE 0.059, 95% CI [-0.350, -0.118], p = 7.618e-05).",
+        encoding="utf-8",
+    )
+    (run_dir / "claim_evidence_map.md").write_text(
+        "| Claim | Evidence |\n|---|---|\n",
+        encoding="utf-8",
+    )
+    (run_dir / "real_experiments").mkdir()
+    (run_dir / "real_experiments" / "real_results.json").write_text(
+        '{"current_coef": -0.234, "current_se": 0.059, '
+        '"current_ci": [-0.350, -0.118], "current_p": 7.618e-05}',
+        encoding="utf-8",
+    )
+
+    changed = paper_pipeline._augment_traceable_claim_evidence_rows(run_dir)
+
+    assert changed is True
+    text = (run_dir / "claim_evidence_map.md").read_text(encoding="utf-8")
+    assert "current-DTP3 row reports a coefficient of -0.234" in text
+    assert "7.618e-05" in text
+
+    from framework import run_gates
+    from packs.paper import PaperPack
+
+    report = run_gates(PaperPack(), paper_pipeline.paperctl._build_dossier(run_dir), only={"B"})
+    assert report.blocked is False
+
+
+def test_write_phase_repairs_missing_declared_outputs():
+    phases = {phase.id: phase for phase in full_paper_pipeline()}
+
+    write = phases["write"]
+
+    assert write.max_repair_attempts == 2
+    assert "missing manuscript outputs" in write.repair_prompt
+    assert write.repair_expected_outputs == WRITE_OUTPUTS
+
+
+def test_write_phase_runtime_missing_outputs_gets_repair_attempt(tmp_path: Path):
+    run_dir = tmp_path / "run"
+    calls: list[str] = []
+
+    def runner(command: list[str], cwd: Path, _timeout_s: int):
+        prompt = command[-1]
+        calls.append(prompt)
+        if "Repair attempt: 1" in prompt:
+            for rel in WRITE_OUTPUTS:
+                path = cwd / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("repaired\n", encoding="utf-8")
+        return CliRunResult(exit_code=0, stdout="CHILD_OK", stderr="")
+
+    write_phase = {phase.id: phase for phase in full_paper_pipeline()}["write"]
+    dossier = EngineV3Orchestrator(
+        runtime=CodexCliRuntime(runner=runner),
+        domain_pack=PaperPack(),
+        phases=[write_phase],
+        dossier_store=DossierStore(run_dir),
+    ).run(job_id="write-repair-1", resume=False)
+
+    assert dossier.phases == {"write": "done"}
+    assert [delegation["task_id"] for delegation in dossier.delegations] == [
+        "write:brain",
+        "write:repair:1",
+    ]
+    assert "missing declared output: paper_draft_v0.qmd" in dossier.delegations[0]["blockers"]
+    assert (run_dir / "paper_draft_v0.qmd").is_file()
+    assert any("Repair the write phase missing manuscript outputs" in prompt for prompt in calls)
+
+
+def test_review_heal_phase_requires_fresh_review_artifacts_before_manuscript_repairs():
+    phases = {phase.id: phase for phase in full_paper_pipeline()}
+
+    review_heal = phases["review_heal"]
+
+    assert "quality_review_round1.json" in review_heal.expected_outputs
+    assert "quality_review_log.md" in review_heal.expected_outputs
+    assert "paper_draft_v0.qmd" not in review_heal.expected_outputs
+    assert "paper_springer.qmd" not in review_heal.expected_outputs
+    assert "sections/results.md" not in review_heal.expected_outputs
+    assert review_heal.repair_expected_outputs is not None
+    assert "paper_draft_v0.qmd" in review_heal.repair_expected_outputs
+    assert "paper_springer.qmd" in review_heal.repair_expected_outputs
+    assert "sections/results.md" in review_heal.repair_expected_outputs
+    assert "Do not treat manuscript edits alone as completion" in review_heal.prompt
+    assert "dimensions" in review_heal.prompt
+    assert "academic_rigor" in review_heal.prompt
+    assert "concrete_fix" in review_heal.prompt
+    assert "legacy v2 audit artifacts" in review_heal.prompt
+    assert "must not fail delivery solely because they are absent" in review_heal.prompt
 
 
 def test_table_width_validation_requires_tbl_colwidths(tmp_path: Path):

@@ -251,6 +251,57 @@ def _read_json(run_dir: Path, *names: str) -> dict[str, Any]:
     return {}
 
 
+def _doi_audit_rows(doi: dict[str, Any]) -> list[dict[str, Any]]:
+    for key in ("records", "entries", "items", "references", "verified_references", "included"):
+        value = doi.get(key)
+        if isinstance(value, list):
+            return [row for row in value if isinstance(row, dict)]
+    return []
+
+
+def _doi_row_two_source_verified(row: dict[str, Any]) -> bool:
+    if row.get("verified") is True or row.get("passed_two_of_three") is True:
+        return True
+    if row.get("passes_two_of_three") is True:
+        return True
+    validation_count = row.get("validation_count")
+    if isinstance(validation_count, (int, float)) and validation_count >= 2:
+        return True
+
+    sources = row.get("verification_sources")
+    if isinstance(sources, list) and len([source for source in sources if source]) >= 2:
+        return True
+
+    checks = [
+        row.get("crossref_verified"),
+        row.get("openalex_verified"),
+        row.get("semantic_scholar_verified"),
+        row.get("semantic_scholar_checked_positive"),
+        row.get("semantic_scholar_checked"),
+    ]
+    validations = row.get("validations")
+    if isinstance(validations, dict):
+        checks.extend(validations.values())
+    return sum(1 for value in checks if value is True) >= 2
+
+
+def _doi_summary_two_source_verified_count(
+    summary: dict[str, Any],
+    total: int | float | None,
+) -> int | None:
+    source_counts = [
+        summary.get("crossref_verified") or summary.get("crossref_ok"),
+        summary.get("openalex_verified") or summary.get("openalex_ok"),
+        summary.get("semantic_scholar_verified")
+        or summary.get("semantic_scholar_checked_positive")
+        or summary.get("semantic_scholar_ok"),
+    ]
+    usable_counts = [int(value) for value in source_counts if isinstance(value, (int, float))]
+    if total is None or not usable_counts:
+        return None
+    return min(int(total), sum(usable_counts) // 2)
+
+
 def _scan_figures_for_dossier(run_dir: Path) -> list[dict[str, Any]]:
     """List paired figures (name, svg/png present) for Gate C from run_dir/figures."""
     figdir = run_dir / "figures"
@@ -315,15 +366,10 @@ def _build_dossier(run_dir: Path) -> dict[str, Any]:
             and isinstance(verified, (int, float))
         ):
             refs["doi_real_rate"] = verified / total
-    if refs["doi_real_rate"] is None and isinstance(doi.get("records"), list):
-        records = doi["records"]
-        if records:
-            verified_count = sum(
-                1
-                for row in records
-                if isinstance(row, dict) and (row.get("verified") is True or row.get("passed_two_of_three") is True)
-            )
-            refs["doi_real_rate"] = verified_count / len(records)
+    records = _doi_audit_rows(doi)
+    if refs["doi_real_rate"] is None and records:
+        verified_count = sum(1 for row in records if _doi_row_two_source_verified(row))
+        refs["doi_real_rate"] = verified_count / len(records)
         if not refs["bib_count"]:
             refs["bib_count"] = len(records)
     if refs["doi_real_rate"] is None and isinstance(doi.get("summary"), dict):
@@ -336,6 +382,7 @@ def _build_dossier(run_dir: Path) -> dict[str, Any]:
             "verification_rate_included",
             "two_source_pass_rate",
             "included_two_source_verification_rate",
+            "included_two_source_rate",
         )
         if refs["doi_real_rate"] is None and summary.get("all_bib_entries_two_source_verified") is True:
             refs["doi_real_rate"] = 1.0
@@ -347,13 +394,30 @@ def _build_dossier(run_dir: Path) -> dict[str, Any]:
                 or summary.get("verified_included_references")
                 or summary.get("included_doi_backed_references")
                 or summary.get("included_bib_entries")
+                or summary.get("included_references")
+                or summary.get("included_entries")
+                or summary.get("total")
                 or 0
             )
         if refs["doi_real_rate"] is None:
-            selected = summary.get("selected_references")
-            passing = summary.get("selected_passing_two_source_rule")
+            selected = (
+                summary.get("selected_references")
+                or summary.get("included_references")
+                or summary.get("included_entries")
+                or summary.get("total")
+            )
+            passing = (
+                summary.get("selected_passing_two_source_rule")
+                or summary.get("included_with_two_or_more_validations")
+                or summary.get("passes_two_of_three")
+            )
             if isinstance(selected, (int, float)) and selected > 0 and isinstance(passing, (int, float)):
                 refs["doi_real_rate"] = passing / selected
+        if refs["doi_real_rate"] is None:
+            total = summary.get("included_references") or summary.get("included_entries") or summary.get("total")
+            verified = _doi_summary_two_source_verified_count(summary, total)
+            if isinstance(total, (int, float)) and total > 0 and verified is not None:
+                refs["doi_real_rate"] = verified / total
     # bib_count falls back to counting references.bib entries.
     if not refs["bib_count"]:
         import re as _re

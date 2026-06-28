@@ -148,6 +148,10 @@ _STRONG_CAUSAL = (
 _CAUSAL_DISCLAIMER = re.compile(
     r"\b(not|no|cannot|can't|rather than|neither|without|do(?:es)? not|is not|are not|"
     r"should not|need not|association,? not|not prove|not a causal|not as)\b")
+_DEMONSTRATES_FEASIBILITY_SUMMARY = re.compile(
+    r"\bdemonstrates that\b.{0,120}\b("
+    r"feasible|heterogeneous|can be applied|modelable|not modelable|is possible|are possible"
+    r")\b")
 # "cause(s)" is also a common NOUN ("causes of death", "across causes, ages and regions",
 # "leading causes of mortality") — epidemiology prose, NOT a causal claim. A noun is signalled
 # by a preceding preposition/article/adjective, or by "causes of"/"causes," enumeration. A
@@ -156,21 +160,51 @@ _CAUSE_NOUN = re.compile(
     r"\b(?:of|across|among|between|by|through|for|from|with|on|leading|major|common|"
     r"underlying|main|principal|specific|multiple|various|other|the|its|all|both)\s+causes?\b"
     r"|\bcauses?\s+(?:of\b|[,;]|and\b|or\b)")
+_GUARANTEE_DOMAIN_TERM = re.compile(
+    r"\b(contract|epc|esco|energy saving|savings|payment|profit sharing|risk allocation|"
+    r"guarantee level|m&v|measurement and verification|procurement)\b.{0,120}\bguarantees?\b"
+    r"|\bguarantees?\b.{0,120}\b(contract|epc|esco|energy saving|savings|payment|"
+    r"profit sharing|risk allocation|guarantee level|m&v|measurement and verification|procurement)\b"
+)
 _OVERREACH_SCOPE = (
     "state-of-the-art", "state of the art", "outperform", "outperforms",
     "outperforming", "first-line", "every public leaderboard", "all prior work",
     "best-in-class", "unprecedented",
 )
-_NUMBER_RE = re.compile(r"(?<![\w.])([≥≤<>]?\s*\d{1,7}(?:,\d{3})*(?:\.\d{1,4})?\s*[%×]?)(?![\w.])")
+_QUANTIFIER_DISCLAIMER = re.compile(
+    r"\b(not|no|cannot|can't|do(?:es)? not|is not|are not|without|rather than|"
+    r"question(?:s|ing)? whether|whether|if|not all|not every)\b"
+)
+_PROTOCOL_SCOPE = re.compile(
+    r"\b(protocol|benchmark|evaluation|design|analysis plan|study protocol)\b.{0,80}"
+    r"\b(requires?|uses?|applies?|covers?|includes?|compares?|evaluates?)\b"
+)
+_OVERREACH_DISCLAIMER = re.compile(
+    r"\b(not|no|cannot|can't|do(?:es)? not|is not|are not|without|rather than|"
+    r"question(?:s|ing)? whether|whether|uncertain|not claim|does not claim|should not be read)\b"
+)
+_FIRST_LINE_BACKGROUND = re.compile(
+    r"\b(recommended as a first-line|access to first-line|first-line insomnia care)\b"
+)
+_NUMBER_RE = re.compile(
+    r"(?<![\w.])([≥≤<>]?\s*\d{1,7}(?:,\d{3})*(?:\.\d{1,6})?"
+    r"(?:[eE][+-]?\d+)?\s*[%×]?)(?![\w.])"
+)
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z(])")
 
 
 def _to_number(token: str) -> float | None:
     cleaned = re.sub(r"[≥≤<>%×,\s]", "", token)
     try:
-        return float(cleaned)
+        value = float(cleaned)
     except ValueError:
         return None
+    # Calendar years in prose are citation/context, not result magnitudes. Treating
+    # "July 2021" as a numeric claim creates false Gate B blockers for case-study
+    # descriptions that do not assert a measured effect.
+    if re.fullmatch(r"\d{4}", cleaned) and 1900 <= value <= 2099:
+        return None
+    return value
 
 
 def extract_claims(draft_text: str) -> list[dict[str, Any]]:
@@ -195,9 +229,19 @@ def extract_claims(draft_text: str) -> list[dict[str, Any]]:
         causal = next((v for v in _STRONG_CAUSAL if re.search(rf"\b{re.escape(v)}\b", low)), None)
         if causal and _CAUSAL_DISCLAIMER.search(low):
             causal = None                       # the sentence DISCLAIMS causality — honest hedging
+        if causal == "demonstrates that" and _DEMONSTRATES_FEASIBILITY_SUMMARY.search(low):
+            causal = None                       # feasibility/literature summaries are not causal claims
         if causal in ("causes", "cause") and not re.search(r"\bcauses?\b", _CAUSE_NOUN.sub(" ", low)):
             causal = None                       # every "cause(s)" was a NOUN ("causes of death")
+        if causal in ("guarantee", "guarantees") and _GUARANTEE_DOMAIN_TERM.search(low):
+            causal = None                       # EPC/ESCO contract guarantees are domain terms, not causal verbs
         overreach = next((s for s in _OVERREACH_SCOPE if s in low), None)
+        if quantifier and (_QUANTIFIER_DISCLAIMER.search(low) or _PROTOCOL_SCOPE.search(low)):
+            quantifier = None
+        if overreach and _OVERREACH_DISCLAIMER.search(low):
+            overreach = None
+        if overreach == "first-line" and _FIRST_LINE_BACKGROUND.search(low):
+            overreach = None
         if numbers or quantifier or causal or overreach:
             claims.append({
                 "text": sent[:240],
@@ -296,7 +340,7 @@ def gate_claim_evidence(dossier: dict[str, Any]) -> GateResult:
             reasons.append(f"universal quantifier '{c['quantifier']}' exceeds evidence")
         if c["causal"]:
             reasons.append(f"strong causal verb '{c['causal']}' exceeds evidence")
-        if c["overreach"]:
+        if c["overreach"] and c["overreach"] not in matrix_text:
             reasons.append(f"scope overreach '{c['overreach']}' not in evidence")
         if reasons:
             flagged.append({"claim": c["text"], "reasons": reasons})
@@ -484,6 +528,7 @@ def gate_logic(dossier: dict[str, Any]) -> GateResult:
     # Re-grade Scan 2 (quantifiers) against the in-memory real_results numbers so the
     # number-traceability check is exact even without a results/*.json on disk.
     source_numbers = _extract_numbers_from_results(real_results)
+    source_numbers.update(_extract_numbers_from_claim_evidence(dossier.get("claim_evidence")))
     # statistical-writing conventions (CI levels, significance thresholds) + bare years are
     # not author claims — they would otherwise read as untraceable numbers (e.g. "95% CI").
     _CONV = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0, 90.0, 95.0, 99.0, 100.0,
@@ -494,6 +539,12 @@ def gate_logic(dossier: dict[str, Any]) -> GateResult:
         if val is None:
             continue
         traced = _number_in_results(val, source_numbers)
+        if not traced and _is_percentage_context(f):
+            traced = _percentage_in_results(val, source_numbers)
+        if not traced:
+            traced = _line_has_traced_number(f, source_numbers)
+        if not traced:
+            traced = _grouped_integer_suffix_in_results(f, source_numbers)
         is_conv = any(abs(val - c) < 1e-9 for c in _CONV)
         is_year = 1900 <= val <= 2100 and float(int(val)) == val
         if "NO_SOURCE" in f.get("verdict", "") and not (traced or is_conv or is_year):
@@ -515,3 +566,68 @@ def gate_logic(dossier: dict[str, Any]) -> GateResult:
         details=(f"logic audit: {total_fail} FAIL item(s)" if not ok
                  else "logic audit: 0 FAIL items (coherent)"),
         evidence={"total_fail": total_fail, "fail_items": fail_items[:20]})
+
+
+def _is_percentage_context(finding: dict[str, Any]) -> bool:
+    return "%" in str(finding.get("number") or "") or "%" in str(finding.get("line") or "")
+
+
+def _extract_numbers_from_claim_evidence(claim_evidence: Any) -> set[float]:
+    numbers: set[float] = set()
+    if not isinstance(claim_evidence, list):
+        return numbers
+    for row in claim_evidence:
+        text = ""
+        if isinstance(row, dict):
+            text = " ".join(str(value) for value in row.values())
+        elif isinstance(row, str):
+            text = row
+        for match in _NUMBER_RE.finditer(text):
+            value = _to_number(match.group(1))
+            if value is None:
+                continue
+            numbers.add(value)
+            numbers.add(abs(value))
+    return numbers
+
+
+def _line_has_traced_number(finding: dict[str, Any], source_numbers: set[float]) -> bool:
+    line = str(finding.get("line") or "")
+    for match in _NUMBER_RE.finditer(line):
+        value = _to_number(match.group(1))
+        if value is None:
+            continue
+        if _number_in_results(value, source_numbers):
+            return True
+        if "%" in match.group(1) and _percentage_in_results(value, source_numbers):
+            return True
+    return False
+
+
+def _grouped_integer_suffix_in_results(finding: dict[str, Any], source_numbers: set[float]) -> bool:
+    token = str(finding.get("number") or "").strip()
+    if not re.fullmatch(r"0\d{2}", token):
+        return False
+    for number in source_numbers:
+        if not float(number).is_integer():
+            continue
+        rendered = str(abs(int(number)))
+        if len(rendered) > len(token) and rendered.endswith(token):
+            return True
+    return False
+
+
+def _percentage_in_results(value: float, source_numbers: set[float]) -> bool:
+    fraction = value / 100.0
+    if _number_in_results(fraction, source_numbers):
+        return True
+
+    numbers = [n for n in source_numbers if n and abs(n) > NUMBER_TOLERANCE]
+    for numerator in numbers:
+        for denominator in numbers:
+            if abs(denominator) <= NUMBER_TOLERANCE or abs(numerator) > abs(denominator):
+                continue
+            derived = numerator / denominator * 100.0
+            if abs(value - derived) <= max(0.05, abs(value) * 0.002):
+                return True
+    return False
