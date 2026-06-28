@@ -1,0 +1,34 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "paper-mcp",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "vars": {
+    "PAPER_JOB_SERVICE_URL": "https://paper-a.cooperation.tw",
+    // A/B engine routing. Unset / "/jobs" = old paper_driver pipeline (default, prod-safe).
+    // Set to "/v2/jobs" to route submit to the new Hermes+Skill engine (requires the
+    // viability-lock gate). Flip ONLY after a golden A/B passes (BSIDE_WEB_INTEGRATION_PLAN §7).
+    "A_ENGINE_ENDPOINT": "/jobs",
+    "DEFAULT_FREE_QUOTA": "3",
+    "DEFAULT_VIP_QUOTA": "50",
+    "TOKEN_TTL_DAYS": "30"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "paper-mcp-db",
+      "database_id": "57ffea97-8cf4-40c2-a1c0-68513580b921"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ARTIFACTS",
+      "bucket_name": "paper-mcp-artifacts"
+    }
+  ]
+}

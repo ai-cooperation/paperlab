@@ -1,0 +1,30 @@
+{
+  "_purpose": "THIN-HANDOFF positive fixture (ENGINE_GENERAL_SPEC, thin-handoff section). A grill->contract that crossed a chat.ai tool call: it carries ONLY thin, number-free scope choices. NO dense numbers, NO currency symbols, NO findings, NO report body. The thin-handoff invariant test asserts this contract is number-free and that the a-side (not chat.ai) owns all numbers/facts/prose.",
+  "job_id": "ins_thin_handoff_sample",
+  "project_id": "ins_thin_handoff_sample",
+  "source": "insurance-mcp",
+  "level": "vip",
+  "tier": "paid",
+  "topic": "亞洲健康險商品策略觀察",
+  "research_question": "近期亞洲市場健康險的商品策略與競品動態有哪些值得關注的觀察？",
+  "contribution": "從 KB 已爬新聞與月度蒸餾彙整一份市場觀察報告；所有數字、金額與統計由 a-side server-side 取得並撰寫。",
+  "data_source": {
+    "type": "kb-report",
+    "name": "insurance-kb-v2",
+    "sources": ["crawled_news_index", "monthly_wiki", "past_reports"],
+    "probe_required": true
+  },
+  "synthesis": {
+    "type": "kb-findings",
+    "scope": {
+      "region": ["台灣", "日本", "韓國"],
+      "timeframe": "recent_quarter",
+      "audience": "保險業策略團隊",
+      "depth": "deep",
+      "findings_target": "medium"
+    }
+  },
+  "section_template": ["市場概況", "競品動態", "觀察洞察", "策略建議", "風險限制", "參考資料"],
+  "deliverable": "docx",
+  "output_language": "zh-TW"
+}

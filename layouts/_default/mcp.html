@@ -1,4 +1,14 @@
 {{ define "main" }}
+{{/* 研究引導 (grill) 流程示意 hero — iframe-isolated (站上無 CSS namespace;inline 會撞版面).
+     正本 static/demo/grill-flow.html;素材源 social/grill-flow-mockup.html。刻意 5 步示意版,勿改 7 步。 */}}
+<section class="w-full bg-surface border-b border-gray-200">
+  <div class="max-w-4xl mx-auto px-4 sm:px-6 pt-8 pb-2">
+    <iframe src="/demo/grill-flow.html" title="PaperLab 引導式發想流程示意"
+            loading="lazy" scrolling="no"
+            class="w-full h-[720px] max-[640px]:h-[660px] rounded-xl border border-gray-200 bg-white shadow-sm"></iframe>
+  </div>
+</section>
+
 <div class="max-w-3xl mx-auto px-4 sm:px-6 py-10">
 
   <header class="mb-8">

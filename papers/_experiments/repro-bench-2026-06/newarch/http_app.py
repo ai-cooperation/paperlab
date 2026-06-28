@@ -10,10 +10,17 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import FastAPI, Header, HTTPException, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
+# the live progress page is served from this origin and fetches the read-only GET
+# status/paper cross-origin — the browser needs Access-Control-Allow-Origin (CORS).
+WEB_ORIGINS = ["https://paperlab.cooperation.tw"]
+
+import capabilities
 import job_runner
 import router
+import source_probe
 
 
 DEFAULT_HTTP_JOBS_DIR = Path(os.environ.get("PAPER_JOBS_DIR", str(job_runner.DEFAULT_JOBS_DIR)))
@@ -147,13 +154,41 @@ def paper_path_for_job(job_id: str, jobs_dir: Path) -> Path:
     return pdf
 
 
-def create_app(jobs_dir: Path = DEFAULT_HTTP_JOBS_DIR, start_worker: bool = True) -> FastAPI:
+def create_app(jobs_dir: Path = DEFAULT_HTTP_JOBS_DIR, start_worker: bool = True,
+               engine_v2: bool = False, v2_spawn: Any = None,
+               v2_max_concurrent: int = 1) -> FastAPI:
     app = FastAPI(title="Paper Job Service", version=job_runner.RUNNER_VERSION)
+    # Let the public live progress page (paperlab.cooperation.tw) fetch the read-only
+    # GET status/paper across origin. Scoped to that origin + GET only — the b-side
+    # Worker POSTs server-to-server (token), so POST routes stay non-CORS.
+    app.add_middleware(CORSMiddleware, allow_origins=WEB_ORIGINS,
+                       allow_methods=["GET", "OPTIONS"], allow_headers=["*"])
     resolved_jobs_dir = jobs_dir.expanduser().resolve()
+
+    # Engine-v2 routes mount ALONGSIDE the old pipeline for A/B (P7: never churn prod
+    # around an unproven orchestrator). POST /v2/jobs detaches a v2_worker subprocess
+    # running the full pipeline; the old paper_driver pipeline on /jobs is untouched.
+    # v2_spawn is injectable so tests stub the heavy worker.
+    if engine_v2:
+        import engine_routes
+        kw: dict[str, Any] = {"max_concurrent": v2_max_concurrent}
+        if v2_spawn is not None:
+            kw["spawn"] = v2_spawn
+        engine_routes.register(app, resolved_jobs_dir, **kw)
 
     @app.get("/health")
     def health() -> dict[str, Any]:
         return {"status": "ok", "jobs_dir": str(resolved_jobs_dir), "runner_version": job_runner.RUNNER_VERSION}
+
+    @app.get("/capabilities")
+    def capabilities_endpoint() -> dict[str, Any]:
+        # b negotiates against this: submit a v2 contract only when schema_hash +
+        # contract_version + recipe_id match what a advertises here.
+        return capabilities.capabilities()
+
+    @app.get("/schema/contract_v2.schema.json")
+    def contract_schema() -> Response:
+        return Response(content=capabilities.schema_text(), media_type="application/json")
 
     @app.post("/jobs/dry-run")
     async def dry_run(request: Request) -> dict[str, Any]:
@@ -176,6 +211,14 @@ def create_app(jobs_dir: Path = DEFAULT_HTTP_JOBS_DIR, start_worker: bool = True
             contract = normalize_contract(payload)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        # v2 executability gate: a real-experiment contract must resolve against an a-side
+        # recipe BEFORE the job is accepted (schema validity != executability).
+        if contract.get("contract_version") == 2:
+            v = capabilities.validate_experiment_contract(contract)
+            if not v["ok"]:
+                raise HTTPException(status_code=422,
+                                    detail={"error": "experiment not executable", "errors": v["errors"]})
 
         key_path = idempotency_path(resolved_jobs_dir, idempotency_key.strip())
         existing = read_json(key_path)
@@ -210,15 +253,15 @@ def create_app(jobs_dir: Path = DEFAULT_HTTP_JOBS_DIR, start_worker: bool = True
 
     @app.post("/jobs/probe-data-source")
     async def probe_data_source(request: Request) -> dict[str, Any]:
+        # Grill Step-4 confirmation (PAPER_MCP_GRILL_DESIGN.md): generalised probe
+        # of ANY public source (HUPD / dataset|api URL / literature corpus). Takes
+        # the raw partial grill payload (no full-contract normalization) and only
+        # CONFIRMS reachability — it does not collect data or run a job.
         payload = await request_json_object(request)
-        try:
-            contract = normalize_contract(payload)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp) / "probe"
             run_dir.mkdir(parents=True, exist_ok=True)
-            return job_runner.probe_data_source(contract, run_dir)
+            return source_probe.probe(payload, run_dir)
 
     @app.get("/jobs/{job_id}/status")
     def get_status(job_id: str) -> dict[str, Any]:
@@ -251,4 +294,5 @@ def create_app(jobs_dir: Path = DEFAULT_HTTP_JOBS_DIR, start_worker: bool = True
     return app
 
 
-app = create_app()
+# engine-v2 routes mount only when PAPER_ENGINE_V2=1 (A/B opt-in; prod default off)
+app = create_app(engine_v2=os.environ.get("PAPER_ENGINE_V2") == "1")

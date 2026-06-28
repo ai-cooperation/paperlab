@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-Hant">
+<!--
+  Engine-v2 live project page (ENGINE_BUILD_PLAN P9 / DESIGN §5.3) — REFERENCE.
+
+  Self-contained: polls the a-side projection (GET /v2/jobs/{id}/status) every 5s and
+  renders the four blocks live (research plan, b-gap, a-gap, tier decision) + a phase
+  timeline. NO Hugo rebuild — the page reads the dossier projection over the store.
+  The production page lives in the paperlab.cooperation.tw site repo; this is the
+  reference the Hugo template adapts. Open with ?job=<id>&api=<base>.
+-->
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Research project — live status</title>
+<style>
+  :root { --fg:#1a1a1a; --muted:#5a5a5a; --line:#e2e2e2; --accent:#1f5f8b; --bg:#fafafa; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:16px/1.6 -apple-system,"Noto Sans TC","PingFang TC",sans-serif;
+         color:var(--fg); background:var(--bg); padding:24px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .sub { color:var(--muted); font-size:14px; margin-bottom:20px; }
+  .grid { display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); }
+  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:16px; }
+  .card h2 { font-size:13px; letter-spacing:.04em; text-transform:uppercase;
+             color:var(--accent); margin:0 0 10px; }
+  .k { color:var(--muted); font-size:13px; }
+  .v { font-size:15px; margin-bottom:8px; }
+  ul { margin:6px 0 0; padding-left:18px; }
+  .timeline { margin-top:20px; }
+  .step { display:inline-block; padding:4px 10px; margin:3px; border-radius:14px;
+          border:1px solid var(--line); font-size:13px; background:#fff; }
+  .step.done { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .blocked { color:#9a2b2b; font-weight:600; }
+</style>
+</head>
+<body>
+  <h1 id="topic">Loading…</h1>
+  <div class="sub">Job <span id="job"></span> · phase <span id="phase"></span>
+    · updated <span id="t"></span></div>
+
+  <div class="grid">
+    <div class="card"><h2>Research plan</h2>
+      <div class="k">Question</div><div class="v" id="rq"></div>
+      <div class="k">Contribution</div><div class="v" id="contrib"></div></div>
+    <div class="card"><h2>b-side gap (grill)</h2><div class="v" id="bgap"></div></div>
+    <div class="card"><h2>a-side gap (phase0/3)</h2><ul id="agap"></ul></div>
+    <div class="card"><h2>Tier decision</h2>
+      <div class="k">Level</div><div class="v" id="tier"></div>
+      <div class="k">Viability</div><div class="v" id="via"></div>
+      <div class="v blocked" id="blk"></div></div>
+  </div>
+
+  <div class="timeline"><h2 style="font-size:13px;color:var(--accent)">PHASE PROGRESS</h2>
+    <div id="steps"></div></div>
+
+<script>
+const PHASES = ["intake","viable","pivoted","paused_for_user","structure","results",
+                "writing","review","done"];
+const q = new URLSearchParams(location.search);
+const JOB = q.get("job") || "";
+const API = (q.get("api") || "").replace(/\/$/, "");
+const $ = id => document.getElementById(id);
+
+function render(s) {
+  $("topic").textContent = (s.research_plan && s.research_plan.topic) || "(untitled)";
+  $("job").textContent = s.job_id || JOB;
+  $("phase").textContent = s.phase || "—";
+  $("t").textContent = new Date().toLocaleTimeString();
+  $("rq").textContent = (s.research_plan && s.research_plan.research_question) || "—";
+  $("contrib").textContent = (s.research_plan && s.research_plan.contribution) || "—";
+  $("bgap").textContent = s.b_gap || "—";
+  $("agap").innerHTML = (s.a_gap && s.a_gap.length)
+    ? s.a_gap.map(g => `<li>${typeof g==="string"?g:(g.description||JSON.stringify(g))}</li>`).join("")
+    : "<li class='k'>not yet determined</li>";
+  $("tier").textContent = s.tier || "—";
+  const v = s.viability || {};
+  $("via").textContent = (v.viable === false ? "non-viable" : v.viable === true ? "viable" : "—")
+    + (v.metric && v.metric.max_poolable_k != null ? ` (k=${v.metric.max_poolable_k})` : "");
+  $("blk").textContent = s.blocked ? ("BLOCKED: " + (s.blockers||[]).join("; ")) : "";
+  // terminal status + result (enriched projection: status / summary / artifacts)
+  $("status").textContent = s.status || "—";
+  const sum = s.summary || {}, pdf = (s.artifacts||{}).pdf;
+  const terminal = s.status === "done" || s.status === "blocked" || s.status === "failed";
+  $("result").innerHTML = terminal
+    ? `floor <b>${sum.floor_100 != null ? sum.floor_100 : "—"}</b>/100`
+      + ` · delivery <b>${sum.delivery || "—"}</b>`
+      + (pdf ? ` · <a href="${API}/v2/jobs/${JOB}/paper">download PDF</a>` : "")
+      + (s.error ? ` · <span style="color:#9a2b2b">error</span>` : "")
+    : `<span class="k">running…</span>`;
+  $("steps").innerHTML = PHASES.map(p => {
+    const done = PHASES.indexOf(p) <= PHASES.indexOf(s.phase);
+    return `<span class="step ${done?"done":""}">${p}</span>`;
+  }).join("");
+}
+
+async function poll() {
+  try {
+    const r = await fetch(`${API}/v2/jobs/${JOB}/status`);
+    if (r.ok) render(await r.json());
+  } catch (e) { /* keep last render; transient fetch errors are non-fatal */ }
+}
+poll();
+setInterval(poll, 5000);   // live, no rebuild
+</script>
+</body>
+</html>

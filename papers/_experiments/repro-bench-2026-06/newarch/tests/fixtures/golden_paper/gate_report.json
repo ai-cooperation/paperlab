@@ -1,0 +1,10 @@
+{
+  "no_p0": false,
+  "p1_count": 9,
+  "no_prose_skeleton": true,
+  "prose_completeness_passed": true,
+  "prose_total_words": 4891,
+  "real_status": "completed",
+  "score_threshold": 5.71,
+  "desk_reject_probability": null
+}

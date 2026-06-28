@@ -1,0 +1,34 @@
+{
+  "_purpose": "Oracle for the insurance gate_registry over report.md. The framework's gate lifecycle runs the pack-registered checks; this lists which must fire and the evidence anchor for each. BLOCK gates fail the deliverable; WARN gates annotate.",
+  "gates": [
+    {
+      "gate": "body_too_thin",
+      "severity": "BLOCK",
+      "must_fire": true,
+      "why": "Body is a handful of sentences across the sections; well under the minimum word floor for a VIP report."
+    },
+    {
+      "gate": "footnote_orphan",
+      "severity": "BLOCK",
+      "must_fire": true,
+      "why": "[^2] is cited inline under 策略建議 but never defined; [^3] is defined but never cited inline. Both orphan directions present.",
+      "orphan_refs": ["^2"],
+      "orphan_defs": ["^3"]
+    },
+    {
+      "gate": "uncited_quantitative",
+      "severity": "BLOCK",
+      "must_fire": true,
+      "why": "競品動態 states €170.00 and 1,645 億 with no footnote/source.",
+      "uncited_numbers": ["€170.00", "1,645 億"]
+    },
+    {
+      "gate": "single_source_overreliance",
+      "severity": "WARN",
+      "must_fire": true,
+      "why": "Both footnote definitions ([^1], [^3]) point to the same single source URL.",
+      "distinct_sources": 1
+    }
+  ],
+  "expected_block": true
+}

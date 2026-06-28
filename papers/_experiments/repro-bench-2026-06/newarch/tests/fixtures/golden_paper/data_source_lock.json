@@ -1,0 +1,12 @@
+{
+  "source": "OpenAlex",
+  "type": "meta-analysis",
+  "status": "available",
+  "sample_evidence": {
+    "records": 283902,
+    "min_records": 50,
+    "query": "exercise depression older adults"
+  },
+  "generated_at_unix": 1781324207.706,
+  "probe_seconds": 1.558
+}

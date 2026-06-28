@@ -1,0 +1,45 @@
+{
+  "topic": "Mindfulness-Based Interventions and Anxiety Symptoms in Adults: An Abstract-Level Random-Effects Meta-Analysis of Randomized Trial Evidence",
+  "research_question": "Do mindfulness-based interventions reduce anxiety symptoms in adults, and how large is the pooled effect?",
+  "contribution": "A pooled abstract-level estimate of mindfulness-based intervention effects on anxiety symptoms in adults from randomized or controlled trials",
+  "data_source": {
+    "type": "meta-analysis",
+    "name": "mindfulness anxiety adults randomized controlled trial",
+    "probe_required": false
+  },
+  "synthesis": {
+    "type": "intervention",
+    "picos": {
+      "exclude_terms": [
+        "pediatric",
+        "children",
+        "adolescent",
+        "animal",
+        "protocol"
+      ],
+      "require_any": [
+        "randomized",
+        "randomised",
+        "controlled trial",
+        "RCT"
+      ],
+      "require_all": [
+        [
+          "mindfulness",
+          "MBSR",
+          "MBCT",
+          "mindfulness-based",
+          "mindfulness based"
+        ],
+        [
+          "anxiety",
+          "anxious",
+          "anxiety symptoms"
+        ]
+      ]
+    }
+  },
+  "target_journal": "Q2-Q3 stable target journal",
+  "output_language": "en",
+  "level": "master"
+}
