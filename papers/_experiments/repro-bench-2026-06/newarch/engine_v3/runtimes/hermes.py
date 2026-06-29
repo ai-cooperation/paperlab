@@ -426,7 +426,7 @@ def _quarantine_existing_outputs(run_dir: Path, rel_paths: Iterable[str], task_i
             continue
         destination = backup_root / rel
         destination.parent.mkdir(parents=True, exist_ok=True)
-        source.replace(destination)
+        shutil.copy2(source, destination)
         backups[rel] = destination
     return backups
 

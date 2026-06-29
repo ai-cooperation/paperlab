@@ -58,8 +58,8 @@ def test_review_heal_requires_fresh_review_json_and_log(tmp_path: Path):
     (tmp_path / "quality_review_log.md").write_text("old log\n", encoding="utf-8")
 
     def stale_runner(_command: list[str], cwd: Path, _timeout_s: int):
-        assert not (cwd / "quality_review_round1.json").exists()
-        assert not (cwd / "quality_review_log.md").exists()
+        assert (cwd / "quality_review_round1.json").read_text(encoding="utf-8") == '{"old": true}\n'
+        assert (cwd / "quality_review_log.md").read_text(encoding="utf-8") == "old log\n"
         return HermesRunResult(exit_code=0, stdout="CHILD_OK", stderr="")
 
     stale = HermesCodexRuntime(runner=stale_runner).run_brain(
@@ -74,8 +74,8 @@ def test_review_heal_requires_fresh_review_json_and_log(tmp_path: Path):
     assert stale.status == "blocked"
     assert stale.changed_files == []
     assert stale.blockers == [
-        "missing declared output: quality_review_round1.json",
-        "missing declared output: quality_review_log.md",
+        "stale declared output: quality_review_log.md",
+        "stale declared output: quality_review_round1.json",
     ]
     assert (tmp_path / "quality_review_round1.json").read_text(encoding="utf-8") == '{"old": true}\n'
     assert (tmp_path / "quality_review_log.md").read_text(encoding="utf-8") == "old log\n"
@@ -101,13 +101,13 @@ def test_review_heal_requires_fresh_review_json_and_log(tmp_path: Path):
     assert fresh.changed_files == ["quality_review_log.md", "quality_review_round1.json"]
 
 
-def test_review_heal_quarantines_old_review_files_before_runner(tmp_path: Path):
+def test_review_heal_snapshots_old_review_files_before_runner(tmp_path: Path):
     (tmp_path / "quality_review_round1.json").write_text('{"old": true}\n', encoding="utf-8")
     (tmp_path / "quality_review_log.md").write_text("old log\n", encoding="utf-8")
 
     def runner(_command: list[str], cwd: Path, _timeout_s: int):
-        assert not (cwd / "quality_review_round1.json").exists()
-        assert not (cwd / "quality_review_log.md").exists()
+        assert (cwd / "quality_review_round1.json").read_text(encoding="utf-8") == '{"old": true}\n'
+        assert (cwd / "quality_review_log.md").read_text(encoding="utf-8") == "old log\n"
         (cwd / "quality_review_round1.json").write_text('{"new": true}\n', encoding="utf-8")
         (cwd / "quality_review_log.md").write_text("new log\n", encoding="utf-8")
         return HermesRunResult(exit_code=0, stdout="CHILD_OK", stderr="")
