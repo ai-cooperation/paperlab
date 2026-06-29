@@ -598,6 +598,161 @@ def test_orchestrator_repairs_missing_declared_outputs_before_runtime_block(tmp_
     assert [delegation["status"] for delegation in dossier.delegations] == ["blocked", "ok"]
 
 
+def test_orchestrator_allows_handler_to_backfill_after_missing_output_repairs_exhausted(tmp_path: Path):
+    class MissingRuntime(MockRuntime):
+        name = "missing-runtime"
+
+        def run_brain(self, task: BrainTask, _context: RuntimeContext):
+            return TaskResult(
+                task_id=task.task_id,
+                status="blocked",
+                blockers=["missing declared output: real_experiments/real_results.json"],
+            )
+
+    class DataPack:
+        name = "demo"
+
+        def gate_registry(self):
+            def check(dossier):
+                return (
+                    GateResult.pass_("G")
+                    if dossier.evidence.get("data_ready")
+                    else GateResult.fail("G", details="data not ready")
+                )
+
+            return [{"id": "G", "phase": "data", "severity": GateSeverity.BLOCK, "check": check}]
+
+    def handler(_task: BrainTask, context: RuntimeContext):
+        out = context.run_dir / "real_experiments" / "real_results.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text('{"status":"completed","simulated":false}', encoding="utf-8")
+        return {
+            "gate_inputs": {"data_ready": True},
+            "artifacts": {"real_experiments/real_results.json": out},
+        }
+
+    dossier = EngineV3Orchestrator(
+        runtime=MissingRuntime(),
+        domain_pack=DataPack(),
+        phases=[
+            PhaseSpec(
+                id="data",
+                handler=handler,
+                prompt="collect data",
+                expected_outputs=["real_experiments/real_results.json"],
+                gate_ids=["G"],
+                repair_prompt="repair data",
+                max_repair_attempts=1,
+            )
+        ],
+        dossier_store=DossierStore(tmp_path),
+    ).run(job_id="job-1", resume=False)
+
+    assert dossier.phases["data"] == "done"
+    assert [delegation["status"] for delegation in dossier.delegations] == ["blocked", "blocked"]
+    assert [report["blocked"] for report in dossier.gate_reports] == [False]
+    assert any(event.get("event") == "runtime_non_ok_handler_recheck_attempt" for event in dossier.evidence["trace"])
+
+
+def test_orchestrator_allows_gate_handler_recheck_after_runtime_error_for_heal_phases(tmp_path: Path):
+    class ErrorRuntime(MockRuntime):
+        name = "error-runtime"
+
+        def run_brain(self, task: BrainTask, _context: RuntimeContext):
+            return TaskResult(
+                task_id=task.task_id,
+                status="error",
+                blockers=["provider unavailable after existing artifacts were present"],
+            )
+
+    class ClaimPack:
+        name = "demo"
+
+        def gate_registry(self):
+            def check(dossier):
+                return (
+                    GateResult.pass_("B")
+                    if dossier.evidence.get("claim_healed")
+                    else GateResult.fail("B", details="claim still blocked")
+                )
+
+            return [{"id": "B", "phase": "claim_evidence", "severity": GateSeverity.BLOCK, "check": check}]
+
+    def handler(_task: BrainTask, _context: RuntimeContext):
+        return {"gate_inputs": {"claim_healed": True}}
+
+    dossier = EngineV3Orchestrator(
+        runtime=ErrorRuntime(),
+        domain_pack=ClaimPack(),
+        phases=[
+            PhaseSpec(
+                id="claim_evidence",
+                handler=handler,
+                prompt="repair claims",
+                expected_outputs=["claim_evidence_map.md"],
+                gate_ids=["B"],
+                max_repair_attempts=0,
+            )
+        ],
+        dossier_store=DossierStore(tmp_path),
+    ).run(job_id="job-1", resume=False)
+
+    assert dossier.phases["claim_evidence"] == "done"
+    assert [report["blocked"] for report in dossier.gate_reports] == [False]
+    assert any(event.get("event") == "runtime_non_ok_handler_recheck_attempt" for event in dossier.evidence["trace"])
+
+
+def test_orchestrator_rechecks_blocked_gate_phase_before_runtime_on_resume(tmp_path: Path):
+    class NoCallRuntime(MockRuntime):
+        name = "no-call"
+
+        def run_brain(self, _task: BrainTask, _context: RuntimeContext):
+            raise AssertionError("preflight gate recheck should skip runtime")
+
+    class ReviewPack:
+        name = "demo"
+
+        def gate_registry(self):
+            def check(dossier):
+                return (
+                    GateResult.pass_("R")
+                    if dossier.evidence.get("review_ready")
+                    else GateResult.fail("R", details="review not ready")
+                )
+
+            return [{"id": "R", "phase": "review_heal", "severity": GateSeverity.BLOCK, "check": check}]
+
+    def handler(_task: BrainTask, _context: RuntimeContext):
+        return {"gate_inputs": {"review_ready": True}}
+
+    store = DossierStore(tmp_path)
+    review = tmp_path / "quality_review_round1.json"
+    review.write_text('{"delivery":"pass"}\n', encoding="utf-8")
+    existing = store.create(job_id="job-1", domain="demo")
+    existing.mark_phase("review_heal", "blocked")
+    existing.add_artifact("quality_review_round1.json", review)
+    store.save(existing)
+
+    dossier = EngineV3Orchestrator(
+        runtime=NoCallRuntime(),
+        domain_pack=ReviewPack(),
+        phases=[
+            PhaseSpec(
+                id="review_heal",
+                handler=handler,
+                prompt="review",
+                expected_outputs=["quality_review_round1.json"],
+                gate_ids=["R"],
+            )
+        ],
+        dossier_store=store,
+    ).run(job_id="job-1", resume=True)
+
+    assert dossier.phases["review_heal"] == "done"
+    assert dossier.delegations == []
+    assert any(event.get("event") == "resume_preflight_gate_passed" for event in dossier.evidence["trace"])
+
+
 def test_orchestrator_can_fallback_to_source_data_artifacts_for_revalidation(tmp_path: Path):
     jobs_dir = tmp_path / "jobs"
     source_run = jobs_dir / "v3_source123" / "run"

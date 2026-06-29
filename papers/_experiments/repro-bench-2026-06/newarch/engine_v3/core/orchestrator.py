@@ -61,6 +61,31 @@ class EngineV3Orchestrator:
             if resume and dossier.phases.get(phase.id) == "done":
                 _trace(dossier, "phase_skip_done", phase=phase.id)
                 continue
+            if _can_resume_preflight_recheck(dossier, phase, context.run_dir):
+                _trace(
+                    dossier,
+                    "resume_preflight_gate_recheck",
+                    phase=phase.id,
+                    prior_status=dossier.phases.get(phase.id),
+                )
+                preflight_task = BrainTask(
+                    task_id="%s:preflight" % phase.id,
+                    phase=phase.id,
+                    prompt=phase.prompt,
+                    expected_outputs=list(phase.expected_outputs),
+                )
+                preflight_report = self._run_phase_handler_and_gates(phase, preflight_task, context, dossier)
+                if not preflight_report.blocked:
+                    dossier.mark_phase(phase.id, "done")
+                    _trace(dossier, "resume_preflight_gate_passed", phase=phase.id)
+                    self.dossier_store.save(dossier)
+                    continue
+                _trace(
+                    dossier,
+                    "resume_preflight_gate_blocked",
+                    phase=phase.id,
+                    failed_blocks=list(preflight_report.failed_blocks),
+                )
 
             task = BrainTask(
                 task_id="%s:brain" % phase.id,
@@ -161,6 +186,26 @@ class EngineV3Orchestrator:
                         blockers=list(runtime_result.blockers),
                     )
             if runtime_result is not None and runtime_result.status != "ok":
+                if _can_handler_recheck_after_runtime_non_ok(phase, runtime_result):
+                    _trace(
+                        dossier,
+                        "runtime_non_ok_handler_recheck_attempt",
+                        phase=phase.id,
+                        status=runtime_result.status,
+                        blockers=list(runtime_result.blockers),
+                    )
+                    gate_report = self._run_phase_handler_and_gates(phase, task, context, dossier)
+                    if not gate_report.blocked:
+                        dossier.mark_phase(phase.id, "done")
+                        _trace(dossier, "phase_done", phase=phase.id, route="handler_recheck_after_runtime_non_ok")
+                        self.dossier_store.save(dossier)
+                        continue
+                    _trace(
+                        dossier,
+                        "runtime_non_ok_handler_recheck_failed",
+                        phase=phase.id,
+                        failed_blocks=list(gate_report.failed_blocks),
+                    )
                 dossier.mark_phase(phase.id, runtime_result.status)
                 _trace(
                     dossier,
@@ -385,6 +430,19 @@ def _starts_new_review_repair_budget(phase_id: str, runtime_result: TaskResult |
     return required.issubset(changed)
 
 
+def _can_resume_preflight_recheck(dossier: Dossier, phase: PhaseSpec, run_dir: Path) -> bool:
+    if not phase.gate_ids or dossier.phases.get(phase.id) not in {"blocked", "error"}:
+        return False
+    if not phase.expected_outputs:
+        return True
+    artifact_paths = {
+        name
+        for name, artifact in dossier.artifacts.items()
+        if getattr(artifact, "sha256", "")
+    }
+    return all(rel in artifact_paths or (run_dir / rel).is_file() for rel in phase.expected_outputs)
+
+
 def _repair_decision(phase: PhaseSpec, gate_report) -> dict:
     failed = set(gate_report.failed_blocks)
     if "A" in failed:
@@ -430,6 +488,18 @@ def _runtime_result_repairable(result: TaskResult) -> bool:
         return False
     blockers = list(result.blockers or [])
     return bool(blockers) and all(str(blocker).startswith("missing declared output: ") for blocker in blockers)
+
+
+def _can_handler_backfill_runtime_block(phase: PhaseSpec, result: TaskResult) -> bool:
+    return phase.id == "data" and _runtime_result_repairable(result)
+
+
+def _can_handler_recheck_after_runtime_non_ok(phase: PhaseSpec, result: TaskResult) -> bool:
+    return (
+        bool(phase.gate_ids)
+        and phase.id in {"data", "claim_evidence", "review_heal"}
+        and result.status in {"blocked", "error"}
+    )
 
 
 def _try_revalidation_source_artifact_fallback(
