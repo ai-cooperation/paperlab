@@ -77,6 +77,8 @@ def test_review_heal_requires_fresh_review_json_and_log(tmp_path: Path):
         "missing declared output: quality_review_round1.json",
         "missing declared output: quality_review_log.md",
     ]
+    assert (tmp_path / "quality_review_round1.json").read_text(encoding="utf-8") == '{"old": true}\n'
+    assert (tmp_path / "quality_review_log.md").read_text(encoding="utf-8") == "old log\n"
     backups = list((tmp_path / "artifacts" / "stale_outputs").glob("**/quality_review_round1.json"))
     assert backups
 

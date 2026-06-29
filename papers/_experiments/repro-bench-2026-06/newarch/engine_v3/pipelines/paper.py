@@ -301,9 +301,10 @@ def _collect_gate_inputs(
     data_harness = None
     if _task.phase == "data":
         data_harness = run_data_harness_v3_2(context.run_dir, list(DATA_OUTPUTS))
+        substeps = build_data_substeps_v3_2(context.run_dir)
     else:
         load_or_build_canonical_data(context.run_dir, write=True, schema_version="v3.2")
-    substeps = build_data_substeps_v3_2(context.run_dir)
+        substeps = []
     if _task.phase == "claim_evidence":
         _augment_traceable_claim_evidence_rows(context.run_dir)
     gate_inputs = paperctl._build_dossier(context.run_dir)

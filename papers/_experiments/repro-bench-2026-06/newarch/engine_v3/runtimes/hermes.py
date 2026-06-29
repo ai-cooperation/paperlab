@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 import os
 import signal
+import shutil
 import tempfile
 import time
 from dataclasses import dataclass
@@ -115,8 +116,9 @@ class HermesCodexRuntime:
 
         expected_output_list = list(expected_outputs)
         fresh_outputs = _fresh_required_outputs(phase, expected_output_list)
+        quarantined_outputs: dict[str, Path] = {}
         if fresh_outputs:
-            _quarantine_existing_outputs(context.run_dir, fresh_outputs, task_id)
+            quarantined_outputs = _quarantine_existing_outputs(context.run_dir, fresh_outputs, task_id)
 
         if self.runner is None:
             baseline = _output_signature_map(_existing_outputs(context.run_dir, expected_output_list))
@@ -139,6 +141,7 @@ class HermesCodexRuntime:
         stdout_tail = _tail(combined)
         provider_failure = _provider_failure(combined)
         if provider_failure:
+            _restore_quarantined_outputs(context.run_dir, quarantined_outputs)
             return TaskResult(
                 task_id=task_id,
                 status="error",
@@ -147,6 +150,7 @@ class HermesCodexRuntime:
                 stdout_tail=stdout_tail,
             )
         if result.exit_code != 0:
+            _restore_quarantined_outputs(context.run_dir, quarantined_outputs)
             return TaskResult(
                 task_id=task_id,
                 status="error",
@@ -163,6 +167,7 @@ class HermesCodexRuntime:
         ]
         stale = sorted(stale)
         if missing:
+            _restore_quarantined_outputs(context.run_dir, quarantined_outputs)
             return TaskResult(
                 task_id=task_id,
                 status="blocked",
@@ -173,6 +178,7 @@ class HermesCodexRuntime:
                 stdout_tail=stdout_tail,
             )
         if stale:
+            _restore_quarantined_outputs(context.run_dir, quarantined_outputs)
             return TaskResult(
                 task_id=task_id,
                 status="blocked",
@@ -410,9 +416,10 @@ def _existing_outputs(run_dir: Path, expected_outputs: Iterable[str]) -> dict[st
     return outputs
 
 
-def _quarantine_existing_outputs(run_dir: Path, rel_paths: Iterable[str], task_id: str) -> None:
+def _quarantine_existing_outputs(run_dir: Path, rel_paths: Iterable[str], task_id: str) -> dict[str, Path]:
     safe_task_id = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in task_id)
     backup_root = run_dir / "artifacts" / "stale_outputs" / safe_task_id / str(time.time_ns())
+    backups: dict[str, Path] = {}
     for rel in sorted(set(rel_paths)):
         source = run_dir / rel
         if not source.is_file():
@@ -420,6 +427,19 @@ def _quarantine_existing_outputs(run_dir: Path, rel_paths: Iterable[str], task_i
         destination = backup_root / rel
         destination.parent.mkdir(parents=True, exist_ok=True)
         source.replace(destination)
+        backups[rel] = destination
+    return backups
+
+
+def _restore_quarantined_outputs(run_dir: Path, backups: dict[str, Path]) -> None:
+    for rel, backup in sorted(backups.items()):
+        if not backup.is_file():
+            continue
+        target = run_dir / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            target.unlink()
+        shutil.copy2(backup, target)
 
 
 def _fresh_required_outputs(phase: str, expected_outputs: Iterable[str]) -> set[str]:

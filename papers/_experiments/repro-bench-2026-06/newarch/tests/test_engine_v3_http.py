@@ -437,6 +437,67 @@ def test_v3_submit_ignores_stale_empty_legacy_lock(tmp_path: Path, golden_dir: P
     assert response.status_code == 202
 
 
+def test_v3_status_marks_stale_lock_as_accepted_not_running(tmp_path: Path):
+    job_id = "v3_stalejob"
+    run_dir = tmp_path / job_id / "run"
+    run_dir.mkdir(parents=True)
+    lock_dir = tmp_path / "_locks_v3"
+    lock_dir.mkdir()
+    (lock_dir / (job_id + ".lock")).write_text("", encoding="utf-8")
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+        )
+    )
+
+    response = tc.get(f"/v3/jobs/{job_id}/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "accepted"
+    assert body["lock_state"] == "stale"
+
+
+def test_v3_admin_cleanup_stale_locks_removes_only_dead_locks(tmp_path: Path):
+    import os
+
+    lock_dir = tmp_path / "_locks_v3"
+    lock_dir.mkdir()
+    stale_empty = lock_dir / "v3_empty.lock"
+    stale_pid = lock_dir / "v3_dead.lock"
+    active = lock_dir / "v3_active.lock"
+    foreign = lock_dir / "v3_foreign.lock"
+    stale_empty.write_text("", encoding="utf-8")
+    stale_pid.write_text('{"pid": 999999999}', encoding="utf-8")
+    active.write_text('{"pid": %d}' % os.getpid(), encoding="utf-8")
+    foreign.write_text("busy", encoding="utf-8")
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+        )
+    )
+
+    response = tc.post(
+        "/v3/admin/stale-locks/cleanup",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert sorted(body["removed"]) == ["v3_dead.lock", "v3_empty.lock"]
+    assert body["kept"] == ["v3_active.lock", "v3_foreign.lock"]
+    assert not stale_empty.exists()
+    assert not stale_pid.exists()
+    assert active.exists()
+    assert foreign.exists()
+
+
 def test_v3_worker_crash_sets_failed_state(tmp_path: Path):
     class CrashingRuntime:
         name = "crashing"

@@ -92,6 +92,7 @@ def register(
                 "GET /v3/capabilities",
                 "GET /v3/schema/{pack}/contract_v3.schema.json",
                 "POST /v3/jobs",
+                "POST /v3/admin/stale-locks/cleanup",
                 "GET /v3/jobs/{job_id}/status",
                 "GET /v3/jobs/{job_id}/artifact/{artifact_id}",
             ],
@@ -195,6 +196,16 @@ def register(
         thread.start()
         return _accepted_job(job_id, status_url, idempotent_replay=False)
 
+    @app.post("/v3/admin/stale-locks/cleanup")
+    def cleanup_stale_locks(
+        authorization: Optional[str] = Header(default=None, alias="Authorization"),
+    ) -> dict[str, Any]:
+        _require_post_auth(authorization, auth_token)
+        return {
+            "engine": "v3",
+            **_cleanup_stale_locks(jobs_dir / LOCK_DIRNAME),
+        }
+
     def _run_v3_job(
         job_id: str,
         run_dir: Path,
@@ -239,11 +250,13 @@ def register(
         store = DossierStore(run_dir)
         if not store.exists():
             if run_dir.is_dir():
+                lock_state = _lock_state(_lock_path(job_id))
                 return {
                     "engine": "v3",
                     "engine_revision": None,
                     "job_id": job_id,
-                    "status": "running" if _lock_path(job_id).exists() else "accepted",
+                    "status": "running" if lock_state == "active" else "accepted",
+                    "lock_state": lock_state,
                     "domain": "paper",
                     "phases": {},
                     "substeps": {},
@@ -258,12 +271,14 @@ def register(
             raise HTTPException(status_code=404, detail="job not found")
         dossier = store.load()
         dossier_status = _status(dossier.phases)
-        status = "running" if _lock_path(job_id).exists() and dossier_status not in {"blocked", "failed", "done"} else dossier_status
+        lock_state = _lock_state(_lock_path(job_id))
+        status = "running" if lock_state == "active" and dossier_status not in {"blocked", "failed", "done"} else dossier_status
         return {
             "engine": "v3",
             "engine_revision": dossier.evidence.get("engine_revision"),
             "job_id": dossier.job_id,
             "status": status,
+            "lock_state": lock_state,
             "domain": dossier.domain,
             "phases": dict(dossier.phases),
             "substeps": dict(dossier.evidence.get("substeps") or {}),
@@ -474,6 +489,26 @@ def _lock_owner_alive(path: Path) -> bool:
     except PermissionError:
         return True
     return True
+
+
+def _lock_state(path: Path) -> str:
+    if not path.exists():
+        return "none"
+    return "active" if _lock_owner_alive(path) else "stale"
+
+
+def _cleanup_stale_locks(lock_dir: Path) -> dict[str, Any]:
+    if not lock_dir.is_dir():
+        return {"removed": [], "kept": []}
+    removed: list[str] = []
+    kept: list[str] = []
+    for lock_path in sorted(lock_dir.glob("*.lock")):
+        if _lock_state(lock_path) == "stale":
+            lock_path.unlink(missing_ok=True)
+            removed.append(lock_path.name)
+        else:
+            kept.append(lock_path.name)
+    return {"removed": removed, "kept": kept}
 
 
 def _read_json(path: Optional[Path]) -> dict[str, Any] | None:

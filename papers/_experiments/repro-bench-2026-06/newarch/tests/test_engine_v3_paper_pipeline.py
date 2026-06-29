@@ -7,6 +7,7 @@ import pytest
 
 from engine_v3.core import DossierStore
 from engine_v3.core.orchestrator import EngineV3Orchestrator
+from engine_v3.core import BrainTask, RuntimeContext
 from engine_v3.packs.paper import PaperPack
 from engine_v3.pipelines.paper import (
     BOUNDED_GOLDEN_OUTPUTS,
@@ -32,6 +33,15 @@ def test_full_pipeline_data_prompt_includes_gate_a_acceptance_criteria():
     assert "35" in data_phase.prompt
     assert "doi_real_rate" in data_phase.prompt
     assert "0.80" in data_phase.prompt
+
+
+def test_collect_gate_inputs_only_reports_data_substeps_for_data_phase(tmp_path: Path):
+    result = paper_pipeline._collect_gate_inputs(
+        BrainTask(phase="claim_evidence", task_id="claim_evidence:brain"),
+        RuntimeContext(job_id="job-1", run_dir=tmp_path),
+    )
+
+    assert result["substeps"] == []
 
 
 def test_bounded_golden_pipeline_runs_selected_gates_through_v3(tmp_path: Path, golden_dir: Path):
