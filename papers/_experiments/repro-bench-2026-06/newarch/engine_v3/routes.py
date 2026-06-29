@@ -13,6 +13,7 @@ from urllib.parse import quote
 from fastapi import FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 
+from acceptance_gate_v3 import evaluate_run_acceptance
 from engine_v3.core import DossierStore
 from engine_v3.core.dossier import hash_file
 from engine_v3.core.orchestrator import EngineV3Orchestrator
@@ -377,6 +378,7 @@ def _project_status(dossier: Any, run_dir: Path) -> dict[str, Any]:
     review = _read_json(run_dir / "quality_review_round1.json") or {}
     status = _status(dossier.phases)
     artifacts = _artifact_projection(dossier)
+    acceptance = evaluate_run_acceptance(run_dir, dossier=dossier)
     has_pdf = bool(artifacts.get("has_pdf"))
     delivery = review.get("delivery")
     if delivery is None and status == "done":
@@ -406,6 +408,7 @@ def _project_status(dossier: Any, run_dir: Path) -> dict[str, Any]:
             ),
         },
         "artifacts": artifacts,
+        "acceptance": acceptance.to_public_dict(),
     }
 
 

@@ -120,6 +120,9 @@ def test_dossier_store_persists_artifact_hashes_and_checkpoints(tmp_path: Path):
     assert loaded.artifacts["intro"].path == "sections/intro.md"
     assert len(loaded.artifacts["intro"].sha256) == 64
     assert (run_dir / "dossier.v3.json").exists()
+    manifest = json.loads((run_dir / "artifact_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["schema_version"] == "paperlab.artifact_manifest.v3.2"
+    assert manifest["artifacts"]["intro"]["path"] == "sections/intro.md"
 
 
 def test_dossier_store_normalizes_cwd_relative_run_artifact_paths(tmp_path: Path, monkeypatch):

@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Mapping
 
+from acceptance_gate_v3 import write_artifact_manifest
+
 from .contracts import ArtifactRef, Dossier
 
 
@@ -45,6 +47,7 @@ class DossierStore:
             encoding="utf-8",
         )
         tmp.replace(self.path)
+        write_artifact_manifest(self.run_dir, payload)
 
     def exists(self) -> bool:
         return self.path.exists()

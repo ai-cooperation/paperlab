@@ -86,11 +86,12 @@ def _full_fixture_runtime(golden_dir: Path):
             )
         if "quality_review_log.md" in prompt:
             (cwd / "quality_review_log.md").write_text(
-                "# Quality review log\n\n- round 1: passed; no P0; floor ok\n",
+                "# Quality review log\n\n"
+                + "- round 1: passed; no P0; floor ok; seven dimensions checked.\n" * 20,
                 encoding="utf-8",
             )
         if "paper_draft_v0.pdf" in prompt:
-            (cwd / "paper_draft_v0.pdf").write_bytes(b"%PDF-1.4\n" + b"x" * 2000)
+            (cwd / "paper_draft_v0.pdf").write_bytes(b"%PDF-1.4\n" + b"x" * 120_000)
         return CliRunResult(exit_code=0, stdout="CHILD_OK", stderr="")
 
     return CodexCliRuntime(runner=fixture_runner)
@@ -232,7 +233,7 @@ def test_v3_job_submit_returns_before_runtime_finishes(tmp_path: Path):
 
 def test_v3_status_includes_project_page_projection(tmp_path: Path, golden_dir: Path, monkeypatch):
     def fake_format_repair(run_dir: Path, _contract: dict):
-        (run_dir / "paper_draft_v0.pdf").write_bytes(b"%PDF-1.4\n" + b"x" * 2000)
+        (run_dir / "paper_draft_v0.pdf").write_bytes(b"%PDF-1.4\n" + b"x" * 120_000)
         return {"crossref_ok": True}
 
     monkeypatch.setattr(paper_pipeline.format_repair, "verify_and_repair", fake_format_repair)
@@ -281,6 +282,8 @@ def test_v3_status_includes_project_page_projection(tmp_path: Path, golden_dir: 
     assert payload["tier"] == "master"
     assert "b_gap" in payload and "a_gap" in payload
     assert payload["summary"]["delivery"] == "pass"
+    assert payload["acceptance"]["status"] == "done_pass"
+    assert payload["acceptance"]["passed"] is True
     assert payload["artifacts"]["has_pdf"] is True
     assert "/artifact/paper_draft_v0.pdf?sha=" in payload["artifacts"]["pdf"]
 

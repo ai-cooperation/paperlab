@@ -6,6 +6,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from acceptance_gate_v3 import evaluate_run_acceptance
+
 
 REQUIRED_PHASES = {
     "data",
@@ -37,6 +39,8 @@ class JobValidation:
     gates_done: bool
     review_ok: bool
     pdf_ok: bool
+    acceptance_ok: bool
+    acceptance_status: str
     floor_100: float | None
     delivery: str
     findings: list[str]
@@ -86,7 +90,7 @@ def validate_jobs(
 
 
 def decide_batch_gate(rows: list[JobValidation]) -> BatchGateDecision:
-    blocked = sum(1 for row in rows if row.status == "blocked")
+    blocked = sum(1 for row in rows if row.status == "blocked" or row.acceptance_status == "failed_needs_human")
     failed = sum(1 for row in rows if not row.passed)
     if not rows:
         return BatchGateDecision(
@@ -165,19 +169,23 @@ def _validate_job(jobs_dir: Path, job_id: str, *, min_floor: float) -> JobValida
     findings.extend(review_findings)
     pdf_ok, pdf_findings = _validate_pdf(run_dir, dossier)
     findings.extend(pdf_findings)
+    acceptance = evaluate_run_acceptance(run_dir, dossier=dossier, min_floor=min_floor)
+    findings = list(dict.fromkeys(findings + acceptance.findings))
 
     status = "done" if phases_done else ("blocked" if any(value == "blocked" for value in phases.values()) else "partial")
-    passed = phases_done and gates_done and review_ok and pdf_ok
+    passed = acceptance.passed
     return JobValidation(
         job_id=job_id,
         status=status,
         passed=passed,
-        phases_done=phases_done,
-        gates_done=gates_done,
-        review_ok=review_ok,
-        pdf_ok=pdf_ok,
-        floor_100=floor_100,
-        delivery=delivery,
+        phases_done=bool(acceptance.checks.get("phases_done", phases_done)),
+        gates_done=bool(acceptance.checks.get("gates_done", gates_done)),
+        review_ok=bool(acceptance.checks.get("review_ok", review_ok)),
+        pdf_ok=bool(acceptance.checks.get("pdf_ok", pdf_ok)),
+        acceptance_ok=acceptance.passed,
+        acceptance_status=acceptance.status,
+        floor_100=acceptance.floor_100 if acceptance.floor_100 is not None else floor_100,
+        delivery=acceptance.delivery or delivery,
         findings=findings,
     )
 
@@ -255,13 +263,14 @@ def _read_json(path: Path) -> Any:
 
 
 def _print_table(rows: list[JobValidation]) -> None:
-    print("job_id\tstatus\tpassed\tfloor_100\tdelivery\tfindings")
+    print("job_id\tstatus\tacceptance\tpassed\tfloor_100\tdelivery\tfindings")
     for row in rows:
         print(
-            "%s\t%s\t%s\t%s\t%s\t%s"
+            "%s\t%s\t%s\t%s\t%s\t%s\t%s"
             % (
                 row.job_id,
                 row.status,
+                row.acceptance_status,
                 "yes" if row.passed else "no",
                 "" if row.floor_100 is None else "%.1f" % row.floor_100,
                 row.delivery,
