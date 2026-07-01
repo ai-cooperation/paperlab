@@ -227,6 +227,8 @@ def _validate_review(run_dir: Path, *, min_floor: float) -> tuple[bool, float | 
         score = value.get("score") if isinstance(value, dict) else value
         if not isinstance(score, (int, float)) or isinstance(score, bool):
             findings.append("dimension score is not numeric: %s" % key)
+        elif score < 0 or score > 10:
+            findings.append("dimension score outside 0-10: %s=%s" % (key, score))
 
     log = run_dir / "quality_review_log.md"
     if not log.is_file() or log.stat().st_size < 500:

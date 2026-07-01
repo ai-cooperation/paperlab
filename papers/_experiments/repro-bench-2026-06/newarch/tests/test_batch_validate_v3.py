@@ -104,6 +104,31 @@ def test_validate_job_marks_done_pass_only_for_full_acceptance_contract(tmp_path
     assert row.findings == []
 
 
+def test_validate_job_reports_missing_dossier_with_acceptance_fields(tmp_path: Path):
+    row = validate_jobs(tmp_path / "jobs", job_ids=["v3_missing"])[0]
+
+    assert row.passed is False
+    assert row.acceptance_ok is False
+    assert row.acceptance_status == "failed_repairable"
+    assert row.findings == ["missing or invalid dossier.v3.json"]
+
+
+def test_validate_job_rejects_review_dimension_scores_outside_zero_to_ten(tmp_path: Path):
+    run_dir = tmp_path / "jobs" / "v3_bad_scores" / "run"
+    run_dir.mkdir(parents=True)
+    _write_manifest(run_dir)
+    _write_dossier(run_dir, z_validation=_valid_pdf_validation())
+    _write_review(run_dir, dimension_score=86)
+    (run_dir / "quality_review_log.md").write_text("# log\n\n" + "reviewed\n" * 100, encoding="utf-8")
+    (run_dir / "paper_draft_v0.pdf").write_bytes(b"%PDF-1.4\n" + b"x" * 120_000)
+
+    row = validate_jobs(tmp_path / "jobs", job_ids=["v3_bad_scores"])[0]
+
+    assert row.passed is False
+    assert row.acceptance_status == "failed_repairable"
+    assert "dimension score outside 0-10" in " | ".join(row.findings)
+
+
 def test_manifest_backfill_includes_delivery_files_present_on_disk(tmp_path: Path):
     run_dir = tmp_path / "run"
     run_dir.mkdir()
@@ -202,7 +227,7 @@ def _write_dossier(run_dir: Path, *, z_validation: dict) -> None:
     )
 
 
-def _write_review(run_dir: Path) -> None:
+def _write_review(run_dir: Path, *, dimension_score: float = 8.2) -> None:
     (run_dir / "quality_review_round1.json").write_text(
         json.dumps(
             {
@@ -218,7 +243,7 @@ def _write_review(run_dir: Path) -> None:
                     "floor_failed": False,
                 },
                 "dimensions": {
-                    "academic_rigor": {"score": 8.2},
+                    "academic_rigor": {"score": dimension_score},
                     "novelty_positioning": {"score": 8.1},
                     "experimental_completeness": {"score": 8.0},
                     "writing_quality": {"score": 8.4},

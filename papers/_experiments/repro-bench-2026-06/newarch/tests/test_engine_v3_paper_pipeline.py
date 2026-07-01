@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
@@ -205,6 +206,65 @@ def test_review_heal_regenerates_flagged_figures_and_marks_loop_passed(tmp_path:
     assert review["review_loop"]["independent_reviewer"] is True
     assert (fig_dir / "fig_prisma_flow.png").stat().st_size > 1000
     assert "deterministic_review_heal" in (run_dir / "quality_review_log.md").read_text(encoding="utf-8")
+
+
+def test_review_heal_applies_structural_repair_and_normalizes_review_schema(tmp_path: Path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "references.bib").write_text(
+        "@article{Bi_2023,\n  title={Pangu Weather},\n  year={2023}\n}\n",
+        encoding="utf-8",
+    )
+    (run_dir / "claim_evidence_map.md").write_text(
+        "| Claim | Evidence |\n|---|---|\n| Forecast error fell by 12%. | real_experiments/real_results.json |\n",
+        encoding="utf-8",
+    )
+    for rel in ["paper_draft_v0.qmd", "paper_springer.qmd"]:
+        (run_dir / rel).write_text(
+            "---\ntitle: Test\nbibliography: references.bib\n---\n\n# Introduction\n\nForecast error fell by 12%.",
+            encoding="utf-8",
+        )
+    (run_dir / "quality_review_round1.json").write_text(
+        json.dumps(
+            {
+                "p0_count": 0,
+                "delivery": "pass",
+                "floor_100": 86,
+                "review_loop": {
+                    "status": "done",
+                    "rounds": 1,
+                    "reviewer_model": "hermes-reviewer",
+                    "fixer_model": "hermes-fixer",
+                    "independent_reviewer": {"passed": True},
+                    "floor_failed": False,
+                },
+                "dimensions": {
+                    "academic_rigor": {"score": 86},
+                    "novelty_positioning": {"score": 84},
+                    "experimental_completeness": {"score": 82},
+                    "writing_quality": {"score": 85},
+                    "practical_feasibility": {"score": 87},
+                    "citation_accuracy": {"score": 88},
+                    "format_compliance": {"score": 86},
+                },
+                "findings": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = paper_pipeline._collect_gate_inputs(
+        BrainTask(phase="review_heal", task_id="review_heal:brain"),
+        RuntimeContext(job_id="job-1", run_dir=run_dir),
+    )
+
+    review = result["gate_inputs"]["review"]
+    assert review["review_loop"]["independent_reviewer"] is True
+    assert review["dimensions"]["academic_rigor"]["score"] == 8.6
+    assert "abstract =" in (run_dir / "references.bib").read_text(encoding="utf-8")
+    assert "V3.2 exact-match audit addendum" in (run_dir / "claim_evidence_map.md").read_text(encoding="utf-8")
+    assert "link-citations: true" in (run_dir / "paper_springer.qmd").read_text(encoding="utf-8")
+    assert "deterministic_review_schema_normalization" in (run_dir / "quality_review_log.md").read_text(encoding="utf-8")
 
 
 def test_bounded_golden_pipeline_runs_selected_gates_through_v3(tmp_path: Path, golden_dir: Path):
@@ -459,15 +519,15 @@ def test_review_heal_phase_requires_fresh_review_artifacts_before_manuscript_rep
     assert "paper_springer.qmd" not in review_heal.expected_outputs
     assert "sections/results.md" not in review_heal.expected_outputs
     assert review_heal.repair_expected_outputs is not None
-    assert "paper_draft_v0.qmd" in review_heal.repair_expected_outputs
-    assert "paper_springer.qmd" in review_heal.repair_expected_outputs
-    assert "sections/results.md" in review_heal.repair_expected_outputs
+    assert review_heal.repair_expected_outputs == ["quality_review_round1.json", "quality_review_log.md"]
     assert "Do not treat manuscript edits alone as completion" in review_heal.prompt
     assert "dimensions" in review_heal.prompt
     assert "academic_rigor" in review_heal.prompt
     assert "concrete_fix" in review_heal.prompt
     assert "legacy v2 audit artifacts" in review_heal.prompt
     assert "must not fail delivery solely because they are absent" in review_heal.prompt
+    assert "bounded final re-review" in review_heal.repair_prompt
+    assert "Do not edit manuscript/source artifacts" in review_heal.repair_prompt
 
 
 def test_table_width_validation_requires_tbl_colwidths(tmp_path: Path):

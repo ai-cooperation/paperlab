@@ -96,7 +96,7 @@ WRITE_OUTPUTS = [
 ]
 REVIEW_OUTPUTS = ["quality_review_round1.json", "quality_review_log.md"]
 REVIEW_HEAL_OUTPUTS = REVIEW_OUTPUTS
-REVIEW_HEAL_REPAIR_OUTPUTS = REVIEW_OUTPUTS + WRITE_OUTPUTS + ["paper_springer.qmd"]
+REVIEW_HEAL_REPAIR_OUTPUTS = REVIEW_OUTPUTS
 FORMAT_REPAIR_OUTPUTS = ["paper_draft_v0.pdf"]
 
 WRITE_REPAIR_PROMPT = """Repair the write phase missing manuscript outputs.
@@ -178,6 +178,24 @@ V3.2 boundary:
   V3.2 review outputs and must not fail delivery solely because they are absent.
 - If review finds fixable manuscript, table, citation, or visual-layout issues, repair
   paper_draft_v0.qmd, paper_springer.qmd, and the affected sections within this phase.
+"""
+
+REVIEW_HEAL_REPAIR_PROMPT = """Run bounded final re-review after deterministic structural repairs.
+
+The harness has already applied mechanical V3.2 repairs before this repair attempt:
+- references.bib abstract-field coverage is normalized with explicit unavailable placeholders when needed.
+- claim_evidence_map.md includes the V3.2 exact-match audit addendum when prior rows can be mapped.
+- paper_draft_v0.qmd and paper_springer.qmd include citation/link frontmatter for blue clickable citations.
+- exact reviewer replacement fixes may already have been applied when the previous review gave target/replacement text.
+
+Hard boundary:
+- First inspect the current artifacts after deterministic structural repairs.
+- Verify whether previously reported P0/P1 items are actually resolved in the current files.
+- Overwrite only quality_review_round1.json and quality_review_log.md.
+- Do not edit manuscript/source artifacts in this bounded final re-review; structural repairs are handled by the harness before this task.
+- Keep delivery as "revise" with concrete findings if any P0 remains.
+- Set delivery to "pass" only if no P0 issues remain and the current PDF/manuscript is deliverable.
+- Include the same required review schema as the main review_heal prompt, including review_loop and all seven dimensions with 0-10 scores.
 """
 
 FULL_PIPELINE_OUTPUTS = (
@@ -275,7 +293,7 @@ def full_paper_pipeline() -> list[PhaseSpec]:
             prompt=REVIEW_HEAL_PROMPT,
             expected_outputs=list(REVIEW_HEAL_OUTPUTS),
             gate_ids=["R"],
-            repair_prompt=REVIEW_HEAL_PROMPT,
+            repair_prompt=REVIEW_HEAL_REPAIR_PROMPT,
             repair_expected_outputs=list(REVIEW_HEAL_REPAIR_OUTPUTS),
             max_repair_attempts=3,
             review_rounds=3,
@@ -311,7 +329,9 @@ def _collect_gate_inputs(
     if _task.phase == "render_gates":
         _normalize_thousands_separators_for_gate_f(context.run_dir)
     if _task.phase == "review_heal":
+        _apply_review_structural_repairs(context.run_dir)
         _apply_exact_review_replacements(context.run_dir)
+        _normalize_review_record_schema(context.run_dir)
     gate_inputs = paperctl._build_dossier(context.run_dir)
     if data_harness is not None:
         gate_inputs["data_completeness"] = data_harness["completeness"]
@@ -523,6 +543,115 @@ def _append_repair_log(run_dir: Path, title: str, body: str) -> None:
     log_path = run_dir / "quality_review_log.md"
     existing = log_path.read_text(encoding="utf-8", errors="ignore") if log_path.is_file() else ""
     log_path.write_text((existing.rstrip() + "\n\n## %s\n\n%s\n" % (title, body)).lstrip(), encoding="utf-8")
+
+
+def _apply_review_structural_repairs(run_dir: Path) -> bool:
+    try:
+        from review_structural_repair import repair_run
+    except ImportError:
+        return False
+    result = repair_run(run_dir)
+    return bool(result.get("changed")) if isinstance(result, dict) else False
+
+
+def _normalize_review_record_schema(run_dir: Path) -> bool:
+    review_path = run_dir / "quality_review_round1.json"
+    review = _read_json(review_path)
+    if not isinstance(review, dict):
+        return False
+
+    changed = False
+    delivery = str(review.get("delivery") or "").lower()
+    floor_100 = _numeric_review_value(review.get("floor_100"))
+    p0_count = _int_review_value(review.get("p0_count"), default=1)
+    pass_like = delivery in {"pass", "passed", "ok"} and p0_count == 0 and floor_100 is not None and floor_100 >= 80
+
+    loop = review.get("review_loop") if isinstance(review.get("review_loop"), dict) else {}
+    if not isinstance(review.get("review_loop"), dict):
+        changed = True
+    independent = loop.get("independent_reviewer")
+    if isinstance(independent, dict):
+        loop["independent_reviewer"] = bool(pass_like and _dict_says_pass_like(independent))
+        changed = True
+    elif independent is not True:
+        normalized_independent = bool(pass_like and str(independent).lower() in {"true", "yes", "pass", "passed", "ok", "done"})
+        if loop.get("independent_reviewer") != normalized_independent:
+            loop["independent_reviewer"] = normalized_independent
+            changed = True
+
+    expected_status = "passed" if pass_like else "blocked_revise"
+    if str(loop.get("status") or "").lower() not in {"pass", "passed", "ok", "done"} and pass_like:
+        loop["status"] = expected_status
+        changed = True
+    elif not pass_like and not loop.get("status"):
+        loop["status"] = expected_status
+        changed = True
+    if not isinstance(loop.get("rounds"), int) or isinstance(loop.get("rounds"), bool) or int(loop.get("rounds") or 0) < 1:
+        loop["rounds"] = 1
+        changed = True
+    if not loop.get("reviewer_model"):
+        loop["reviewer_model"] = "hermes bounded final re-review"
+        changed = True
+    if not loop.get("fixer_model"):
+        loop["fixer_model"] = "deterministic structural repair"
+        changed = True
+    expected_floor_failed = not pass_like
+    if loop.get("floor_failed") is not expected_floor_failed:
+        loop["floor_failed"] = expected_floor_failed
+        changed = True
+    if review.get("review_loop") != loop:
+        review["review_loop"] = loop
+        changed = True
+
+    dimensions = review.get("dimensions") if isinstance(review.get("dimensions"), dict) else {}
+    for value in dimensions.values():
+        if not isinstance(value, dict):
+            continue
+        score = _numeric_review_value(value.get("score"))
+        if score is None or score <= 10:
+            continue
+        if score <= 100:
+            value["score"] = round(score / 10.0, 3)
+            changed = True
+
+    if not changed:
+        return False
+    review_path.write_text(json.dumps(review, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+    _append_repair_log(
+        run_dir,
+        "deterministic_review_schema_normalization",
+        "Normalized review_loop schema and converted any 0-100 dimension scores to the required 0-10 scale without changing delivery.",
+    )
+    return True
+
+
+def _dict_says_pass_like(value: dict[str, Any]) -> bool:
+    if value.get("passed") is True or value.get("used") is True:
+        return True
+    return str(value.get("delivery_recommendation") or value.get("status") or "").lower() in {
+        "pass",
+        "passed",
+        "ok",
+        "done",
+    }
+
+
+def _numeric_review_value(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def _int_review_value(value: Any, *, default: int) -> int:
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return default
 
 
 def _augment_traceable_claim_evidence_rows(run_dir: Path) -> bool:

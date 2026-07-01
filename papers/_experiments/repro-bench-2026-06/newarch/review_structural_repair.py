@@ -153,7 +153,7 @@ def _extract_claim_rows(text: str) -> list[dict[str, str]]:
         if any("claim" in cell for cell in lowered) and any("evidence" in cell or "source" in cell for cell in lowered):
             headers = lowered
             continue
-        if not headers or len(cells) < 3:
+        if not headers or len(cells) < 2:
             continue
         row = dict(zip(headers, cells))
         claim = _first(row, ["quantitative claim", "quantitative manuscript claim", "claim"])
