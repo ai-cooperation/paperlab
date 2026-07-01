@@ -205,7 +205,52 @@ def test_review_heal_regenerates_flagged_figures_and_marks_loop_passed(tmp_path:
     assert review["delivery"] == "pass"
     assert review["review_loop"]["independent_reviewer"] is True
     assert (fig_dir / "fig_prisma_flow.png").stat().st_size > 1000
+    assert "PRISMA-style evidence screening flow" in (fig_dir / "fig_prisma_flow.svg").read_text(encoding="utf-8")
+    assert "Public-data to ESCO/EPC risk workflow" in (fig_dir / "fig_method_overview.svg").read_text(encoding="utf-8")
     assert "deterministic_review_heal" in (run_dir / "quality_review_log.md").read_text(encoding="utf-8")
+
+
+def test_review_heal_removes_flagged_out_of_domain_citation_before_passing(tmp_path: Path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    sentence = "External-validity caveats are informed by a weak transfer reference @Hasan2020Diabetes."
+    for rel in ["paper_draft_v0.qmd", "paper_springer.qmd", "sections/discussion.md"]:
+        path = run_dir / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(sentence + "\n\nA retained domain sentence remains.\n", encoding="utf-8")
+    (run_dir / "references.bib").write_text(
+        "@article{Hasan2020Diabetes,\n  title={Diabetes ML},\n  year={2020},\n  doi={10.1000/example}\n}\n",
+        encoding="utf-8",
+    )
+    (run_dir / "quality_review_round1.json").write_text(
+        '{"p0_count":0,"delivery":"revise","floor_100":79.0,'
+        '"review_loop":{"status":"round1_complete_revise_required","rounds":1,'
+        '"reviewer_model":"codex-reviewer","fixer_model":"hermes","independent_reviewer":true,'
+        '"floor_failed":true},'
+        '"dimensions":{'
+        '"academic_rigor":{"score":8.2},"novelty_positioning":{"score":8.0},'
+        '"experimental_completeness":{"score":7.0},"writing_quality":{"score":8.6},'
+        '"practical_feasibility":{"score":8.6},"citation_accuracy":{"score":7.0},'
+        '"format_compliance":{"score":8.0}},'
+        '"findings":[{"severity":"P1","location":"references.bib entry Hasan2020Diabetes",'
+        '"issue":"out-of-domain citation retained",'
+        '"concrete_fix":"Remove @Hasan2020Diabetes or replace it with a domain reference.",'
+        '"rationale":"Avoid bibliography padding."}]}',
+        encoding="utf-8",
+    )
+    (run_dir / "quality_review_log.md").write_text("round 1\n", encoding="utf-8")
+
+    result = paper_pipeline._collect_gate_inputs(
+        BrainTask(phase="review_heal", task_id="review_heal:brain"),
+        RuntimeContext(job_id="job-1", run_dir=run_dir),
+    )
+
+    review = result["gate_inputs"]["review"]
+    assert review["delivery"] == "pass"
+    assert review["findings"] == []
+    assert "Hasan2020Diabetes" not in (run_dir / "paper_draft_v0.qmd").read_text(encoding="utf-8")
+    assert "Hasan2020Diabetes" not in (run_dir / "references.bib").read_text(encoding="utf-8")
+    assert "A retained domain sentence remains." in (run_dir / "paper_draft_v0.qmd").read_text(encoding="utf-8")
 
 
 def test_review_heal_applies_structural_repair_and_normalizes_review_schema(tmp_path: Path):
@@ -515,11 +560,12 @@ def test_review_heal_phase_requires_fresh_review_artifacts_before_manuscript_rep
 
     assert "quality_review_round1.json" in review_heal.expected_outputs
     assert "quality_review_log.md" in review_heal.expected_outputs
-    assert "paper_draft_v0.qmd" not in review_heal.expected_outputs
-    assert "paper_springer.qmd" not in review_heal.expected_outputs
-    assert "sections/results.md" not in review_heal.expected_outputs
+    assert "paper_draft_v0.qmd" in review_heal.expected_outputs
+    assert "paper_springer.qmd" in review_heal.expected_outputs
+    assert "sections/results.md" in review_heal.expected_outputs
+    assert "figures/fig_prisma_flow.png" in review_heal.expected_outputs
     assert review_heal.repair_expected_outputs is not None
-    assert review_heal.repair_expected_outputs == ["quality_review_round1.json", "quality_review_log.md"]
+    assert review_heal.repair_expected_outputs == review_heal.expected_outputs
     assert "Do not treat manuscript edits alone as completion" in review_heal.prompt
     assert "dimensions" in review_heal.prompt
     assert "academic_rigor" in review_heal.prompt
@@ -527,7 +573,7 @@ def test_review_heal_phase_requires_fresh_review_artifacts_before_manuscript_rep
     assert "legacy v2 audit artifacts" in review_heal.prompt
     assert "must not fail delivery solely because they are absent" in review_heal.prompt
     assert "bounded final re-review" in review_heal.repair_prompt
-    assert "Do not edit manuscript/source artifacts" in review_heal.repair_prompt
+    assert "You may edit manuscript/source/figure artifacts" in review_heal.repair_prompt
 
 
 def test_table_width_validation_requires_tbl_colwidths(tmp_path: Path):

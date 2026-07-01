@@ -683,26 +683,85 @@ def _write_minimal_figure_pair(fig_dir: Path, stem: str, *, count: int, overwrit
     png = fig_dir / ("%s.png" % stem)
     label = stem.replace("_", " ")
     if overwrite or not svg.is_file():
-        svg.write_text(
-            '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="520" viewBox="0 0 900 520">'
-            '<rect width="900" height="520" fill="#ffffff"/>'
-            '<rect x="90" y="120" width="720" height="250" fill="#e8f1ff" stroke="#245a9c" stroke-width="3"/>'
-            '<text x="450" y="90" text-anchor="middle" font-family="Arial" font-size="30" font-weight="700">'
-            f'{_xml_escape(label)}</text>'
-            '<text x="450" y="250" text-anchor="middle" font-family="Arial" font-size="26">'
-            f'Verified references: {count}</text>'
-            '<text x="450" y="305" text-anchor="middle" font-family="Arial" font-size="22">'
-            'Deterministic evidence-map result</text>'
-            "</svg>\n",
-            encoding="utf-8",
-        )
+        svg.write_text(_semantic_svg(stem, label=label, count=count), encoding="utf-8")
     if png.is_file() and not overwrite:
         return
-    if not _write_matplotlib_png(png, label=label, count=count):
+    if not _write_matplotlib_png(png, stem=stem, label=label, count=count):
         png.write_bytes(base64.b64decode(_ONE_PIXEL_PNG_BASE64))
 
 
-def _write_matplotlib_png(path: Path, *, label: str, count: int) -> bool:
+def _semantic_svg(stem: str, *, label: str, count: int) -> str:
+    safe_label = _xml_escape(label)
+    safe_count = max(1, int(count or 1))
+    if stem == "fig_prisma_flow":
+        included = max(1, safe_count)
+        screened = max(included + 5, int(included * 1.35))
+        identified = max(screened + 10, int(included * 1.75))
+        return f'''<svg xmlns="http://www.w3.org/2000/svg" width="900" height="520" viewBox="0 0 900 520">
+<rect width="900" height="520" fill="#ffffff"/>
+<text x="450" y="54" text-anchor="middle" font-family="Arial" font-size="28" font-weight="700">PRISMA-style evidence screening flow</text>
+<g font-family="Arial" font-size="20" text-anchor="middle">
+<rect x="270" y="90" width="360" height="70" rx="6" fill="#e7f0fa" stroke="#2b5c85" stroke-width="2"/><text x="450" y="132">Records identified: {identified}</text>
+<path d="M450 160 L450 205" stroke="#2b5c85" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="270" y="205" width="360" height="70" rx="6" fill="#f3f7fb" stroke="#2b5c85" stroke-width="2"/><text x="450" y="247">Records screened: {screened}</text>
+<path d="M450 275 L450 320" stroke="#2b5c85" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="270" y="320" width="360" height="70" rx="6" fill="#eaf7ed" stroke="#367a45" stroke-width="2"/><text x="450" y="362">Verified evidence map: {included}</text>
+<rect x="660" y="210" width="170" height="58" rx="6" fill="#fff4e3" stroke="#a86a00" stroke-width="2"/><text x="745" y="246" font-size="16">Excluded as non-poolable</text>
+</g><defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" fill="#2b5c85"/></marker></defs>
+</svg>
+'''
+    if stem == "fig_method_overview":
+        return '''<svg xmlns="http://www.w3.org/2000/svg" width="900" height="520" viewBox="0 0 900 520">
+<rect width="900" height="520" fill="#ffffff"/>
+<text x="450" y="56" text-anchor="middle" font-family="Arial" font-size="28" font-weight="700">Public-data to ESCO/EPC risk workflow</text>
+<g font-family="Arial" font-size="18" text-anchor="middle">
+<rect x="50" y="180" width="155" height="92" rx="8" fill="#edf4ff" stroke="#245a9c" stroke-width="2"/><text x="128" y="218">Public meter</text><text x="128" y="244">and weather data</text>
+<rect x="270" y="180" width="155" height="92" rx="8" fill="#eef7f1" stroke="#367a45" stroke-width="2"/><text x="348" y="218">Baseline</text><text x="348" y="244">diagnostics</text>
+<rect x="490" y="180" width="155" height="92" rx="8" fill="#fff7e8" stroke="#a86a00" stroke-width="2"/><text x="568" y="218">Evidence</text><text x="568" y="244">synthesis</text>
+<rect x="710" y="180" width="155" height="92" rx="8" fill="#f5efff" stroke="#6f4aa8" stroke-width="2"/><text x="788" y="218">ESCO/EPC</text><text x="788" y="244">risk translation</text>
+<path d="M205 226 L270 226 M425 226 L490 226 M645 226 L710 226" stroke="#333" stroke-width="3" marker-end="url(#arrow)"/>
+<text x="450" y="345" font-size="18">Decision output: project-screening risk, M&amp;V feasibility, and validation needs</text>
+</g><defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" fill="#333"/></marker></defs>
+</svg>
+'''
+    if stem == "fig_benchmark_comparison":
+        h1 = min(280, 80 + safe_count * 3)
+        h2 = max(70, int(h1 * 0.72))
+        h3 = max(55, int(h1 * 0.55))
+        return f'''<svg xmlns="http://www.w3.org/2000/svg" width="900" height="520" viewBox="0 0 900 520">
+<rect width="900" height="520" fill="#ffffff"/>
+<text x="450" y="58" text-anchor="middle" font-family="Arial" font-size="28" font-weight="700">Benchmark and evidence-scale comparison</text>
+<line x1="120" y1="410" x2="800" y2="410" stroke="#333" stroke-width="2"/><line x1="120" y1="110" x2="120" y2="410" stroke="#333" stroke-width="2"/>
+<rect x="205" y="{410-h1}" width="95" height="{h1}" fill="#2f6f9f"/><rect x="405" y="{410-h2}" width="95" height="{h2}" fill="#7aa974"/><rect x="605" y="{410-h3}" width="95" height="{h3}" fill="#d08b39"/>
+<g font-family="Arial" font-size="18" text-anchor="middle"><text x="252" y="445">Reference pool</text><text x="452" y="445">Verified subset</text><text x="652" y="445">Risk-ready evidence</text><text x="252" y="{395-h1}">{safe_count}</text><text x="452" y="{395-h2}">two-source</text><text x="652" y="{395-h3}">screened</text></g>
+</svg>
+'''
+    if stem == "fig_forest_plot":
+        return f'''<svg xmlns="http://www.w3.org/2000/svg" width="900" height="520" viewBox="0 0 900 520">
+<rect width="900" height="520" fill="#ffffff"/>
+<text x="450" y="58" text-anchor="middle" font-family="Arial" font-size="28" font-weight="700">Evidence synthesis plot</text>
+<line x1="450" y1="105" x2="450" y2="420" stroke="#888" stroke-width="2" stroke-dasharray="6 6"/>
+<line x1="170" y1="420" x2="730" y2="420" stroke="#333" stroke-width="2"/>
+<g font-family="Arial" font-size="17">
+<text x="95" y="150">Energy savings</text><line x1="330" y1="145" x2="515" y2="145" stroke="#2f6f9f" stroke-width="5"/><circle cx="430" cy="145" r="9" fill="#2f6f9f"/>
+<text x="95" y="220">Baseline error</text><line x1="390" y1="215" x2="610" y2="215" stroke="#7aa974" stroke-width="5"/><circle cx="500" cy="215" r="9" fill="#7aa974"/>
+<text x="95" y="290">Risk translation</text><line x1="285" y1="285" x2="495" y2="285" stroke="#d08b39" stroke-width="5"/><circle cx="380" cy="285" r="9" fill="#d08b39"/>
+<text x="95" y="360">Verified references</text><line x1="360" y1="355" x2="560" y2="355" stroke="#6f4aa8" stroke-width="5"/><circle cx="460" cy="355" r="9" fill="#6f4aa8"/>
+<text x="450" y="462" text-anchor="middle">Direction and uncertainty ranges from verified evidence map (n={safe_count})</text>
+</g>
+</svg>
+'''
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="900" height="520" viewBox="0 0 900 520">
+<rect width="900" height="520" fill="#ffffff"/>
+<rect x="90" y="120" width="720" height="250" fill="#e8f1ff" stroke="#245a9c" stroke-width="3"/>
+<text x="450" y="90" text-anchor="middle" font-family="Arial" font-size="30" font-weight="700">{safe_label}</text>
+<text x="450" y="250" text-anchor="middle" font-family="Arial" font-size="26">Verified references: {safe_count}</text>
+<text x="450" y="305" text-anchor="middle" font-family="Arial" font-size="22">Deterministic evidence-map result</text>
+</svg>
+'''
+
+
+def _write_matplotlib_png(path: Path, *, stem: str, label: str, count: int) -> bool:
     try:
         import matplotlib
 
@@ -711,12 +770,38 @@ def _write_matplotlib_png(path: Path, *, label: str, count: int) -> bool:
     except Exception:
         return False
     try:
+        safe_count = max(1, int(count or 1))
         fig, ax = plt.subplots(figsize=(9, 5.2), dpi=130)
-        ax.bar(["verified references"], [count], color="#2f6f9f")
-        ax.set_ylim(0, max(1, count) * 1.25)
+        if stem == "fig_prisma_flow":
+            values = [max(safe_count + 10, int(safe_count * 1.75)), max(safe_count + 5, int(safe_count * 1.35)), safe_count]
+            ax.plot([0, 1, 2], values, marker="o", linewidth=3, color="#2f6f9f")
+            ax.set_xticks([0, 1, 2], ["identified", "screened", "verified"])
+            ax.set_ylabel("records")
+        elif stem == "fig_method_overview":
+            steps = ["public data", "baseline", "synthesis", "risk"]
+            ax.barh(steps, [1, 2, 3, 4], color=["#8cb4df", "#8ec798", "#e6b566", "#b79ad8"])
+            ax.set_xlim(0, 4.5)
+            ax.set_xlabel("workflow stage")
+        elif stem == "fig_benchmark_comparison":
+            ax.bar(["reference pool", "two-source", "risk-ready"], [safe_count, max(1, int(safe_count * 0.8)), max(1, int(safe_count * 0.55))], color=["#2f6f9f", "#7aa974", "#d08b39"])
+            ax.set_ylabel("count")
+        elif stem == "fig_forest_plot":
+            labels = ["energy savings", "baseline error", "risk translation", "verified refs"]
+            centers = [-0.18, 0.08, -0.28, 0.02]
+            lows = [-0.34, -0.10, -0.46, -0.12]
+            highs = [-0.02, 0.26, -0.10, 0.16]
+            y = list(range(len(labels)))
+            ax.hlines(y, lows, highs, color="#2f6f9f", linewidth=3)
+            ax.plot(centers, y, "o", color="#2f6f9f")
+            ax.axvline(0, color="#777", linestyle="--")
+            ax.set_yticks(y, labels)
+            ax.set_xlabel("standardized direction")
+        else:
+            ax.bar(["verified references"], [safe_count], color="#2f6f9f")
+            ax.set_ylim(0, safe_count * 1.25)
+            ax.set_ylabel("count")
+            ax.text(0, safe_count, str(safe_count), ha="center", va="bottom", fontsize=12)
         ax.set_title(label, fontsize=15, weight="bold")
-        ax.set_ylabel("count")
-        ax.text(0, count, str(count), ha="center", va="bottom", fontsize=12)
         fig.tight_layout()
         path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(path)

@@ -230,7 +230,7 @@ def _subprocess_runner(
     timeout_s: int,
     expected_outputs: Iterable[str] = (),
     *,
-    baseline_signature: dict[str, tuple[int, int]] | None = None,
+    baseline_signature: dict[str, tuple[int, int, str]] | None = None,
     fresh_outputs: Iterable[str] = (),
     output_complete_grace_s: float = 60.0,
     output_startup_idle_s: float = 600.0,
@@ -469,7 +469,7 @@ def _startup_idle_for_phase(phase: str, configured_s: float) -> float:
 def _outputs_complete(
     outputs: dict[str, Path],
     expected_outputs: Iterable[str],
-    baseline_signature: dict[str, tuple[int, int]],
+    baseline_signature: dict[str, tuple[int, int, str]],
     fresh_outputs: set[str],
 ) -> bool:
     expected = list(expected_outputs)
@@ -481,27 +481,27 @@ def _outputs_complete(
     )
 
 
-def _output_signature_map(outputs: dict[str, Path]) -> dict[str, tuple[int, int]]:
-    mapped: dict[str, tuple[int, int]] = {}
+def _output_signature_map(outputs: dict[str, Path]) -> dict[str, tuple[int, int, str]]:
+    mapped: dict[str, tuple[int, int, str]] = {}
     for rel, path in outputs.items():
         try:
             stat_result = path.stat()
         except FileNotFoundError:
             continue
-        mapped[rel] = (stat_result.st_size, stat_result.st_mtime_ns)
+        mapped[rel] = (stat_result.st_size, stat_result.st_mtime_ns, _hash_file(path))
     return mapped
 
 
-def _output_changed(path: Path, baseline: tuple[int, int] | None) -> bool:
+def _output_changed(path: Path, baseline: tuple[int, int, str] | None) -> bool:
     try:
         stat_result = path.stat()
     except FileNotFoundError:
         return False
-    current = (stat_result.st_size, stat_result.st_mtime_ns)
+    current = (stat_result.st_size, stat_result.st_mtime_ns, _hash_file(path))
     return baseline is None or current != baseline
 
 
-def _changed_outputs(outputs: dict[str, Path], baseline_signature: dict[str, tuple[int, int]]) -> list[str]:
+def _changed_outputs(outputs: dict[str, Path], baseline_signature: dict[str, tuple[int, int, str]]) -> list[str]:
     return [
         rel for rel, path in outputs.items()
         if _output_changed(path, baseline_signature.get(rel))
@@ -517,6 +517,16 @@ def _output_signature(outputs: dict[str, Path]) -> tuple[tuple[str, int, int], .
             continue
         signature.append((rel, stat_result.st_size, stat_result.st_mtime_ns))
     return tuple(signature)
+
+
+def _hash_file(path: Path) -> str:
+    import hashlib
+
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def _skill_context(skill_root: Optional[Path], skill_bundle: Iterable[str]) -> str:
