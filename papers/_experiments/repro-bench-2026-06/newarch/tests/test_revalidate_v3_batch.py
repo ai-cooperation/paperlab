@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -85,3 +86,89 @@ def test_prepare_acceptance_repair_resume_marks_format_repair_for_rerun(tmp_path
 
     assert changed is True
     assert '"format_repair": "blocked"' in (run_dir / "dossier.v3.json").read_text(encoding="utf-8")
+
+
+def test_revalidation_resets_quality_phases_when_review_provenance_invalid(tmp_path: Path):
+    from revalidate_v3_batch import _prepare_review_provenance_resume
+
+    run_dir = tmp_path / "v3_job" / "run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "dossier.v3.json").write_text(
+        '{"phases":{"data":"done","write":"done","render_gates":"done",'
+        '"review_heal":"done","format_repair":"done"}}',
+        encoding="utf-8",
+    )
+    # The 2026-07-02 Potemkin shape: synthesized deterministic pass review,
+    # no review_method, no decision trace.
+    (run_dir / "quality_review_round1.json").write_text(
+        '{"p0_count":0,"delivery":"pass","floor_100":82.0,'
+        '"review_loop":{"status":"passed","rounds":1,'
+        '"reviewer_model":"deterministic bounded final review",'
+        '"fixer_model":"deterministic structural repair",'
+        '"independent_reviewer":true,"floor_failed":false}}',
+        encoding="utf-8",
+    )
+    (run_dir / "quality_review_log.md").write_text("Reviewer: deterministic.\n", encoding="utf-8")
+
+    changed = _prepare_review_provenance_resume(tmp_path, "v3_job")
+
+    assert changed is True
+    dossier = json.loads((run_dir / "dossier.v3.json").read_text(encoding="utf-8"))
+    assert dossier["phases"]["render_gates"] == "blocked"
+    assert dossier["phases"]["review_heal"] == "blocked"
+    assert dossier["phases"]["format_repair"] == "blocked"
+    assert dossier["phases"]["data"] == "done"
+    assert dossier["phases"]["write"] == "done"
+
+
+def test_revalidation_leaves_phases_alone_when_review_provenance_valid(tmp_path: Path):
+    from engine_v3 import review_provenance
+    from revalidate_v3_batch import _prepare_review_provenance_resume
+
+    run_dir = tmp_path / "v3_job" / "run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "paper_draft_v0.qmd").write_text("reviewed content", encoding="utf-8")
+    stamp = review_provenance.manuscript_sha256(run_dir, ("paper_draft_v0.qmd",))
+    (run_dir / "dossier.v3.json").write_text(
+        '{"phases":{"review_heal":"done","format_repair":"done"}}',
+        encoding="utf-8",
+    )
+    (run_dir / "quality_review_round1.json").write_text(
+        json.dumps(
+            {
+                "p0_count": 0,
+                "delivery": "pass",
+                "floor_100": 84,
+                "review_method": {
+                    "schema_version": "paperlab.review_method.v3.2",
+                    "decision_owner": "hermes",
+                    "capability_class": "domain_expert_review",
+                    "selected_skill": "paper-review-skill",
+                    "selection_reason": "domain expert review",
+                    "vip_capability_required": True,
+                    "vip_capability_available": True,
+                    "inputs_checked": ["paper_draft_v0.qmd"],
+                    "reviewed_manuscript_sha256": stamp,
+                },
+                "review_loop": {
+                    "status": "passed",
+                    "rounds": 1,
+                    "reviewer_model": "codex-reviewer",
+                    "fixer_model": "big-pickle",
+                    "independent_reviewer": True,
+                    "floor_failed": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "quality_review_log.md").write_text(
+        "# log\n\n## Skill Decision Trace\n\n- selected: paper-review-skill\n",
+        encoding="utf-8",
+    )
+
+    changed = _prepare_review_provenance_resume(tmp_path, "v3_job")
+
+    assert changed is False
+    dossier = json.loads((run_dir / "dossier.v3.json").read_text(encoding="utf-8"))
+    assert dossier["phases"]["review_heal"] == "done"

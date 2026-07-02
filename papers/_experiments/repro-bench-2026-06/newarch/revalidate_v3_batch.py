@@ -88,6 +88,7 @@ def revalidate_jobs(
             if run_one is None:
                 preflight = validate(jobs_dir, job_ids=[job_id], min_floor=min_floor)[0]
                 _prepare_acceptance_repair_resume(jobs_dir, job_id, preflight)
+                _prepare_review_provenance_resume(jobs_dir, job_id)
             outcome = runner(jobs_dir, job_id)
         except Exception as exc:  # noqa: BLE001 - batch runners must keep going.
             outcome = RunOutcome(
@@ -122,6 +123,48 @@ def _prepare_acceptance_repair_resume(jobs_dir: Path, job_id: str, validation: J
         return False
     phases["format_repair"] = "blocked"
     dossier_path.write_text(json.dumps(dossier, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+    return True
+
+
+def _prepare_review_provenance_resume(jobs_dir: Path, job_id: str) -> bool:
+    """Reset the quality phases when the recorded review has no trustworthy
+    provenance, so orchestrator resume re-runs them instead of skipping.
+
+    Ground-truth based: it consumes review_provenance.validate_review_artifacts
+    on the run directory (the same rules as Gate R), not string-matched
+    validation findings, so any provenance failure class routes here without
+    enumerating messages. Data/write phases stay done; only the quality
+    machinery (render_gates, review_heal, format_repair) re-runs.
+    """
+    from engine_v3 import review_provenance
+    from engine_v3.packs import paper_artifacts
+
+    run_dir = jobs_dir / job_id / "run"
+    findings = review_provenance.validate_review_artifacts(
+        run_dir,
+        review_file=paper_artifacts.REVIEW_FILE,
+        review_log_file=paper_artifacts.REVIEW_LOG_FILE,
+        manuscript_files=paper_artifacts.MANUSCRIPT_FILES,
+    )
+    if not findings:
+        return False
+    dossier_path = run_dir / "dossier.v3.json"
+    try:
+        dossier = json.loads(dossier_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    phases = dossier.get("phases")
+    if not isinstance(phases, dict):
+        return False
+    changed = False
+    for phase in ("render_gates", "review_heal", "format_repair"):
+        if phases.get(phase) == "done":
+            phases[phase] = "blocked"
+            changed = True
+    if not changed:
+        return False
+    dossier_path.write_text(json.dumps(dossier, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+    print("REVALIDATE_PROVENANCE_RESET	%s	%s" % (job_id, "; ".join(findings[:3])), flush=True)
     return True
 
 
