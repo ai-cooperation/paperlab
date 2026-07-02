@@ -379,7 +379,8 @@ def test_review_heal_regenerates_flagged_figures_but_requires_rereview(tmp_path:
     assert review["review_loop"]["independent_reviewer"] is False
     assert (fig_dir / "fig_prisma_flow.png").stat().st_size > 1000
     assert "PRISMA-style evidence screening flow" in (fig_dir / "fig_prisma_flow.svg").read_text(encoding="utf-8")
-    assert "Public-data to ESCO/EPC risk workflow" in (fig_dir / "fig_method_overview.svg").read_text(encoding="utf-8")
+    assert "Evidence acquisition and verification workflow" in (fig_dir / "fig_method_overview.svg").read_text(encoding="utf-8")
+    assert "ESCO" not in (fig_dir / "fig_method_overview.svg").read_text(encoding="utf-8")
     assert "deterministic_review_heal" in (run_dir / "quality_review_log.md").read_text(encoding="utf-8")
 
 

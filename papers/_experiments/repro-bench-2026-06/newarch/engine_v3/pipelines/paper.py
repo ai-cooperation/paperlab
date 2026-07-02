@@ -1060,10 +1060,23 @@ def _structure_claim_boundary(real_results: dict[str, Any]) -> str:
         )
     synthesis = real_results.get("synthesis")
     if isinstance(synthesis, dict) and int(synthesis.get("numeric_effect_count") or 0) == 0:
+        downgrade = real_results.get("lane_downgrade")
+        downgrade_note = ""
+        if isinstance(downgrade, dict) and downgrade:
+            downgrade_note = (
+                " This run was explicitly downgraded from %s to %s because %s; the manuscript must state "
+                "this downgrade in Methods and must not present a forest plot or pooled-effect table."
+                % (
+                    downgrade.get("from") or "a quantitative synthesis",
+                    downgrade.get("to") or "a narrative evidence-map review",
+                    downgrade.get("reason") or "no poolable effects were extractable",
+                )
+            )
         return (
             "## Claim Boundaries\n\n"
             "The manuscript may claim verified evidence coverage and structured research positioning, "
             "but must not claim pooled effect sizes, moderator significance, or dose-response estimates."
+            + downgrade_note
         )
     return (
         "## Claim Boundaries\n\n"
