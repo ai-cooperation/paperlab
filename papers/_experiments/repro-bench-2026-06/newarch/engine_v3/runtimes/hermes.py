@@ -472,11 +472,18 @@ def _outputs_complete(
     baseline_signature: dict[str, tuple[int, int, str]],
     fresh_outputs: set[str],
 ) -> bool:
+    # ⚠️ Completion means every declared output CHANGED against the pre-task
+    # baseline, not merely exists. Repair tasks edit declared outputs in place,
+    # so existence-based completion killed Hermes mid-edit after the 60s grace
+    # and reported exit 0 with zero changed files (2026-07-02 mindfulness
+    # rerun: every render repair died at ~60s with changed_files=[]). A task
+    # that legitimately needs no edits exits on its own; the watcher only
+    # handles processes still running.
     expected = list(expected_outputs)
     if len(outputs) != len(expected):
         return False
     return all(
-        rel not in fresh_outputs or _output_changed(outputs[rel], baseline_signature.get(rel))
+        _output_changed(outputs[rel], baseline_signature.get(rel))
         for rel in expected
     )
 

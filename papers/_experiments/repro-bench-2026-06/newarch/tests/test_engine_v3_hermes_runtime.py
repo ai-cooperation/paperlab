@@ -481,3 +481,44 @@ def test_hermes_runtime_terminates_orphan_process_groups_in_run_dir(tmp_path: Pa
         (9001, signal.SIGKILL),
         (9002, signal.SIGKILL),
     ]
+
+
+def test_outputs_complete_requires_change_against_baseline(tmp_path: Path):
+    """Repair tasks edit declared outputs IN PLACE. Pre-existing unchanged files
+    must NOT count as completion — the 2026-07-02 rerun showed the watcher
+    killing Hermes after 60s grace because the repair targets already existed,
+    reporting exit 0 with zero changed files."""
+    from engine_v3.runtimes.hermes import (
+        _existing_outputs,
+        _output_signature_map,
+        _outputs_complete,
+    )
+
+    (tmp_path / "paper_draft_v0.qmd").write_text("old body", encoding="utf-8")
+    (tmp_path / "paper_springer.qmd").write_text("old body", encoding="utf-8")
+    expected = ["paper_draft_v0.qmd", "paper_springer.qmd"]
+    baseline = _output_signature_map(_existing_outputs(tmp_path, expected))
+
+    # unchanged pre-existing outputs: not complete (Hermes still working)
+    existing = _existing_outputs(tmp_path, expected)
+    assert _outputs_complete(existing, expected, baseline, set()) is False
+
+    # one file rewritten, the other untouched: still not complete
+    (tmp_path / "paper_draft_v0.qmd").write_text("expanded body " * 50, encoding="utf-8")
+    existing = _existing_outputs(tmp_path, expected)
+    assert _outputs_complete(existing, expected, baseline, set()) is False
+
+    # both rewritten: complete
+    (tmp_path / "paper_springer.qmd").write_text("expanded body " * 50, encoding="utf-8")
+    existing = _existing_outputs(tmp_path, expected)
+    assert _outputs_complete(existing, expected, baseline, set()) is True
+
+
+def test_outputs_complete_for_fresh_files_created_from_empty_baseline(tmp_path: Path):
+    from engine_v3.runtimes.hermes import _existing_outputs, _outputs_complete
+
+    expected = ["phase3_positioning.md"]
+    # baseline empty: file did not exist before the task
+    assert _outputs_complete(_existing_outputs(tmp_path, expected), expected, {}, set()) is False
+    (tmp_path / "phase3_positioning.md").write_text("new artifact", encoding="utf-8")
+    assert _outputs_complete(_existing_outputs(tmp_path, expected), expected, {}, set()) is True
