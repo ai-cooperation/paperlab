@@ -22,6 +22,7 @@ def freeze_candidate_outputs(
     outputs: Mapping[str, Path],
     changed_files: Iterable[str],
     blockers: Iterable[str],
+    skill_bundle_visible: Iterable[str] = (),
 ) -> dict[str, Any]:
     declared = [str(rel) for rel in declared_outputs]
     if not declared and not outputs:
@@ -61,6 +62,10 @@ def freeze_candidate_outputs(
         "blockers": [str(blocker) for blocker in blockers],
         "outputs": output_rows,
         "missing_outputs": [rel for rel in declared if rel not in copied_paths],
+        # V3_2_SPEC "Skill Engine Semantics": the capability registry visible to
+        # this attempt. The selected-skill decision trace itself lives in the
+        # snapshotted review record (review_method), owned by the loop.
+        "skill_bundle_visible": sorted(str(s) for s in skill_bundle_visible),
     }
     manifest_path = abs_snapshot_dir / "manifest.v3_1.json"
     manifest_path.write_text(

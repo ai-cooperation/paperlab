@@ -344,6 +344,7 @@ class EngineV3Orchestrator:
             outputs=result.outputs,
             changed_files=list(result.changed_files),
             blockers=list(result.blockers),
+            skill_bundle_visible=list(context.metadata.get("skill_bundle") or []),
         )
         _record_delegation(
             dossier=dossier,
