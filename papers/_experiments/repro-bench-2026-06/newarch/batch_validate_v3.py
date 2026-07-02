@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from acceptance_gate_v3 import evaluate_run_acceptance
+from acceptance_gate_v3 import MIN_PDF_BYTES, evaluate_run_acceptance
 
 
 REQUIRED_PHASES = {
@@ -243,7 +243,7 @@ def _validate_pdf(run_dir: Path, dossier: dict[str, Any]) -> tuple[bool, list[st
         findings.append("paper_draft_v0.pdf missing from artifact index")
     if not pdf.is_file():
         findings.append("paper_draft_v0.pdf missing")
-    elif pdf.stat().st_size < 100_000:
+    elif pdf.stat().st_size < MIN_PDF_BYTES:
         findings.append("paper_draft_v0.pdf too small: %s" % pdf.stat().st_size)
     return not findings, findings
 

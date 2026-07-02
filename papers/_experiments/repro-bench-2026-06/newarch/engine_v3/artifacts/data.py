@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import re
 import base64
+import urllib.parse
+import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 CANONICAL_DATA_SCHEMA_VERSION = "paperlab.data.v3.1"
@@ -326,7 +328,12 @@ def ensure_minimal_real_results_and_figures_v3_2(run_dir: Path) -> dict[str, Any
     }
 
 
-def top_up_references_from_contract_v3_2(run_dir: Path, *, floor: int = 35) -> dict[str, Any]:
+def top_up_references_from_contract_v3_2(
+    run_dir: Path,
+    *,
+    floor: int = 35,
+    search_provider: Callable[[Path, int, set[str]], list[dict[str, Any]]] | None = None,
+) -> dict[str, Any]:
     run_dir = Path(run_dir)
     refs_path = run_dir / "references.bib"
     bib = _read_text(refs_path)
@@ -347,6 +354,8 @@ def top_up_references_from_contract_v3_2(run_dir: Path, *, floor: int = 35) -> d
     candidates = _reference_topup_candidates(run_dir)
     added: list[dict[str, Any]] = []
     lines = [bib.rstrip(), ""] if bib.strip() else []
+    provider_used = False
+    provider_errors: list[str] = []
     for candidate in candidates:
         if before_count + len(added) >= floor:
             break
@@ -367,6 +376,36 @@ def top_up_references_from_contract_v3_2(run_dir: Path, *, floor: int = 35) -> d
         lines.append(_bib_entry(row))
         added.append(row)
 
+    if before_count + len(added) < floor:
+        provider = search_provider or _live_reference_topup_candidates
+        try:
+            active_candidates = provider(run_dir, floor - before_count - len(added), set(existing_dois))
+        except Exception as exc:  # noqa: BLE001 - network search is best-effort; gate records failure below.
+            active_candidates = []
+            provider_errors.append(str(exc)[:240])
+        provider_used = True
+        for candidate in active_candidates:
+            if before_count + len(added) >= floor:
+                break
+            doi = _normalize_doi(str(candidate.get("doi") or ""))
+            title = str(candidate.get("title") or "").strip()
+            if not doi or doi in existing_dois or not title or not _row_two_source_verified(candidate):
+                continue
+            key = _unique_bib_key(str(candidate.get("key") or ""), title, existing_keys)
+            existing_keys.add(key)
+            existing_dois.add(doi)
+            row = {
+                "key": key,
+                "doi": doi,
+                "title": title,
+                "year": candidate.get("year"),
+                "journal": candidate.get("journal"),
+                "validation_count": candidate.get("validation_count"),
+                "verification_sources": candidate.get("verification_sources"),
+            }
+            lines.append(_bib_entry(row))
+            added.append(row)
+
     if added:
         refs_path.write_text("\n\n".join(line for line in lines if line).rstrip() + "\n", encoding="utf-8")
         _merge_topup_into_doi_audit(run_dir, added)
@@ -378,6 +417,8 @@ def top_up_references_from_contract_v3_2(run_dir: Path, *, floor: int = 35) -> d
         "before_count": before_count,
         "after_count": after_count,
         "added": added,
+        "active_search_used": provider_used,
+        "active_search_errors": provider_errors,
     }
     _write_json(run_dir / REFERENCE_TOPUP_V3_2_PATH, result)
     return result
@@ -654,8 +695,11 @@ def _canonical_references(doi: dict[str, Any], references_bib: str) -> dict[str,
             "total",
         )
 
+    actual_bib_count = _bib_entry_count(references_bib)
     if count is None and references_bib:
-        count = len(re.findall(r"^@\w+\s*\{", references_bib, re.MULTILINE))
+        count = actual_bib_count
+    elif actual_bib_count:
+        count = max(int(count or 0), actual_bib_count)
 
     return {"count": int(count or 0), "two_source_rate": rate}
 
@@ -844,6 +888,178 @@ def _reference_topup_candidates(run_dir: Path) -> list[dict[str, Any]]:
     return candidates
 
 
+def _live_reference_topup_candidates(run_dir: Path, needed: int, existing_dois: set[str]) -> list[dict[str, Any]]:
+    if needed <= 0:
+        return []
+    contract = _read_json(run_dir / "research_contract.json") or _read_json(run_dir / "research_contract.input.json")
+    queries = _reference_search_queries(contract)
+    candidates: list[dict[str, Any]] = []
+    seen = set(existing_dois)
+    for query in queries:
+        if len(candidates) >= needed:
+            break
+        for row in _search_openalex_references(query, limit=min(max(needed + 8, 12), 20)):
+            doi = _normalize_doi(str(row.get("doi") or ""))
+            if not doi or doi in seen:
+                continue
+            verified = _verify_doi_two_sources_live(doi, source_hint="openalex")
+            if len(verified) < 2:
+                continue
+            row["verification_sources"] = verified
+            row["validation_count"] = len(verified)
+            seen.add(doi)
+            candidates.append(row)
+            if len(candidates) >= needed:
+                break
+        if len(candidates) >= needed:
+            break
+        for row in _search_crossref_references(query, limit=min(max(needed + 8, 12), 20)):
+            doi = _normalize_doi(str(row.get("doi") or ""))
+            if not doi or doi in seen:
+                continue
+            verified = _verify_doi_two_sources_live(doi, source_hint="crossref")
+            if len(verified) < 2:
+                continue
+            row["verification_sources"] = verified
+            row["validation_count"] = len(verified)
+            seen.add(doi)
+            candidates.append(row)
+            if len(candidates) >= needed:
+                break
+    return candidates
+
+
+def _reference_search_queries(contract: dict[str, Any]) -> list[str]:
+    if not isinstance(contract, dict):
+        return []
+    values = [
+        contract.get("topic"),
+        contract.get("research_question"),
+        contract.get("contribution"),
+    ]
+    data_source = contract.get("data_source")
+    if isinstance(data_source, dict):
+        values.append(data_source.get("name"))
+    queries: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = re.sub(r"\s+", " ", str(value or "").strip())
+        if not text:
+            continue
+        words = re.findall(r"[A-Za-z0-9][A-Za-z0-9-]+", text)
+        query = " ".join(words[:14])
+        key = query.lower()
+        if query and key not in seen:
+            seen.add(key)
+            queries.append(query)
+    return queries[:4]
+
+
+def _search_openalex_references(query: str, *, limit: int) -> list[dict[str, Any]]:
+    params = urllib.parse.urlencode(
+        {
+            "search": query,
+            "filter": "has_doi:true",
+            "per-page": min(max(limit, 1), 25),
+            "select": "doi,title,publication_year,primary_location",
+        }
+    )
+    payload = _fetch_json_url("https://api.openalex.org/works?%s" % params)
+    results = payload.get("results") if isinstance(payload, dict) else None
+    rows: list[dict[str, Any]] = []
+    if not isinstance(results, list):
+        return rows
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        location = item.get("primary_location") if isinstance(item.get("primary_location"), dict) else {}
+        source = location.get("source") if isinstance(location.get("source"), dict) else {}
+        rows.append(
+            {
+                "doi": item.get("doi"),
+                "title": item.get("title"),
+                "year": item.get("publication_year"),
+                "journal": source.get("display_name") if isinstance(source, dict) else None,
+                "topup_source": "openalex_search",
+            }
+        )
+    return rows
+
+
+def _search_crossref_references(query: str, *, limit: int) -> list[dict[str, Any]]:
+    params = urllib.parse.urlencode(
+        {
+            "query.bibliographic": query,
+            "rows": min(max(limit, 1), 20),
+            "select": "DOI,title,published-print,published-online,published,container-title",
+        }
+    )
+    payload = _fetch_json_url("https://api.crossref.org/works?%s" % params)
+    items = ((payload.get("message") or {}).get("items")) if isinstance(payload, dict) else None
+    rows: list[dict[str, Any]] = []
+    if not isinstance(items, list):
+        return rows
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        title = item.get("title")
+        journal = item.get("container-title")
+        rows.append(
+            {
+                "doi": item.get("DOI"),
+                "title": title[0] if isinstance(title, list) and title else title,
+                "year": _crossref_year(item),
+                "journal": journal[0] if isinstance(journal, list) and journal else journal,
+                "topup_source": "crossref_search",
+            }
+        )
+    return rows
+
+
+def _crossref_year(item: dict[str, Any]) -> int | None:
+    for key in ("published-print", "published-online", "published"):
+        parts = item.get(key)
+        if isinstance(parts, dict):
+            date_parts = parts.get("date-parts")
+            if isinstance(date_parts, list) and date_parts and isinstance(date_parts[0], list) and date_parts[0]:
+                year = _number(date_parts[0][0])
+                if year is not None:
+                    return int(year)
+    return None
+
+
+def _verify_doi_two_sources_live(doi: str, *, source_hint: str | None = None) -> list[str]:
+    sources = {source_hint} if source_hint else set()
+    doi = _normalize_doi(doi)
+    if not doi:
+        return []
+    if "crossref" not in sources and _fetch_json_url("https://api.crossref.org/works/%s" % urllib.parse.quote(doi, safe="")):
+        sources.add("crossref")
+    if "openalex" not in sources:
+        params = urllib.parse.urlencode({"filter": "doi:%s" % ("https://doi.org/" + doi), "per-page": 1, "select": "doi"})
+        payload = _fetch_json_url("https://api.openalex.org/works?%s" % params)
+        results = payload.get("results") if isinstance(payload, dict) else None
+        if isinstance(results, list) and results:
+            sources.add("openalex")
+    return sorted(source for source in sources if source)
+
+
+def _fetch_json_url(url: str, *, timeout: float = 3.0) -> dict[str, Any]:
+    try:
+        request = urllib.request.Request(url, headers={"User-Agent": "paperlab-v3.2-reference-topup/1.0"})
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            if getattr(response, "status", 200) >= 400:
+                return {}
+            data = response.read(1_500_000)
+    except Exception:
+        return {}
+    try:
+        parsed = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def _contract_reference_candidates(contract: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(contract, dict):
         return []
@@ -937,8 +1153,9 @@ def _merge_topup_into_doi_audit(run_dir: Path, added: list[dict[str, Any]]) -> N
             {
                 "doi": doi,
                 "title": row.get("title"),
-                "validation_count": 2,
-                "topup_source": "contract_verified_reference",
+                "validation_count": row.get("validation_count") or 2,
+                "verification_sources": row.get("verification_sources"),
+                "topup_source": row.get("topup_source") or "contract_verified_reference",
             }
         )
     audit["records"] = records
@@ -960,6 +1177,9 @@ def _row_two_source_verified(row: dict[str, Any]) -> bool:
         return True
     validation_count = _number(row.get("validation_count"))
     if validation_count is not None and validation_count >= 2:
+        return True
+    valid_sources = _number(row.get("valid_sources"))
+    if valid_sources is not None and valid_sources >= 2:
         return True
     verified_source_count = _number(row.get("verified_source_count"))
     if verified_source_count is not None and verified_source_count >= 2:

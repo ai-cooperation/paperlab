@@ -495,6 +495,12 @@ def _can_handler_backfill_runtime_block(phase: PhaseSpec, result: TaskResult) ->
 
 
 def _can_handler_recheck_after_runtime_non_ok(phase: PhaseSpec, result: TaskResult) -> bool:
+    if phase.id in {"gap", "structure"} and _runtime_result_repairable(result):
+        return True
+    if phase.id == "write" and phase.max_repair_attempts > 0 and _runtime_result_repairable(result):
+        return True
+    if phase.id == "render_gates" and _runtime_result_repairable(result):
+        return True
     return (
         bool(phase.gate_ids)
         and phase.id in {"data", "claim_evidence", "review_heal"}

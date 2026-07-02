@@ -536,6 +536,78 @@ def test_orchestrator_blocks_phase_when_runtime_output_missing(tmp_path: Path):
     assert dossier.delegations[0]["status"] == "blocked"
 
 
+def test_orchestrator_allows_planning_handler_backfill_after_missing_output(tmp_path: Path):
+    class BlockingRuntime(MockRuntime):
+        name = "blocked-runtime"
+
+        def run_brain(self, task: BrainTask, _context: RuntimeContext):
+            return TaskResult(
+                task_id=task.task_id,
+                status="blocked",
+                blockers=["missing declared output: phase4_structure.md"],
+            )
+
+    def handler(_task: BrainTask, context: RuntimeContext):
+        structure = context.run_dir / "phase4_structure.md"
+        structure.write_text("# Phase 4 Structure\n", encoding="utf-8")
+        return {"artifacts": {"phase4_structure.md": structure}}
+
+    dossier = EngineV3Orchestrator(
+        runtime=BlockingRuntime(),
+        domain_pack=object(),
+        phases=[
+            PhaseSpec(
+                id="structure",
+                handler=handler,
+                prompt="write structure",
+                expected_outputs=["phase4_structure.md"],
+                max_repair_attempts=0,
+            )
+        ],
+        dossier_store=DossierStore(tmp_path),
+    ).run(job_id="job-1", resume=False)
+
+    assert dossier.phases["structure"] == "done"
+    assert dossier.artifacts["phase4_structure.md"].path == "phase4_structure.md"
+    assert [delegation["status"] for delegation in dossier.delegations] == ["blocked"]
+    assert any(event.get("event") == "runtime_non_ok_handler_recheck_attempt" for event in dossier.evidence["trace"])
+
+
+def test_orchestrator_allows_write_handler_backfill_when_phase_has_repair_budget(tmp_path: Path):
+    class BlockingRuntime(MockRuntime):
+        name = "blocked-runtime"
+
+        def run_brain(self, task: BrainTask, _context: RuntimeContext):
+            return TaskResult(
+                task_id=task.task_id,
+                status="blocked",
+                blockers=["missing declared output: paper_draft_v0.qmd"],
+            )
+
+    def handler(_task: BrainTask, context: RuntimeContext):
+        draft = context.run_dir / "paper_draft_v0.qmd"
+        draft.write_text("# Draft\n", encoding="utf-8")
+        return {"artifacts": {"paper_draft_v0.qmd": draft}}
+
+    dossier = EngineV3Orchestrator(
+        runtime=BlockingRuntime(),
+        domain_pack=object(),
+        phases=[
+            PhaseSpec(
+                id="write",
+                handler=handler,
+                prompt="write paper",
+                expected_outputs=["paper_draft_v0.qmd"],
+                max_repair_attempts=1,
+            )
+        ],
+        dossier_store=DossierStore(tmp_path),
+    ).run(job_id="job-1", resume=False)
+
+    assert dossier.phases["write"] == "done"
+    assert dossier.artifacts["paper_draft_v0.qmd"].path == "paper_draft_v0.qmd"
+
+
 def test_orchestrator_repairs_missing_declared_outputs_before_runtime_block(tmp_path: Path):
     class MissingThenRepairRuntime(MockRuntime):
         name = "missing-then-repair"

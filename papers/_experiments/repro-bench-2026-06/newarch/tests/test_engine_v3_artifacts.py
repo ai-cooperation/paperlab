@@ -121,6 +121,35 @@ def test_build_canonical_data_v3_2_recomputes_rate_from_verified_rows_over_bad_s
     assert data["verification"]["two_source_rate"] == 1.0
 
 
+def test_build_canonical_data_v3_2_counts_actual_bib_entries_above_doi_only_summary(tmp_path: Path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "references.bib").write_text(
+        "\n".join("@article{ref%s,title={T%s}}" % (idx, idx) for idx in range(30)),
+        encoding="utf-8",
+    )
+    (run_dir / "doi_audit.json").write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "doi_candidates_checked": 28,
+                    "doi_pass_two_of_three": 28,
+                },
+                "items": [
+                    {"doi": "10.1000/%s" % idx, "valid_sources": 3}
+                    for idx in range(28)
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    data = build_canonical_data_v3_2(run_dir)
+
+    assert data["references"] == {"count": 30, "two_source_verified": 28}
+    assert data["verification"]["two_source_rate"] == 1.0
+
+
 def test_build_canonical_data_v3_2_accepts_nested_valid_source_rows(tmp_path: Path):
     run_dir = tmp_path / "run"
     run_dir.mkdir()
@@ -196,6 +225,38 @@ def test_top_up_references_from_contract_appends_verified_seed_refs(tmp_path: Pa
     bib = (run_dir / "references.bib").read_text(encoding="utf-8")
     assert "seedA" in bib
     assert "10.1000/seed.b" in bib
+
+
+def test_top_up_references_uses_active_provider_when_seed_refs_are_insufficient(tmp_path: Path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "references.bib").write_text(
+        "\n".join("@article{base%s,title={Base %s},doi={10.1000/base.%s}}" % (idx, idx, idx) for idx in range(2)),
+        encoding="utf-8",
+    )
+    (run_dir / "research_contract.input.json").write_text('{"topic":"Synthetic testing topic"}', encoding="utf-8")
+    (run_dir / "doi_audit.json").write_text('{"records":[]}', encoding="utf-8")
+
+    def provider(_run_dir: Path, needed: int, _existing_dois: set[str]):
+        return [
+            {
+                "key": "active%s" % idx,
+                "doi": "10.2000/active.%s" % idx,
+                "title": "Synthetic active reference %s" % idx,
+                "year": 2026,
+                "journal": "Synthetic for testing only",
+                "validation_count": 2,
+            }
+            for idx in range(needed)
+        ]
+
+    result = top_up_references_from_contract_v3_2(run_dir, floor=5, search_provider=provider)
+
+    assert result["status"] == "done"
+    assert result["after_count"] == 5
+    audit = json.loads((run_dir / "doi_audit.json").read_text(encoding="utf-8"))
+    assert len(audit["records"]) == 3
+    assert all(row["validation_count"] == 2 for row in audit["records"])
 
 
 def test_validate_data_outputs_v3_2_reports_missing_declared_outputs(tmp_path: Path):

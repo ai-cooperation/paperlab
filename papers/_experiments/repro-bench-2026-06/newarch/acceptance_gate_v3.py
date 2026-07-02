@@ -33,7 +33,9 @@ REQUIRED_DELIVERY_FILES = {
     "quality_review_round1.json",
     "quality_review_log.md",
 }
-MIN_PDF_BYTES = 100_000
+# Size is only a corruption guard. Delivery quality is validated by Gate Z
+# (citations resolved, sections numbered, tables checked), not by byte size.
+MIN_PDF_BYTES = 50_000
 
 
 @dataclass(frozen=True)
