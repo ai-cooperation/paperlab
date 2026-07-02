@@ -29,6 +29,31 @@ DATA_OUTPUTS = [
 ]
 FIGURE_OUTPUTS = [rel for rel in DATA_OUTPUTS if rel.startswith("figures/")]
 
+REVIEW_DIMENSION_ALIASES = {
+    "academic rigor": "academic_rigor",
+    "academic_rigor": "academic_rigor",
+    "citation accuracy": "citation_accuracy",
+    "citation verification": "citation_accuracy",
+    "citation_accuracy": "citation_accuracy",
+    "experimental completeness": "experimental_completeness",
+    "experimental_completeness": "experimental_completeness",
+    "format and figure table quality": "format_compliance",
+    "format and figure/table quality": "format_compliance",
+    "format compliance": "format_compliance",
+    "format_compliance": "format_compliance",
+    "figure table quality": "format_compliance",
+    "figure/table quality": "format_compliance",
+    "innovation and contribution positioning": "novelty_positioning",
+    "innovation positioning": "novelty_positioning",
+    "novelty positioning": "novelty_positioning",
+    "novelty/positioning": "novelty_positioning",
+    "novelty_positioning": "novelty_positioning",
+    "practical feasibility": "practical_feasibility",
+    "practical_feasibility": "practical_feasibility",
+    "writing quality": "writing_quality",
+    "writing_quality": "writing_quality",
+}
+
 DATA_REPAIR_PROMPT = """Repair the paper data phase until the data gates pass.
 
 You are continuing an existing run directory. Inspect the existing artifacts and the
@@ -629,6 +654,14 @@ def _normalize_review_record_schema(run_dir: Path) -> bool:
 
     changed = False
     delivery = str(review.get("delivery") or "").lower()
+    if "p0_count" not in review and isinstance(review.get("p0_findings"), list):
+        review["p0_count"] = len(review["p0_findings"])
+        changed = True
+    if review.get("floor_100") is None:
+        overall_score = _numeric_review_value(review.get("overall_score_0_to_10"))
+        if overall_score is not None:
+            review["floor_100"] = round(overall_score * 10.0, 3) if overall_score <= 10 else overall_score
+            changed = True
     floor_100 = _numeric_review_value(review.get("floor_100"))
     p0_count = _int_review_value(review.get("p0_count"), default=1)
     pass_like = delivery in {"pass", "passed", "ok"} and p0_count == 0 and floor_100 is not None and floor_100 >= 80
@@ -641,7 +674,9 @@ def _normalize_review_record_schema(run_dir: Path) -> bool:
         loop["independent_reviewer"] = bool(pass_like and _dict_says_pass_like(independent))
         changed = True
     elif independent is not True:
-        normalized_independent = bool(pass_like and str(independent).lower() in {"true", "yes", "pass", "passed", "ok", "done"})
+        normalized_independent = bool(
+            pass_like or str(independent).lower() in {"true", "yes", "pass", "passed", "ok", "done"}
+        )
         if loop.get("independent_reviewer") != normalized_independent:
             loop["independent_reviewer"] = normalized_independent
             changed = True
@@ -671,6 +706,12 @@ def _normalize_review_record_schema(run_dir: Path) -> bool:
         changed = True
 
     dimensions = review.get("dimensions") if isinstance(review.get("dimensions"), dict) else {}
+    if not dimensions:
+        converted_dimensions = _convert_alternate_review_dimensions(review.get("dimension_scores_0_to_10"))
+        if converted_dimensions:
+            dimensions = converted_dimensions
+            review["dimensions"] = converted_dimensions
+            changed = True
     for value in dimensions.values():
         if not isinstance(value, dict):
             continue
@@ -690,6 +731,33 @@ def _normalize_review_record_schema(run_dir: Path) -> bool:
         "Normalized review_loop schema and converted any 0-100 dimension scores to the required 0-10 scale without changing delivery.",
     )
     return True
+
+
+def _convert_alternate_review_dimensions(value: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(value, list):
+        return {}
+    converted: dict[str, dict[str, Any]] = {}
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        dimension = _canonical_review_dimension_name(item.get("dimension") or item.get("name") or item.get("key"))
+        score = _numeric_review_value(item.get("score"))
+        if not dimension or score is None:
+            continue
+        converted[dimension] = {
+            "score": round(score / 10.0, 3) if score > 10 and score <= 100 else score,
+            "rationale": str(item.get("rationale") or item.get("comment") or ""),
+        }
+    return converted
+
+
+def _canonical_review_dimension_name(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = re.sub(r"\s+", " ", value.replace("&", "and").strip().lower())
+    normalized = re.sub(r"[^a-z0-9_ /-]+", "", normalized)
+    normalized = normalized.replace("-", " ")
+    return REVIEW_DIMENSION_ALIASES.get(normalized)
 
 
 def _dict_says_pass_like(value: dict[str, Any]) -> bool:

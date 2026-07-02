@@ -36,6 +36,22 @@ def test_runtime_from_env_passes_hermes_bin_override(monkeypatch, tmp_path):
     assert runtime.hermes_bin == str(hermes_bin)
 
 
+def test_runtime_from_env_passes_hermes_timeout_bounds(monkeypatch):
+    monkeypatch.setenv("PAPER_ENGINE_V3_RUNTIME", "hermes-codex")
+    monkeypatch.setenv("PAPER_ENGINE_V3_HERMES_TIMEOUT_S", "321")
+    monkeypatch.setenv("PAPER_ENGINE_V3_HERMES_OUTPUT_STARTUP_IDLE_S", "12.5")
+    monkeypatch.setenv("PAPER_ENGINE_V3_HERMES_OUTPUT_PARTIAL_IDLE_S", "13.5")
+    monkeypatch.setenv("PAPER_ENGINE_V3_HERMES_OUTPUT_COMPLETE_GRACE_S", "2.5")
+
+    runtime = runtime_from_env()
+
+    assert isinstance(runtime, HermesCodexRuntime)
+    assert runtime.timeout_s == 321
+    assert runtime.output_startup_idle_s == 12.5
+    assert runtime.output_partial_idle_s == 13.5
+    assert runtime.output_complete_grace_s == 2.5
+
+
 def test_runtime_from_env_selects_codex_only_when_explicit(monkeypatch):
     monkeypatch.setenv("PAPER_ENGINE_V3_RUNTIME", "codex-cli")
 

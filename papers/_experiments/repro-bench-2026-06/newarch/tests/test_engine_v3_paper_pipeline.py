@@ -312,6 +312,62 @@ def test_review_heal_applies_structural_repair_and_normalizes_review_schema(tmp_
     assert "deterministic_review_schema_normalization" in (run_dir / "quality_review_log.md").read_text(encoding="utf-8")
 
 
+def test_review_heal_normalizes_alternate_dimension_score_schema(tmp_path: Path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "quality_review_round1.json").write_text(
+        json.dumps(
+            {
+                "p0_count": 0,
+                "delivery": "pass",
+                "overall_score_0_to_10": 8.2,
+                "p0_findings": [],
+                "review_loop": {
+                    "status": "blocked_revise",
+                    "rounds": 1,
+                    "reviewer_model": "gpt-reviewer",
+                    "fixer_model": "gpt-fixer",
+                    "floor_failed": True,
+                    "independent_reviewer": False,
+                },
+                "dimension_scores_0_to_10": [
+                    {"dimension": "Academic rigor", "score": 8.0, "rationale": "ok"},
+                    {"dimension": "Innovation and contribution positioning", "score": 7.8, "rationale": "ok"},
+                    {"dimension": "Experimental completeness", "score": 7.4, "rationale": "ok"},
+                    {"dimension": "Writing quality", "score": 8.4, "rationale": "ok"},
+                    {"dimension": "Practical feasibility", "score": 8.1, "rationale": "ok"},
+                    {"dimension": "Citation verification", "score": 9.3, "rationale": "ok"},
+                    {"dimension": "Format and figure/table quality", "score": 8.6, "rationale": "ok"},
+                ],
+                "findings": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = paper_pipeline._collect_gate_inputs(
+        BrainTask(phase="review_heal", task_id="review_heal:brain"),
+        RuntimeContext(job_id="job-1", run_dir=run_dir),
+    )
+
+    review = result["gate_inputs"]["review"]
+    assert review["p0_count"] == 0
+    assert review["floor_100"] == 82.0
+    assert review["review_loop"]["status"] == "passed"
+    assert review["review_loop"]["independent_reviewer"] is True
+    assert review["review_loop"]["floor_failed"] is False
+    assert sorted(review["dimensions"]) == [
+        "academic_rigor",
+        "citation_accuracy",
+        "experimental_completeness",
+        "format_compliance",
+        "novelty_positioning",
+        "practical_feasibility",
+        "writing_quality",
+    ]
+    assert review["dimensions"]["citation_accuracy"]["score"] == 9.3
+
+
 def test_bounded_golden_pipeline_runs_selected_gates_through_v3(tmp_path: Path, golden_dir: Path):
     run_dir = tmp_path / "run"
 
