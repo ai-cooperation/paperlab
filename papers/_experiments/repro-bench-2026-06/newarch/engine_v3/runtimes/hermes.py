@@ -18,6 +18,9 @@ class HermesRunResult:
     exit_code: int
     stdout: str
     stderr: str
+    # set when the output watcher terminated hermes: "outputs_complete",
+    # "partial_idle", or "startup_idle"
+    terminated_reason: Optional[str] = None
 
 
 HermesRunner = Callable[[list[str], Path, int], HermesRunResult]
@@ -160,6 +163,25 @@ class HermesCodexRuntime:
             )
 
         outputs = _existing_outputs(context.run_dir, expected_output_list)
+        idle_killed = getattr(result, "terminated_reason", None) in {"partial_idle", "startup_idle"}
+        all_outputs_exist = all(rel in outputs for rel in expected_output_list)
+        if idle_killed and all_outputs_exist and not _changed_outputs(outputs, baseline):
+            # The watcher killed hermes before it changed anything. Reporting
+            # ok here fabricates success (run3: repair came back ok/changed=[]
+            # and repair_noop burned the budget). Fail honestly instead.
+            _restore_quarantined_outputs(context.run_dir, quarantined_outputs)
+            return TaskResult(
+                task_id=task_id,
+                status="blocked",
+                details="watcher terminated hermes before any declared output changed",
+                outputs=outputs,
+                changed_files=[],
+                blockers=[
+                    "watcher terminated hermes (%s) before any declared output changed"
+                    % result.terminated_reason
+                ],
+                stdout_tail=stdout_tail,
+            )
         missing = [rel for rel in expected_output_list if rel not in outputs]
         stale = [
             rel for rel in fresh_outputs
@@ -252,6 +274,7 @@ def _subprocess_runner(
 
     started = time.monotonic()
     outputs_seen_at: Optional[float] = None
+    complete_signature: tuple[tuple[str, int, int], ...] = ()
     partial_seen_at: Optional[float] = None
     partial_signature: tuple[tuple[str, int, int], ...] = ()
     with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as stdout_file, tempfile.TemporaryFile(
@@ -282,7 +305,13 @@ def _subprocess_runner(
                 break
             existing = _existing_outputs(cwd, expected)
             if _outputs_complete(existing, expected, baseline_signature, fresh_outputs):
-                if outputs_seen_at is None:
+                # Stability window, not a countdown from the FIRST save: agents
+                # edit declared outputs incrementally, so any further change
+                # resets the grace timer. Killing at first-save+grace truncated
+                # a manuscript expansion mid-edit (2026-07-02 run3).
+                signature = _output_signature(existing)
+                if outputs_seen_at is None or signature != complete_signature:
+                    complete_signature = signature
                     outputs_seen_at = now
                 elif now - outputs_seen_at >= output_complete_grace_s:
                     _terminate_process_group(proc)
@@ -318,24 +347,33 @@ def _subprocess_runner(
         stderr_file.seek(0)
         stdout = stdout_file.read()
         stderr = stderr_file.read()
+    terminated_reason: Optional[str] = None
     if terminated_after_outputs:
+        terminated_reason = "outputs_complete"
         stderr = (stderr + "\n" if stderr else "") + (
-            "Hermes process terminated after all declared outputs existed for "
+            "Hermes process terminated after all declared outputs were stable for "
             "%.1f seconds." % output_complete_grace_s
         )
     elif terminated_after_partial_idle:
+        terminated_reason = "partial_idle"
         stderr = (stderr + "\n" if stderr else "") + (
             "Hermes process terminated after partial declared outputs stopped changing for "
             "%.1f seconds." % output_partial_idle_s
         )
     elif terminated_after_startup_idle:
+        terminated_reason = "startup_idle"
         stderr = (stderr + "\n" if stderr else "") + (
             "Hermes process terminated after no declared outputs appeared for "
             "%.1f seconds." % output_startup_idle_s
         )
     elif exit_code == 124:
         stderr = (stderr + "\n" if stderr else "") + "Hermes process timed out after %s seconds." % timeout_s
-    return HermesRunResult(exit_code=exit_code or 0, stdout=stdout, stderr=stderr)
+    return HermesRunResult(
+        exit_code=exit_code or 0,
+        stdout=stdout,
+        stderr=stderr,
+        terminated_reason=terminated_reason,
+    )
 
 
 def _terminate_process_group(proc: subprocess.Popen) -> None:

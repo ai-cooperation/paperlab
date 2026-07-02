@@ -503,7 +503,11 @@ def _runtime_result_repairable(result: TaskResult) -> bool:
     if result.status != "blocked":
         return False
     blockers = list(result.blockers or [])
-    return bool(blockers) and all(str(blocker).startswith("missing declared output: ") for blocker in blockers)
+    return bool(blockers) and all(
+        str(blocker).startswith("missing declared output: ")
+        or str(blocker).startswith("watcher terminated hermes")
+        for blocker in blockers
+    )
 
 
 def _can_handler_backfill_runtime_block(phase: PhaseSpec, result: TaskResult) -> bool:

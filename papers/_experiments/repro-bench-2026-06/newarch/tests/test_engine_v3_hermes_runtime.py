@@ -280,7 +280,7 @@ time.sleep(30)
     assert result.status == "ok"
     assert result.changed_files == ["done.md"]
     assert time.monotonic() - started < 5
-    assert "terminated after all declared outputs existed" in result.stdout_tail
+    assert "terminated after all declared outputs were stable" in result.stdout_tail
 
 
 def test_hermes_runtime_unblocks_when_partial_outputs_stop_changing(tmp_path: Path):
@@ -447,7 +447,7 @@ time.sleep(30)
     assert result.status == "ok"
     assert result.changed_files == ["quality_review_log.md", "quality_review_round1.json"]
     assert time.monotonic() - started < 5
-    assert "terminated after all declared outputs existed" in result.stdout_tail
+    assert "terminated after all declared outputs were stable" in result.stdout_tail
 
 
 def test_hermes_runtime_terminates_orphan_process_groups_in_run_dir(tmp_path: Path, monkeypatch):
@@ -522,3 +522,89 @@ def test_outputs_complete_for_fresh_files_created_from_empty_baseline(tmp_path: 
     assert _outputs_complete(_existing_outputs(tmp_path, expected), expected, {}, set()) is False
     (tmp_path / "phase3_positioning.md").write_text("new artifact", encoding="utf-8")
     assert _outputs_complete(_existing_outputs(tmp_path, expected), expected, {}, set()) is True
+
+
+def test_complete_grace_resets_while_hermes_keeps_editing(tmp_path: Path):
+    """The completion grace is a STABILITY window: as long as declared outputs
+    keep changing, Hermes is still working and must not be killed (run3 killed
+    the expansion mid-edit at 1468/3000 words because grace started at the
+    first save and never reset)."""
+    from engine_v3.runtimes.hermes import _output_signature_map, _existing_outputs, _subprocess_runner
+
+    expected = ["out_a.txt", "out_b.txt"]
+    for rel in expected:
+        (tmp_path / rel).write_text("baseline", encoding="utf-8")
+    baseline = _output_signature_map(_existing_outputs(tmp_path, expected))
+    # writes immediately, keeps editing for ~6s, then marks done and idles
+    script = (
+        "for i in 1 2 3 4 5 6; do "
+        "echo edit-$i >> out_a.txt; echo edit-$i >> out_b.txt; sleep 1; "
+        "done; echo FINISHED; sleep 30"
+    )
+    result = _subprocess_runner(
+        ["bash", "-c", script],
+        tmp_path,
+        timeout_s=60,
+        expected_outputs=expected,
+        baseline_signature=baseline,
+        output_complete_grace_s=3.0,
+        output_startup_idle_s=60.0,
+        output_partial_idle_s=60.0,
+    )
+
+    # all six edits must have landed: the kill may only happen after the
+    # outputs went stable for the grace window
+    assert "edit-6" in (tmp_path / "out_a.txt").read_text(encoding="utf-8")
+    assert "edit-6" in (tmp_path / "out_b.txt").read_text(encoding="utf-8")
+    assert "FINISHED" in result.stdout
+    assert result.terminated_reason == "outputs_complete"
+
+
+def test_idle_kill_without_output_change_is_reported_not_faked_ok(tmp_path: Path):
+    """A watcher kill before any output changed must not masquerade as a
+    successful run (run3 repair:4 was killed thinking at 180s idle and came
+    back status ok / changed=[] -> repair_noop burned the budget)."""
+    from engine_v3.runtimes.hermes import _output_signature_map, _existing_outputs, _subprocess_runner
+
+    expected = ["out_a.txt"]
+    (tmp_path / "out_a.txt").write_text("baseline", encoding="utf-8")
+    baseline = _output_signature_map(_existing_outputs(tmp_path, expected))
+    result = _subprocess_runner(
+        ["bash", "-c", "sleep 30"],
+        tmp_path,
+        timeout_s=60,
+        expected_outputs=expected,
+        baseline_signature=baseline,
+        output_complete_grace_s=2.0,
+        output_startup_idle_s=60.0,
+        output_partial_idle_s=2.0,
+    )
+
+    assert result.terminated_reason == "partial_idle"
+
+
+def test_runtime_reports_blocked_when_watcher_killed_hermes_without_changes(tmp_path: Path):
+    from engine_v3.runtimes.hermes import HermesCodexRuntime, HermesRunResult
+    from engine_v3.core import BrainTask, RuntimeContext
+
+    (tmp_path / "paper_draft_v0.qmd").write_text("unchanged", encoding="utf-8")
+
+    def fake_runner(command, cwd, timeout_s):
+        return HermesRunResult(
+            exit_code=0,
+            stdout="",
+            stderr="Hermes process terminated after partial declared outputs stopped changing for 180.0 seconds.",
+            terminated_reason="partial_idle",
+        )
+
+    rt = HermesCodexRuntime(runner=fake_runner, require_skill_bundle=False)
+    task = BrainTask(
+        task_id="render_gates:repair:1",
+        phase="render_gates",
+        prompt="repair",
+        expected_outputs=["paper_draft_v0.qmd"],
+    )
+    result = rt.run_brain(task, RuntimeContext(job_id="j", run_dir=tmp_path, metadata={}))
+
+    assert result.status == "blocked"
+    assert any("watcher terminated" in b for b in result.blockers)
