@@ -122,7 +122,10 @@ def test_gap_handler_backfills_phase3_positioning_when_hermes_writes_nothing(tmp
     assert "deterministic_reference_evidence_map" in positioning
 
 
-def test_write_handler_backfills_sections_and_qmd_when_hermes_writes_nothing(tmp_path: Path):
+def test_write_handler_does_not_synthesize_content_when_hermes_writes_nothing(tmp_path: Path):
+    """The 2026-07-02 Potemkin root: the write fallback used to synthesize a
+    whole boilerplate manuscript. Now missing sections stay missing so the
+    missing-output repair loop routes the work back to Hermes."""
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     (run_dir / "research_contract.json").write_text(
@@ -142,27 +145,59 @@ def test_write_handler_backfills_sections_and_qmd_when_hermes_writes_nothing(tmp
         encoding="utf-8",
     )
     (run_dir / "references.bib").write_text(
-        "@article{refA,title={Reference A},author={Author, A.},year={2024}}\n"
-        "@article{refB,title={Reference B},author={Author, B.},year={2023}}\n",
+        "@article{refA,title={Reference A},author={Author, A.},year={2024}}\n",
         encoding="utf-8",
     )
-    (run_dir / "doi_audit.json").write_text('{"records":[{"doi":"10.1000/x","validation_count":2}]}', encoding="utf-8")
 
     result = paper_pipeline._collect_gate_inputs(
         BrainTask(phase="write", task_id="write:brain", expected_outputs=list(WRITE_OUTPUTS)),
         RuntimeContext(job_id="job-1", run_dir=run_dir),
     )
 
-    for rel in WRITE_OUTPUTS:
-        assert (run_dir / rel).is_file(), rel
-        assert rel in result["artifacts"]
+    assert not (run_dir / "paper_draft_v0.qmd").is_file()
+    assert not (run_dir / "sections" / "introduction.md").is_file()
+    assert "paper_draft_v0.qmd" not in result["artifacts"]
+
+
+def test_write_handler_composes_qmd_from_substantive_hermes_sections(tmp_path: Path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "research_contract.json").write_text(
+        json.dumps({"topic": "DTP3 Coverage Study"}), encoding="utf-8"
+    )
+    (run_dir / "references.bib").write_text(
+        "@article{refA,title={Reference A},author={Author, A.},year={2024}}\n",
+        encoding="utf-8",
+    )
+    (run_dir / "sections").mkdir()
+    real_paragraph = ("This section reports substantive Hermes-written analysis content. " * 12).strip()
+    for name in ("introduction", "related_work", "methods", "results", "discussion", "limitations", "conclusion"):
+        (run_dir / "sections" / ("%s.md" % name)).write_text(
+            "## %s\n\n%s\n" % (name.title(), real_paragraph), encoding="utf-8"
+        )
+
+    changed = paper_pipeline._ensure_write_outputs_v3_2(run_dir)
+
+    assert changed is True
     qmd = (run_dir / "paper_draft_v0.qmd").read_text(encoding="utf-8")
+    assert "substantive Hermes-written analysis content" in qmd
     assert "link-citations: true" in qmd
-    assert "number-sections: true" in qmd
-    assert "@refA" in qmd
-    assert len(qmd.split()) >= 1200
-    assert "For V3.2 production quality" not in qmd
-    assert "auditable bridge between the research contract" not in qmd
+
+
+def test_write_handler_refuses_to_compose_from_outline_fragments(tmp_path: Path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "research_contract.json").write_text(
+        json.dumps({"topic": "DTP3 Coverage Study"}), encoding="utf-8"
+    )
+    (run_dir / "sections").mkdir()
+    for name in ("introduction", "related_work", "methods", "results", "discussion", "limitations", "conclusion"):
+        (run_dir / "sections" / ("%s.md" % name)).write_text("## Outline\n\n- todo\n", encoding="utf-8")
+
+    changed = paper_pipeline._ensure_write_outputs_v3_2(run_dir)
+
+    assert changed is False
+    assert not (run_dir / "paper_draft_v0.qmd").is_file()
 
 
 def test_render_handler_backfills_paper_springer_from_draft(tmp_path: Path):
@@ -1088,38 +1123,21 @@ def test_render_cleanup_removes_citations_without_author_year_metadata(tmp_path:
     assert "[@good]" in text
 
 
-def test_fallback_writer_does_not_generate_quality_gate_boilerplate(tmp_path: Path):
+def test_fallback_writer_never_synthesizes_boilerplate(tmp_path: Path):
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     (run_dir / "research_contract.json").write_text(
-        json.dumps(
-            {
-                "topic": "DTP3 coverage and mortality",
-                "research_question": "Estimate bounded associations in a country-year panel.",
-            }
-        ),
-        encoding="utf-8",
+        json.dumps({"topic": "DTP3 coverage and mortality"}), encoding="utf-8"
     )
     (run_dir / "references.bib").write_text(
-        "@article{missing,title={Missing Metadata}}\n"
         "@article{good,title={Good Reference},author={Lee, A.},year={2023}}\n",
-        encoding="utf-8",
-    )
-    (run_dir / "doi_audit.json").write_text("{}", encoding="utf-8")
-    (run_dir / "real_experiments").mkdir()
-    (run_dir / "real_experiments" / "real_results.json").write_text(
-        '{"sample":{"n_countries":100,"year_min":2000,"year_max":2020}}',
         encoding="utf-8",
     )
 
     changed = paper_pipeline._ensure_write_outputs_v3_2(run_dir)
 
-    assert changed is True
-    qmd = (run_dir / "paper_draft_v0.qmd").read_text(encoding="utf-8")
-    assert "For V3.2 production quality" not in qmd
-    assert "auditable bridge between the research contract" not in qmd
-    assert "@missing" not in qmd
-    assert "@good" in qmd
+    assert changed is False
+    assert not (run_dir / "paper_draft_v0.qmd").is_file()
 
 
 def test_delivery_pdf_validation_accepts_resolved_citations_numbering_and_table_widths(

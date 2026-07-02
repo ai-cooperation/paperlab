@@ -618,97 +618,44 @@ Restate the bounded contribution and its practical implication without introduci
 
 
 def _ensure_write_outputs_v3_2(run_dir: Path) -> bool:
-    if all((run_dir / rel).is_file() for rel in WRITE_OUTPUTS):
+    """Deterministic ASSEMBLY only, never content synthesis.
+
+    ⚠️ The writer is Hermes. This helper used to synthesize whole boilerplate
+    sections ("The manuscript should keep claims traceable to ...") when Hermes
+    wrote nothing - the source of the 2026-07-02 Potemkin papers. Now it may
+    only compose paper_draft_v0.qmd from SUBSTANTIVE Hermes-written section
+    files. Missing or thin sections stay missing so the orchestrator's
+    missing-output repair loop routes the work back to Hermes.
+    """
+    qmd_path = run_dir / "paper_draft_v0.qmd"
+    if qmd_path.is_file():
         return False
+    section_names = [
+        "introduction",
+        "related_work",
+        "methods",
+        "results",
+        "discussion",
+        "limitations",
+        "conclusion",
+    ]
+    sections: dict[str, str] = {}
+    for name in section_names:
+        path = run_dir / "sections" / ("%s.md" % name)
+        if not path.is_file():
+            return False
+        body = path.read_text(encoding="utf-8", errors="ignore").strip()
+        # An outline fragment is not a section; composing it would launder thin
+        # content past the write phase into Gate D.
+        if len(body.split()) < 80:
+            return False
+        sections[name] = body
     contract = _read_json(run_dir / "research_contract.json") or _read_json(run_dir / "research_contract.input.json")
-    real_results = _read_json(run_dir / "real_experiments" / "real_results.json")
     title = str(contract.get("topic") or "Untitled Paper").strip()
-    research_question = str(contract.get("research_question") or "TBD").strip()
-    method_label = _structure_method_label(real_results)
-    claim_boundary = _structure_claim_boundary(real_results)
     refs_text = (run_dir / "references.bib").read_text(encoding="utf-8", errors="ignore") if (run_dir / "references.bib").is_file() else ""
     citation_keys = _first_citation_keys(refs_text, limit=10)
-    citation_tail = " " + _citation_cluster(citation_keys[:4]) if citation_keys else ""
-    data_summary = _real_results_summary(real_results)
-    sections = {
-        "introduction": _section_text(
-            "Introduction",
-            [
-                f"This paper addresses {title}. The research question is: {research_question}",
-                "The V3.2 run constrains the manuscript to claims that can be traced to verified references, real_results.json, and generated figures.%s" % citation_tail,
-                "The contribution is therefore framed as a bounded, auditable research output rather than an unconstrained claim of novelty or causal proof.",
-            ],
-            claim_boundary,
-        ),
-        "related_work": _section_text(
-            "Related Work",
-            [
-                "The related work is organized around scope specificity, evidence transparency, and claim calibration.%s" % citation_tail,
-                "The verified bibliography provides the citation surface for this discussion, but the paper must not infer pooled effects or moderator significance unless those results are present in the data artifact.",
-                "This framing keeps the literature review useful for positioning while avoiding unsupported claims about the field.",
-            ],
-            claim_boundary,
-        ),
-        "methods": _section_text(
-            "Methods",
-            [
-                f"The method framing for this run is {method_label}.",
-                "The pipeline used the research contract, bibliography verification, real-results artifact, and generated figures as the controlling inputs.",
-                data_summary,
-            ],
-            claim_boundary,
-        ),
-        "results": _section_text(
-            "Results",
-            [
-                "The results section reports only values and qualitative boundaries available in real_results.json and the verified bibliography.",
-                data_summary,
-                "Figure references are limited to generated files under figures/, and table claims must be traceable to the same artifacts.",
-            ],
-            claim_boundary,
-        ),
-        "discussion": _section_text(
-            "Discussion",
-            [
-                "The evidence should be interpreted as a bounded V3.2 output rather than a final claim beyond the available artifacts.",
-                "The practical contribution is the explicit connection between the contract, evidence verification, analysis artifact, and claim discipline.",
-                "This reduces the risk that the manuscript overstates what the current data phase has established.",
-            ],
-            claim_boundary,
-        ),
-        "limitations": _section_text(
-            "Limitations",
-            [
-                "The main limitation is that manuscript claims are constrained by the artifacts available in this run.",
-                "If real_results.json does not contain full-text effect extraction, causal identification, or moderator estimates, the manuscript must not present those results.",
-                "Reference metadata and generated figures support transparent positioning, but they do not replace stronger empirical evidence.",
-            ],
-            claim_boundary,
-        ),
-        "conclusion": _section_text(
-            "Conclusion",
-            [
-                f"This manuscript provides a conservative structure for {title}.",
-                "Its value is an auditable chain from research contract to verified references, real results, generated figures, and claim boundaries.",
-                "Future work can strengthen the paper by adding richer extraction, stronger identification, or full-text coding where the current artifacts are insufficient.",
-            ],
-            claim_boundary,
-        ),
-    }
-    sections_dir = run_dir / "sections"
-    sections_dir.mkdir(parents=True, exist_ok=True)
-    changed = False
-    for name, text in sections.items():
-        path = sections_dir / f"{name}.md"
-        if not path.is_file():
-            path.write_text(text, encoding="utf-8")
-            changed = True
-    qmd = _compose_qmd_v3_2(title, citation_keys, sections)
-    qmd_path = run_dir / "paper_draft_v0.qmd"
-    if not qmd_path.is_file():
-        qmd_path.write_text(qmd, encoding="utf-8")
-        changed = True
-    return changed
+    qmd_path.write_text(_compose_qmd_v3_2(title, citation_keys, sections), encoding="utf-8")
+    return True
 
 
 def _first_citation_keys(bib: str, *, limit: int) -> list[str]:
