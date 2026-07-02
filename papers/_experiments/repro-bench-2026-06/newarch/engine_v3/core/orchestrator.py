@@ -503,8 +503,13 @@ def _runtime_result_repairable(result: TaskResult) -> bool:
     if result.status != "blocked":
         return False
     blockers = list(result.blockers or [])
+    # stale = the task was supposed to overwrite a quarantined/fresh-required
+    # output and did not; same repairability class as missing (run4: the
+    # review_heal brain got a single attempt and terminally blocked because
+    # stale blockers were not retryable).
     return bool(blockers) and all(
         str(blocker).startswith("missing declared output: ")
+        or str(blocker).startswith("stale declared output: ")
         or str(blocker).startswith("watcher terminated hermes")
         for blocker in blockers
     )
