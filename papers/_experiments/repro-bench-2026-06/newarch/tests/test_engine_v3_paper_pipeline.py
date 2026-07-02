@@ -142,7 +142,8 @@ def test_write_handler_backfills_sections_and_qmd_when_hermes_writes_nothing(tmp
         encoding="utf-8",
     )
     (run_dir / "references.bib").write_text(
-        "@article{refA,title={Reference A}}\n@article{refB,title={Reference B}}\n",
+        "@article{refA,title={Reference A},author={Author, A.},year={2024}}\n"
+        "@article{refB,title={Reference B},author={Author, B.},year={2023}}\n",
         encoding="utf-8",
     )
     (run_dir / "doi_audit.json").write_text('{"records":[{"doi":"10.1000/x","validation_count":2}]}', encoding="utf-8")
@@ -159,7 +160,9 @@ def test_write_handler_backfills_sections_and_qmd_when_hermes_writes_nothing(tmp
     assert "link-citations: true" in qmd
     assert "number-sections: true" in qmd
     assert "@refA" in qmd
-    assert len(qmd.split()) >= 3000
+    assert len(qmd.split()) >= 1200
+    assert "For V3.2 production quality" not in qmd
+    assert "auditable bridge between the research contract" not in qmd
 
 
 def test_render_handler_backfills_paper_springer_from_draft(tmp_path: Path):
@@ -178,7 +181,8 @@ def test_render_handler_backfills_paper_springer_from_draft(tmp_path: Path):
     springer = (run_dir / "paper_springer.qmd").read_text(encoding="utf-8")
     assert "link-citations: true" in springer
     assert "number-sections: true" in springer
-    assert len(springer.split()) >= 3000
+    assert "For V3.2 production quality" not in springer
+    assert springer.count("## Evidence Boundary Notes") <= 1
     assert _validate_table_widths(run_dir)["valid"] is True
     assert "paper_springer.qmd" in result["artifacts"]
 
@@ -976,6 +980,135 @@ def test_delivery_pdf_validation_blocks_raw_citations_and_missing_section_number
     assert result["numbered_section_detected"] is False
     assert "PDF contains raw Pandoc citation tokens" in result["findings"]
     assert "PDF has no detected numbered section headings" in result["findings"]
+
+
+def test_delivery_pdf_validation_blocks_template_boilerplate_bad_citations_and_duplicate_addenda(
+    tmp_path: Path,
+    monkeypatch,
+):
+    pdf = tmp_path / "paper_draft_v0.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n" + b"x" * 2000)
+    _write_two_valid_tables(tmp_path)
+
+    bad_text = "\n".join(
+        [
+            "1. Introduction",
+            "For V3.2 production quality, this section keeps the argument explicit.",
+            "For V3.2 production quality, this section keeps the argument explicit.",
+            "The section is intentionally written as an auditable bridge between the research contract and the available artifacts.",
+            "The section is intentionally written as an auditable bridge between the research contract and the available artifacts.",
+            "The evidence base is described here. (See, a,b,c)",
+            "9. V3.2 Traceability and Claim Discipline Addendum",
+            "10. V3.2 Traceability and Claim Discipline Addendum",
+            "11. Traceability Tables",
+            "12. Traceability Tables",
+        ]
+    )
+
+    def fake_run_text(command: list[str], *, timeout_s: int) -> str:
+        if command[0] == "pdfinfo":
+            return "Producer: xdvipdfmx\nCreator: LaTeX with hyperref\n"
+        if command[0] == "pdftotext":
+            return bad_text
+        return ""
+
+    monkeypatch.setattr(paper_pipeline, "_run_text", fake_run_text)
+
+    result = _validate_delivery_pdf(pdf, tmp_path)
+
+    assert result["valid"] is False
+    assert "PDF contains repeated fallback boilerplate" in result["findings"]
+    assert "PDF contains low-quality citation labels" in result["findings"]
+    assert "PDF contains duplicated traceability addenda or tables" in result["findings"]
+
+
+def test_render_cleanup_removes_repeated_fallback_boilerplate_and_duplicate_addenda(tmp_path: Path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    repeated = "\n\n".join(
+        [
+            "---\ntitle: Test\n---",
+            "## Introduction",
+            "For V3.2 production quality, this section keeps the argument explicit, avoids unsupported causal language, and leaves a clear path for claim-evidence auditing.",
+            "The section is intentionally written as an auditable bridge between the research contract and the available artifacts. It identifies what the run can support, what remains outside the evidence boundary, and how later review should verify each statement against references.bib, doi_audit.json, real_results.json, generated figures, and the claim-evidence map.",
+            "Domain-specific paragraph.",
+            "## V3.2 Traceability and Claim Discipline Addendum",
+            "Generated note one.",
+            "## V3.2 Traceability and Claim Discipline Addendum",
+            "Generated note two.",
+            "## Traceability Tables",
+            "| A | B |\n|---|---|\n| x | y |\n\n: Artifact Traceability {#tbl-artifact-traceability tbl-colwidths=\"[50,50]\"}",
+            "## Traceability Tables",
+            "| A | B |\n|---|---|\n| x | y |\n\n: Artifact Traceability {#tbl-artifact-traceability-2 tbl-colwidths=\"[50,50]\"}",
+        ]
+    )
+    for rel in ("paper_draft_v0.qmd", "paper_springer.qmd"):
+        (run_dir / rel).write_text(repeated, encoding="utf-8")
+
+    changed = paper_pipeline._repair_generated_content_quality_v3_2(run_dir)
+
+    assert changed is True
+    text = (run_dir / "paper_springer.qmd").read_text(encoding="utf-8")
+    assert "For V3.2 production quality" not in text
+    assert "auditable bridge between the research contract" not in text
+    assert text.count("## V3.2 Traceability and Claim Discipline Addendum") <= 1
+    assert text.count("## Traceability Tables") <= 1
+
+
+def test_render_cleanup_removes_citations_without_author_year_metadata(tmp_path: Path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "references.bib").write_text(
+        "@article{bad,title={DOI only},doi={10.1000/bad}}\n"
+        "@article{good,title={Good},author={Lee, A.},year={2024}}\n",
+        encoding="utf-8",
+    )
+    for rel in ("paper_draft_v0.qmd", "paper_springer.qmd"):
+        (run_dir / rel).write_text(
+            "## Introduction\n\nEvidence-only sentence [@bad; @good]. DOI-only sentence [@bad].",
+            encoding="utf-8",
+        )
+
+    changed = paper_pipeline._repair_generated_content_quality_v3_2(run_dir)
+
+    assert changed is True
+    text = (run_dir / "paper_springer.qmd").read_text(encoding="utf-8")
+    assert "[@bad" not in text
+    assert "[@good]" in text
+
+
+def test_fallback_writer_does_not_generate_quality_gate_boilerplate(tmp_path: Path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "research_contract.json").write_text(
+        json.dumps(
+            {
+                "topic": "DTP3 coverage and mortality",
+                "research_question": "Estimate bounded associations in a country-year panel.",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "references.bib").write_text(
+        "@article{missing,title={Missing Metadata}}\n"
+        "@article{good,title={Good Reference},author={Lee, A.},year={2023}}\n",
+        encoding="utf-8",
+    )
+    (run_dir / "doi_audit.json").write_text("{}", encoding="utf-8")
+    (run_dir / "real_experiments").mkdir()
+    (run_dir / "real_experiments" / "real_results.json").write_text(
+        '{"sample":{"n_countries":100,"year_min":2000,"year_max":2020}}',
+        encoding="utf-8",
+    )
+
+    changed = paper_pipeline._ensure_write_outputs_v3_2(run_dir)
+
+    assert changed is True
+    qmd = (run_dir / "paper_draft_v0.qmd").read_text(encoding="utf-8")
+    assert "For V3.2 production quality" not in qmd
+    assert "auditable bridge between the research contract" not in qmd
+    assert "@missing" not in qmd
+    assert "@good" in qmd
 
 
 def test_delivery_pdf_validation_accepts_resolved_citations_numbering_and_table_widths(

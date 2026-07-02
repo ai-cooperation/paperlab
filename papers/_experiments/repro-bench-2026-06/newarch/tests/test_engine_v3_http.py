@@ -244,12 +244,13 @@ def test_v3_status_includes_project_page_projection(tmp_path: Path, golden_dir: 
             "valid": True,
             "producer": "xdvipdfmx",
             "raw_citation_count": 0,
-            "unresolved_marker_count": 0,
-            "numbered_section_detected": True,
-            "table_widths": {"valid": True, "findings": []},
-            "findings": [],
-        },
-    )
+                "unresolved_marker_count": 0,
+                "numbered_section_detected": True,
+                "table_widths": {"valid": True, "findings": []},
+                "content_quality": {"valid": True, "findings": []},
+                "findings": [],
+            },
+        )
     tc = TestClient(
         http_app.create_app(
             jobs_dir=tmp_path,

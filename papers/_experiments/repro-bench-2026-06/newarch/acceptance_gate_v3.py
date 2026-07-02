@@ -288,6 +288,11 @@ def _validate_pdf_contract(run_dir: Path, dossier: Mapping[str, Any]) -> tuple[b
         findings.extend(str(item) for item in table_widths.get("findings") or [])
         if not table_widths.get("findings"):
             findings.append("PDF table width validation did not pass")
+    content_quality = validation.get("content_quality") if isinstance(validation.get("content_quality"), dict) else {}
+    if content_quality.get("valid") is not True:
+        findings.extend(str(item) for item in content_quality.get("findings") or [])
+        if not content_quality.get("findings"):
+            findings.append("PDF content-quality validation missing")
     return not findings, findings
 
 

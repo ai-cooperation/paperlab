@@ -404,10 +404,12 @@ def _collect_gate_inputs(
         _ensure_paper_springer_source_v3_2(context.run_dir)
         _ensure_minimum_readability_body_v3_2(context.run_dir)
         _ensure_quarto_tables_v3_2(context.run_dir)
+        _repair_generated_content_quality_v3_2(context.run_dir)
         _normalize_thousands_separators_for_gate_f(context.run_dir)
     if _task.phase == "review_heal":
         _apply_review_structural_repairs(context.run_dir)
         _apply_exact_review_replacements(context.run_dir)
+        _repair_generated_content_quality_v3_2(context.run_dir)
         _ensure_minimal_claim_evidence_map_v3_2(context.run_dir)
         _ensure_review_record_v3_2(context.run_dir)
         _normalize_review_record_schema(context.run_dir)
@@ -681,8 +683,20 @@ def _ensure_write_outputs_v3_2(run_dir: Path) -> bool:
 
 
 def _first_citation_keys(bib: str, *, limit: int) -> list[str]:
-    keys = re.findall(r"^@\w+\s*\{\s*([^,\s]+)", bib or "", re.MULTILINE)
-    return [key for key in keys[:limit] if key]
+    keys: list[str] = []
+    for match in re.finditer(r"(?ms)^@\w+\s*\{\s*([^,\s]+)\s*,(.*?)(?=^@\w+\s*\{|\Z)", bib or ""):
+        key = match.group(1).strip()
+        body = match.group(2)
+        if not key:
+            continue
+        if not re.search(r"\bauthor\s*=", body, flags=re.IGNORECASE):
+            continue
+        if not re.search(r"\byear\s*=", body, flags=re.IGNORECASE):
+            continue
+        keys.append(key)
+        if len(keys) >= limit:
+            break
+    return keys
 
 
 def _citation_cluster(keys: list[str]) -> str:
@@ -719,23 +733,72 @@ def _section_text(title: str, paragraphs: list[str], claim_boundary: str) -> str
     expanded = []
     for paragraph in paragraphs:
         expanded.append(paragraph)
-        expanded.append(
-            "For V3.2 production quality, this section keeps the argument explicit, avoids unsupported causal language, and leaves a clear path for claim-evidence auditing."
-        )
-        expanded.append(
-            "The section is intentionally written as an auditable bridge between the research contract and the available artifacts. It identifies what the run can support, what remains outside the evidence boundary, and how later review should verify each statement against references.bib, doi_audit.json, real_results.json, generated figures, and the claim-evidence map."
-        )
-    expanded.append(
-        "This artifact-level framing matters because a generated paper can otherwise appear more complete than its evidence base. The prose therefore separates coverage, method, result interpretation, and limitation language. That separation gives the review phase concrete material to inspect and gives the repair phase precise locations for downgrading or removing unsupported claims."
-    )
-    expanded.append(
-        "No additional statistical conclusion is introduced in this fallback text. When stronger empirical evidence is required, the next revision must add a richer real_results.json artifact, full-text extraction, model diagnostics, or study-level coding before the manuscript can make stronger claims."
-    )
-    expanded.append(
-        "The reader should be able to audit the section without relying on hidden model reasoning. For that reason, the fallback prose names the artifact boundary, repeats the interpretation constraint, and points the next phase toward traceable citations and exact numeric evidence. This makes the draft longer than a stub, but it is still bounded by the available evidence and remains suitable for later automated review."
-    )
+    expanded.extend(_section_quality_paragraphs(title))
     expanded.append(boundary)
     return "## %s\n\n%s\n" % (title, "\n\n".join(expanded))
+
+
+def _section_quality_paragraphs(title: str) -> list[str]:
+    normalized = title.lower()
+    if normalized == "introduction":
+        return [
+            "The introduction therefore frames the work as a bounded research artifact: it states the motivating gap, names the available evidence, and avoids claims that would require data not present in the run directory.",
+            "A reader should be able to distinguish the topic ambition from the evidence actually assembled in this run before reaching the methods section.",
+            "The opening argument should identify why the research question matters, what prior work or practice leaves unresolved, and which part of that gap can be addressed with the present artifacts.",
+            "When the contract contains a strong claim, the introduction restates it as a testable objective rather than as an achieved conclusion. This keeps novelty language separate from evidence language.",
+            "The section should also prepare the reader for a conservative interpretation of results, because the paper is only as strong as the verified references, data artifact, and figures available for inspection.",
+        ]
+    if normalized == "related work":
+        return [
+            "This section uses the verified bibliography to situate the question, while keeping clear that bibliographic coverage is not the same as full-text evidence synthesis.",
+            "The literature discussion should support the research gap and terminology, not substitute for empirical findings that are absent from the result artifact.",
+            "The review should group sources by their role in the argument: background evidence, methodological precedent, measurement context, and unresolved limitation.",
+            "A reference can justify terminology or motivate the research design, but it should not be used to imply that this run has completed analyses that are missing from real_results.json.",
+            "The strongest related-work contribution is therefore comparative positioning: it explains what the current draft can add and where it remains narrower than a full systematic review or full empirical study.",
+        ]
+    if normalized == "methods":
+        return [
+            "The methods description is limited to reproducible steps represented by local artifacts: contract parsing, bibliography verification, result-artifact construction, figure generation, and claim-evidence checking.",
+            "Any method component that is not represented by a run artifact is described as future work rather than as completed analysis.",
+            "The manuscript should state the unit of analysis, data source, inclusion boundary, verification rule, and transformation path whenever those fields are available.",
+            "If the run produced only an evidence map, the method is a structured evidence-mapping workflow. If it produced model outputs, the method can describe the model family and diagnostics only to the extent present in the artifact.",
+            "This prevents the methods section from becoming a generic promise of analysis and gives reviewers a concrete checklist for reproducing or challenging the pipeline.",
+        ]
+    if normalized == "results":
+        return [
+            "The results narrative separates evidence coverage from measured effects. It reports values only when those values are present in real_results.json or in the verified artifact summary.",
+            "Figures and tables are treated as summaries of available artifacts, so the text does not infer pooled effects, model diagnostics, or causal mechanisms unless those outputs exist.",
+            "When the result artifact contains sample coverage, the section reports coverage before interpretation. When it contains model coefficients, the section describes sign, uncertainty, and boundary conditions without overstating causality.",
+            "When the result artifact is non-poolable, the section explains why quantitative pooling is deferred and what evidence was still verified.",
+            "This ordering keeps the results section useful even for constrained runs: readers first see what was measured, then what can be interpreted, and finally what remains outside scope.",
+        ]
+    if normalized == "discussion":
+        return [
+            "The discussion interprets the artifact as a quality-controlled draft rather than a final disciplinary claim. It emphasizes what can be audited and what still requires stronger extraction, modeling, or external validation.",
+            "This framing keeps the manuscript useful for review while preventing the formatting pipeline from hiding evidentiary limits.",
+            "The discussion should connect the paper back to the research question, but it should not convert a bounded artifact into a field-wide conclusion.",
+            "If the available evidence is mainly bibliographic, the discussion can explain implications for research design, data needs, and future evidence collection.",
+            "If the available evidence includes empirical estimates, the discussion can compare interpretation paths while preserving uncertainty and avoiding unsupported policy or clinical recommendations.",
+        ]
+    if normalized == "limitations":
+        return [
+            "The limitations are part of the claim contract. They identify missing full-text checks, unverified causal assumptions, limited model diagnostics, or non-poolable evidence when those constraints apply.",
+            "Stating these limits in the manuscript is required before the output can be treated as a deliverable research draft.",
+            "The section should distinguish limitations of the source data, limitations of the automated pipeline, and limitations of the current manuscript state.",
+            "A limitation is not a formatting apology; it is a boundary on what readers may infer from the draft.",
+            "The section should therefore name the exact missing evidence that would be needed to upgrade the conclusion, such as study-level coding, duplicate screening, external validation, richer covariates, or sensitivity analysis.",
+        ]
+    if normalized == "conclusion":
+        return [
+            "The conclusion restates only the contribution supported by the run artifacts and avoids introducing new results.",
+            "The strongest acceptable takeaway is that the pipeline produced a traceable draft under explicit evidence limits; stronger domain conclusions require richer data artifacts.",
+            "The conclusion should preserve the distinction between a manuscript that is technically deliverable and a manuscript that is ready for disciplinary submission.",
+            "If the artifact is sufficient for a bounded draft, the conclusion can identify the narrow contribution and the next validation step.",
+            "If the artifact is weak, the conclusion should remain provisional and direct future work toward the missing evidence rather than claiming completion.",
+        ]
+    return [
+        "This section states only claims that can be checked against the local run artifacts.",
+    ]
 
 
 def _compose_qmd_v3_2(title: str, citation_keys: list[str], sections: dict[str, str]) -> str:
@@ -805,21 +868,27 @@ def _ensure_minimum_readability_body_v3_2(run_dir: Path, *, floor: int = 3000) -
         if not path.is_file():
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")
+        text = _strip_generated_boilerplate_v3_2(text)
+        text = _dedupe_generated_section_v3_2(text, "V3.2 Traceability and Claim Discipline Addendum")
         if len(text.split()) >= floor:
+            if text != path.read_text(encoding="utf-8", errors="ignore"):
+                path.write_text(text.rstrip() + "\n", encoding="utf-8")
+                changed = True
+            continue
+        if "## Evidence Boundary Notes" in text:
             continue
         appendix = _readability_addendum_text()
         repaired = text.rstrip()
-        while len(repaired.split()) < floor:
-            repaired += "\n\n" + appendix
+        repaired += "\n\n" + appendix
         path.write_text(repaired + "\n", encoding="utf-8")
         changed = True
     return changed
 
 
 def _readability_addendum_text() -> str:
-    return """## V3.2 Traceability and Claim Discipline Addendum
+    return """## Evidence Boundary Notes
 
-This addendum exists to keep the manuscript reviewable when the initial draft is too thin for Gate D. It does not introduce new empirical results. Instead, it makes the evidence boundary explicit and gives the review phase enough prose to evaluate whether the paper is coherent, traceable, and appropriately cautious.
+This note is included only when the manuscript body is too thin for review. It does not introduce empirical results. Its purpose is to make the evidence boundary explicit so that the next review pass can decide whether the draft should proceed, be repaired, or remain blocked.
 
 The manuscript should treat research_contract.json as the source of the research intent, references.bib and doi_audit.json as the source of bibliography and DOI verification, real_experiments/real_results.json as the source of empirical or evidence-map results, and generated figures as visual summaries of those artifacts. Claims that cannot be tied to those files should remain tentative or be removed during the claim-evidence and review phases.
 
@@ -844,6 +913,70 @@ def _ensure_quarto_tables_v3_2(run_dir: Path) -> bool:
         path.write_text(text.rstrip() + "\n", encoding="utf-8")
         changed = True
     return changed
+
+
+def _repair_generated_content_quality_v3_2(run_dir: Path) -> bool:
+    changed = False
+    readable_citation_keys = set(_first_citation_keys(
+        (run_dir / "references.bib").read_text(encoding="utf-8", errors="ignore")
+        if (run_dir / "references.bib").is_file()
+        else "",
+        limit=10_000,
+    ))
+    for rel in ("paper_draft_v0.qmd", "paper_springer.qmd"):
+        path = run_dir / rel
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        repaired = _strip_generated_boilerplate_v3_2(text)
+        repaired = _remove_unreadable_citation_clusters_v3_2(repaired, readable_citation_keys)
+        repaired = _dedupe_generated_section_v3_2(
+            repaired,
+            "V3.2 Traceability and Claim Discipline Addendum",
+        )
+        repaired = _dedupe_generated_section_v3_2(repaired, "Traceability Tables")
+        repaired = re.sub(r"\n{3,}", "\n\n", repaired).strip() + "\n"
+        if repaired != text:
+            path.write_text(repaired, encoding="utf-8")
+            changed = True
+    return changed
+
+
+def _remove_unreadable_citation_clusters_v3_2(text: str, readable_keys: set[str]) -> str:
+    if not readable_keys:
+        return re.sub(r"\s*\[(?:@[A-Za-z0-9_:\-.]+(?:\s*;\s*)?)+\]", "", text)
+
+    def replace(match: re.Match[str]) -> str:
+        keys = re.findall(r"@([A-Za-z0-9_:\-.]+)", match.group(0))
+        kept = [key for key in keys if key in readable_keys]
+        if not kept:
+            return ""
+        return "[" + "; ".join("@%s" % key for key in kept) + "]"
+
+    return re.sub(r"\[(?:@[A-Za-z0-9_:\-.]+(?:\s*;\s*)?)+\]", replace, text)
+
+
+def _strip_generated_boilerplate_v3_2(text: str) -> str:
+    boilerplate_patterns = [
+        r"For V3\.2 production quality, this section keeps the argument explicit, avoids unsupported causal language, and leaves a clear path for claim-evidence auditing\.",
+        r"The section is intentionally written as an auditable bridge between the research contract and the available artifacts\. It identifies what the run can support, what remains outside the evidence boundary, and how later review should verify each statement against references\.bib, doi_audit\.json, real_results\.json, generated figures, and the claim-evidence map\.",
+    ]
+    repaired = text
+    for pattern in boilerplate_patterns:
+        repaired = re.sub(pattern + r"\s*", "", repaired)
+    return repaired
+
+
+def _dedupe_generated_section_v3_2(text: str, heading: str) -> str:
+    pattern = re.compile(
+        r"(?ms)^##\s+%s\s*\n.*?(?=^##\s+|\Z)" % re.escape(heading)
+    )
+    matches = list(pattern.finditer(text))
+    if len(matches) <= 1:
+        return text
+    keep = matches[-1].group(0).strip()
+    without = pattern.sub("", text)
+    return without.rstrip() + "\n\n## " + heading + "\n\n" + re.sub(r"(?ms)^##\s+%s\s*\n" % re.escape(heading), "", keep).strip() + "\n"
 
 
 def _quarto_real_table_count(text: str) -> int:
@@ -1617,6 +1750,7 @@ def _format_repair_handler(
     _ensure_paper_springer_source_v3_2(context.run_dir)
     _ensure_minimum_readability_body_v3_2(context.run_dir)
     _ensure_quarto_tables_v3_2(context.run_dir)
+    _repair_generated_content_quality_v3_2(context.run_dir)
     repair_result = format_repair.verify_and_repair(context.run_dir, contract)
     validation = _validate_delivery_pdf(pdf, context.run_dir)
     artifacts = {"paper_draft_v0.pdf": pdf} if pdf.is_file() else {}
@@ -1651,6 +1785,7 @@ def _validate_delivery_pdf(pdf, run_dir=None) -> dict[str, object]:
         "unresolved_marker_count": None,
         "numbered_section_detected": False,
         "table_widths": {},
+        "content_quality": {},
     }
     if not pdf.is_file():
         findings.append("paper_draft_v0.pdf is missing")
@@ -1690,6 +1825,9 @@ def _validate_delivery_pdf(pdf, run_dir=None) -> dict[str, object]:
             findings.append("PDF contains unresolved citation/cross-reference markers")
         if not evidence["numbered_section_detected"]:
             findings.append("PDF has no detected numbered section headings")
+        content_quality = _validate_pdf_content_quality(text)
+        evidence["content_quality"] = content_quality
+        findings.extend(content_quality.get("findings") or [])
     else:
         findings.append("pdftotext could not extract PDF text for validation")
 
@@ -1698,6 +1836,40 @@ def _validate_delivery_pdf(pdf, run_dir=None) -> dict[str, object]:
     findings.extend(table_widths.get("findings") or [])
 
     return {**evidence, "valid": not findings, "findings": findings}
+
+
+def _validate_pdf_content_quality(text: str) -> dict[str, object]:
+    findings: list[str] = []
+    normalized = re.sub(r"\s+", " ", text or "").strip()
+    fallback_hits = sum(
+        normalized.lower().count(phrase)
+        for phrase in (
+            "for v3.2 production quality",
+            "auditable bridge between the research contract and the available artifacts",
+            "generated from verified run artifacts",
+        )
+    )
+    low_quality_citations = re.findall(
+        r"\(See,\s*[a-z](?:\s*,\s*[a-z]){1,}\)",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    addendum_count = len(re.findall(r"\bTraceability and Claim Discipline Addendum\b", text or ""))
+    traceability_table_count = len(re.findall(r"(?m)^\s*\d+\.\s+Traceability Tables\b", text or ""))
+    if fallback_hits >= 3:
+        findings.append("PDF contains repeated fallback boilerplate")
+    if low_quality_citations:
+        findings.append("PDF contains low-quality citation labels")
+    if addendum_count > 1 or traceability_table_count > 1:
+        findings.append("PDF contains duplicated traceability addenda or tables")
+    return {
+        "valid": not findings,
+        "fallback_boilerplate_hits": fallback_hits,
+        "low_quality_citation_count": len(low_quality_citations),
+        "traceability_addendum_count": addendum_count,
+        "traceability_table_heading_count": traceability_table_count,
+        "findings": findings,
+    }
 
 
 def _validate_table_widths(run_dir: Path) -> dict[str, object]:

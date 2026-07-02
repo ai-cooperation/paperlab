@@ -85,6 +85,9 @@ def revalidate_jobs(
     for job_id in job_ids:
         print("REVALIDATE_START\t%s" % job_id, flush=True)
         try:
+            if run_one is None:
+                preflight = validate(jobs_dir, job_ids=[job_id], min_floor=min_floor)[0]
+                _prepare_acceptance_repair_resume(jobs_dir, job_id, preflight)
             outcome = runner(jobs_dir, job_id)
         except Exception as exc:  # noqa: BLE001 - batch runners must keep going.
             outcome = RunOutcome(
@@ -100,6 +103,40 @@ def revalidate_jobs(
         rows.append(row)
         print("REVALIDATE_RESULT\t%s" % json.dumps(_row_dict(row), ensure_ascii=False), flush=True)
     return rows
+
+
+def _prepare_acceptance_repair_resume(jobs_dir: Path, job_id: str, validation: JobValidation) -> bool:
+    if validation.passed:
+        return False
+    if not _delivery_repairable_acceptance_failure(validation):
+        return False
+    dossier_path = jobs_dir / job_id / "run" / "dossier.v3.json"
+    try:
+        dossier = json.loads(dossier_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    phases = dossier.get("phases")
+    if not isinstance(phases, dict):
+        return False
+    if phases.get("format_repair") != "done":
+        return False
+    phases["format_repair"] = "blocked"
+    dossier_path.write_text(json.dumps(dossier, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+    return True
+
+
+def _delivery_repairable_acceptance_failure(validation: JobValidation) -> bool:
+    findings = " | ".join(validation.findings)
+    return validation.status == "done" and any(
+        marker in findings
+        for marker in (
+            "PDF content-quality validation missing",
+            "PDF contains repeated fallback boilerplate",
+            "PDF contains low-quality citation labels",
+            "PDF contains duplicated traceability addenda or tables",
+            "Z gate delivery PDF validation missing",
+        )
+    )
 
 
 def _run_one_orchestrator(jobs_dir: Path, job_id: str) -> RunOutcome:

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from batch_validate_v3 import JobValidation
-from revalidate_v3_batch import RunOutcome, revalidate_jobs
+from revalidate_v3_batch import RunOutcome, _prepare_acceptance_repair_resume, revalidate_jobs
 
 pytestmark = pytest.mark.unit
 
@@ -57,3 +57,31 @@ def test_revalidate_jobs_continues_after_one_job_errors(tmp_path: Path):
     assert rows[0].validation.passed is False
     assert rows[1].run.status == "done"
     assert rows[1].validation.passed is True
+
+
+def test_prepare_acceptance_repair_resume_marks_format_repair_for_rerun(tmp_path: Path):
+    run_dir = tmp_path / "v3_job" / "run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "dossier.v3.json").write_text(
+        '{"phases":{"data":"done","format_repair":"done"}}',
+        encoding="utf-8",
+    )
+    validation = JobValidation(
+        job_id="v3_job",
+        status="done",
+        passed=False,
+        phases_done=True,
+        gates_done=True,
+        review_ok=True,
+        pdf_ok=False,
+        acceptance_ok=False,
+        acceptance_status="failed_needs_human",
+        floor_100=82.0,
+        delivery="pass",
+        findings=["PDF content-quality validation missing"],
+    )
+
+    changed = _prepare_acceptance_repair_resume(tmp_path, "v3_job", validation)
+
+    assert changed is True
+    assert '"format_repair": "blocked"' in (run_dir / "dossier.v3.json").read_text(encoding="utf-8")
