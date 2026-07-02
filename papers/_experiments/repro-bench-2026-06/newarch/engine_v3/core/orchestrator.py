@@ -121,7 +121,7 @@ class EngineV3Orchestrator:
             if runtime_result is None:
                 runtime_result = self._run_phase_task(task, context, dossier)
             repair_attempt = _prior_repair_attempts(dossier, phase.id)
-            repair_budget_used = repair_attempt
+            repair_budget_used = max(0, repair_attempt - _repair_budget_baseline(dossier, phase.id))
             if _starts_new_review_repair_budget(phase.id, runtime_result):
                 repair_budget_used = 0
                 _trace(
@@ -422,6 +422,19 @@ def _prior_repair_attempts(dossier: Dossier, phase_id: str) -> int:
         except ValueError:
             continue
     return max(attempts, default=0)
+
+
+def _repair_budget_baseline(dossier: Dossier, phase_id: str) -> int:
+    """Attempts made before a revalidation reset (e.g. invalid review
+    provenance). They stay in the delegation audit trail but no longer count
+    against the phase's repair budget."""
+    baselines = dossier.evidence.get("repair_budget_baseline")
+    if not isinstance(baselines, dict):
+        return 0
+    try:
+        return max(0, int(baselines.get(phase_id) or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _starts_new_review_repair_budget(phase_id: str, runtime_result: TaskResult | None) -> bool:

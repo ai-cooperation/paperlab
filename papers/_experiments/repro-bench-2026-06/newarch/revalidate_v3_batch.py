@@ -161,6 +161,27 @@ def _prepare_review_provenance_resume(jobs_dir: Path, job_id: str) -> bool:
         if phases.get(phase) == "done":
             phases[phase] = "blocked"
             changed = True
+    # Grant the reset phases a fresh repair budget: prior attempts belong to
+    # the superseded (provenance-invalid) run. The delegation audit trail is
+    # untouched; the orchestrator subtracts this baseline when counting the
+    # budget. Also applies when an earlier reset already left phases blocked.
+    evidence = dossier.setdefault("evidence", {})
+    baselines = evidence.setdefault("repair_budget_baseline", {})
+    delegations = dossier.get("delegations") or []
+    for phase in ("render_gates", "review_heal", "format_repair"):
+        if phases.get(phase) != "blocked":
+            continue
+        prefix = "%s:repair:" % phase
+        attempts = [
+            int(str(d.get("task_id") or "").rsplit(":", 1)[-1])
+            for d in delegations
+            if str(d.get("task_id") or "").startswith(prefix)
+            and str(d.get("task_id") or "").rsplit(":", 1)[-1].isdigit()
+        ]
+        baseline = max(attempts, default=0)
+        if baselines.get(phase) != baseline:
+            baselines[phase] = baseline
+            changed = True
     if not changed:
         return False
     dossier_path.write_text(json.dumps(dossier, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")

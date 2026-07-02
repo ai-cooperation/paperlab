@@ -119,6 +119,78 @@ def test_revalidation_resets_quality_phases_when_review_provenance_invalid(tmp_p
     assert dossier["phases"]["format_repair"] == "blocked"
     assert dossier["phases"]["data"] == "done"
     assert dossier["phases"]["write"] == "done"
+    # fresh repair budget: no prior repair delegations here, baseline 0
+    assert dossier["evidence"]["repair_budget_baseline"] == {
+        "render_gates": 0,
+        "review_heal": 0,
+        "format_repair": 0,
+    }
+
+
+def test_provenance_reset_grants_fresh_repair_budget_via_baseline(tmp_path: Path):
+    from engine_v3.core.contracts import Dossier
+    from engine_v3.core.orchestrator import _prior_repair_attempts, _repair_budget_baseline
+    from revalidate_v3_batch import _prepare_review_provenance_resume
+
+    run_dir = tmp_path / "v3_job" / "run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "dossier.v3.json").write_text(
+        json.dumps(
+            {
+                "phases": {"render_gates": "done", "review_heal": "done", "format_repair": "done"},
+                "delegations": [
+                    {"task_id": "render_gates:brain"},
+                    {"task_id": "render_gates:repair:1"},
+                    {"task_id": "render_gates:repair:2"},
+                    {"task_id": "review_heal:repair:3"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "quality_review_round1.json").write_text(
+        '{"delivery":"pass","review_loop":{"reviewer_model":"deterministic bounded final review"}}',
+        encoding="utf-8",
+    )
+
+    assert _prepare_review_provenance_resume(tmp_path, "v3_job") is True
+
+    raw = json.loads((run_dir / "dossier.v3.json").read_text(encoding="utf-8"))
+    assert raw["evidence"]["repair_budget_baseline"] == {
+        "render_gates": 2,
+        "review_heal": 3,
+        "format_repair": 0,
+    }
+    dossier = Dossier(job_id="v3_job", domain="paper")
+    dossier.delegations.extend(raw["delegations"])
+    dossier.evidence.update(raw["evidence"])
+    # numbering continues from history, but the used budget starts fresh
+    assert _prior_repair_attempts(dossier, "render_gates") == 2
+    assert max(0, _prior_repair_attempts(dossier, "render_gates") - _repair_budget_baseline(dossier, "render_gates")) == 0
+
+
+def test_provenance_reset_writes_baseline_even_when_phases_already_blocked(tmp_path: Path):
+    from revalidate_v3_batch import _prepare_review_provenance_resume
+
+    run_dir = tmp_path / "v3_job" / "run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "dossier.v3.json").write_text(
+        json.dumps(
+            {
+                "phases": {"render_gates": "blocked", "review_heal": "blocked", "format_repair": "blocked"},
+                "delegations": [{"task_id": "render_gates:repair:2"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "quality_review_round1.json").write_text(
+        '{"delivery":"pass","review_loop":{"reviewer_model":"deterministic bounded final review"}}',
+        encoding="utf-8",
+    )
+
+    assert _prepare_review_provenance_resume(tmp_path, "v3_job") is True
+    raw = json.loads((run_dir / "dossier.v3.json").read_text(encoding="utf-8"))
+    assert raw["evidence"]["repair_budget_baseline"]["render_gates"] == 2
 
 
 def test_revalidation_leaves_phases_alone_when_review_provenance_valid(tmp_path: Path):
