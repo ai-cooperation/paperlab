@@ -440,7 +440,39 @@ V3.2 is acceptable only when all of the following are true:
 2. Should b-side collect more reference candidates, or should a-side own top-up
    entirely?
 3. What exact UI should `human_decision_required` expose on paperlab.cooperation.tw?
-4. Should low-poolability topics automatically downgrade to narrative review, or
-   require human approval?
-5. Should VIP final quality have a human checkpoint even when mechanical gates
-   pass?
+
+## Decisions (2026-07-02, product owner)
+
+The following were open questions 4 and 5; they are now decided and binding.
+
+### D1. Low-poolability topics: explicit downgrade, not block
+
+When the contract requests a meta-analysis but the evidence yields
+`poolable_k = 0` (or below floor), the engine downgrades the deliverable to a
+narrative/systematic review WITHOUT meta-analysis and continues to delivery.
+
+Constraints that make the downgrade honest rather than a new bypass:
+
+- The downgrade is an explicit recorded event: dossier entry, status page
+  surface, and a `lane_downgrade` record in canonical data.
+- The manuscript must state the downgrade and its evidence reason.
+- No pooled-effect artifacts may exist in a downgraded run: no forest plot,
+  no pooled-effect tables, no moderator claims.
+- Rationale: b-side grill already gates topic-lane fit; blocking again on
+  a-side would strand paid VIP jobs. Silent rewriting is still forbidden.
+
+### D2. VIP delivery requires a human checkpoint for now
+
+Even when all mechanical gates pass, a VIP job stops at
+`human_review_required` before final delivery. Mechanical gates cannot verify
+grounding/judgment-level quality (proven by the a64ad5b gate-widening
+incident). The checkpoint is removed only after the Hermes domain-expert
+review provenance mechanism has a sampled human-audit pass rate high enough
+to justify spot-checking instead.
+
+### D3. V3.2 (newarch engine_v3) is the production line
+
+The B coherent-agent engine (`paper_agent/`) is paused. V3.2 fixes are
+product fixes at P0 priority. The review-integrity work (no deterministic
+pass-like review, provenance-verified Gate R, verdict freshness, content
+honesty gates) is the launch blocker set.

@@ -9,6 +9,7 @@ from framework import contract_hash as v2_contract_hash
 from framework import Severity as V2Severity
 from packs.paper import PaperPack as V2PaperPack
 
+from engine_v3 import review_provenance
 from engine_v3.core import GateResult, GateSeverity, PhaseSpec, RuntimeContext, BrainTask
 
 
@@ -261,29 +262,38 @@ def _gate_review(dossier: Any) -> GateResult:
     loop_ok = _review_loop_ok(loop, bool(data.get("review_log_present")))
     dimensions = _review_dimensions(review)
     dimensions_ok = len(dimensions) >= len(REVIEW_DIMENSION_KEYS)
+    provenance_findings = review_provenance.validate_review_record(
+        review,
+        current_manuscript_sha256=str(data.get("manuscript_sha256") or "") or None,
+        review_log_text=data.get("review_log_text"),
+    )
+    provenance_ok = not provenance_findings
     ok = (
         p0_count == 0
         and delivery in ("pass", "passed", "ok")
         and isinstance(floor, (int, float))
         and loop_ok
         and dimensions_ok
+        and provenance_ok
     )
     return GateResult(
         gate_id="R",
         passed=ok,
         severity=GateSeverity.BLOCK,
         details=(
-            "review passed: no P0, delivery pass, floor_100=%s, loop ok, dimensions=%s" % (
+            "review passed: no P0, delivery pass, floor_100=%s, loop ok, dimensions=%s, provenance ok" % (
                 floor,
                 len(dimensions),
             )
             if ok else
-            "review failed: p0_count=%s, delivery=%s, floor_100=%s, loop_ok=%s, dimensions_ok=%s" % (
+            "review failed: p0_count=%s, delivery=%s, floor_100=%s, loop_ok=%s, dimensions_ok=%s, provenance_ok=%s%s" % (
                 p0_count,
                 delivery or None,
                 floor,
                 loop_ok,
                 dimensions_ok,
+                provenance_ok,
+                ("; " + "; ".join(provenance_findings)) if provenance_findings else "",
             )
         ),
         evidence={
@@ -294,6 +304,7 @@ def _gate_review(dossier: Any) -> GateResult:
             "review_log_present": bool(data.get("review_log_present")),
             "dimensions": dimensions,
             "required_dimensions": sorted(REVIEW_DIMENSION_KEYS),
+            "provenance_findings": provenance_findings,
         },
     )
 
@@ -354,19 +365,17 @@ def _review_loop_ok(loop: Mapping[str, Any], log_present: bool) -> bool:
         return False
     status = str(loop.get("status") or "").lower()
     rounds = loop.get("rounds")
-    reviewer = str(loop.get("reviewer_model") or "")
     fixer = str(loop.get("fixer_model") or "")
-    independent = bool(loop.get("independent_reviewer"))
-    floor_failed = bool(loop.get("floor_failed"))
+    independent = loop.get("independent_reviewer") is True
+    floor_failed = loop.get("floor_failed")
     return (
         status in {"passed", "pass", "done"}
         and isinstance(rounds, int)
         and rounds >= 1
-        and bool(reviewer)
-        and "fallback" not in reviewer.lower()
+        and not review_provenance.reviewer_is_untrusted(loop.get("reviewer_model"))
         and bool(fixer)
         and independent
-        and not floor_failed
+        and floor_failed is False
     )
 
 
@@ -397,7 +406,12 @@ def _gate_delivery(dossier: Any) -> GateResult:
     evidence = getattr(dossier, "evidence", {}) if not isinstance(dossier, dict) else dossier.get("evidence", {})
     validation = evidence.get("delivery_pdf_validation") if isinstance(evidence, dict) else None
     validation_ok = isinstance(validation, dict) and bool(validation.get("valid"))
-    ok = present and validation_ok
+    freshness = evidence.get("review_freshness") if isinstance(evidence, dict) else None
+    # Fail closed: a delivery whose review verdict is unbound or stale must not
+    # ship, even if the PDF renders (2026-07-02 audit: verdicts written against
+    # manuscripts rewritten after review).
+    freshness_ok = isinstance(freshness, dict) and bool(freshness.get("fresh"))
+    ok = present and validation_ok and freshness_ok
     findings = []
     if not present:
         findings.append("delivery PDF missing from artifact index")
@@ -406,6 +420,11 @@ def _gate_delivery(dossier: Any) -> GateResult:
             findings.extend(str(f) for f in validation.get("findings") or [])
         else:
             findings.append("delivery PDF validation missing")
+    if not freshness_ok:
+        if isinstance(freshness, dict):
+            findings.extend(str(f) for f in freshness.get("findings") or [])
+        else:
+            findings.append("review freshness evidence missing; verdict is unbound")
     return GateResult(
         gate_id="Z",
         passed=ok,
@@ -415,6 +434,7 @@ def _gate_delivery(dossier: Any) -> GateResult:
             "artifact": "paper_draft_v0.pdf",
             "present": present,
             "validation": validation or {},
+            "review_freshness": freshness or {},
         },
     )
 

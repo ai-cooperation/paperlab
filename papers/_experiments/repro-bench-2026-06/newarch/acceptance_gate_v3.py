@@ -4,6 +4,8 @@ import json
 import hashlib
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+from engine_v3 import review_provenance
 from typing import Any, Mapping
 
 
@@ -212,9 +214,7 @@ def _validate_review(run_dir: Path, *, min_floor: float) -> tuple[bool, float | 
         findings.append("review p0_count is not zero")
 
     loop = review.get("review_loop") if isinstance(review.get("review_loop"), dict) else {}
-    reviewer_model = str(loop.get("reviewer_model") or "")
-    if "fallback" in reviewer_model.lower():
-        findings.append("reviewer_model is fallback: %s" % reviewer_model)
+    findings.extend(review_provenance.validate_review_artifacts(run_dir))
     if loop.get("independent_reviewer") is not True:
         findings.append("review_loop.independent_reviewer must be boolean true")
     if str(loop.get("status") or "").lower() not in {"pass", "passed", "ok", "done"}:

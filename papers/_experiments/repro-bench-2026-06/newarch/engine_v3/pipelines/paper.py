@@ -10,6 +10,7 @@ from typing import Any, Mapping
 import format_repair
 import paperctl
 
+from engine_v3 import review_provenance
 from engine_v3.core import BrainTask, PhaseSpec, RuntimeContext
 
 
@@ -224,8 +225,23 @@ Hard requirements for quality_review_round1.json:
 - If issues remain, include actionable findings and keep delivery as "revise".
 - Do not stop at review_only when the issue is fixable; modify the affected artifacts.
 
+Hard requirements for review_method (capability decision trace):
+- You own the review decision. Inspect the review capabilities visible in your skill
+  context and choose the one that fits a domain-expert review of this manuscript.
+  Do not wait for the harness to pick a skill for you.
+- Include top-level review_method with: schema_version "paperlab.review_method.v3.2",
+  decision_owner "hermes", capability_class "domain_expert_review", selected_skill
+  (the capability you actually applied), selection_reason, vip_capability_required,
+  vip_capability_available, and inputs_checked (the artifact paths you inspected).
+- Do not fabricate the trace: selected_skill must be a capability you can actually
+  see and use. If no reviewer capability is available, keep delivery "revise", set
+  vip_capability_available to false, and state the gap instead of pretending an
+  expert review happened.
+
 Hard requirements for quality_review_log.md:
 - Record each evaluator/fixer round in order.
+- Include a "## Skill Decision Trace" section listing the review capabilities you
+  saw, the skill you selected, why, and the input artifacts you checked.
 - Record the seven dimension scores and every remaining finding.
 - Record every blocking finding, exact edit/fix applied, and recheck result.
 - If the loop cannot clear, write the terminal blocker instead of passing.
@@ -255,7 +271,12 @@ Hard boundary:
   handled by the harness before this task.
 - Keep delivery as "revise" with concrete findings if any P0 remains.
 - Set delivery to "pass" only if no P0 issues remain and the current PDF/manuscript is deliverable.
-- Include the same required review schema as the main review_heal prompt, including review_loop and all seven dimensions with 0-10 scores.
+- Include the same required review schema as the main review_heal prompt, including
+  review_loop, all seven dimensions with 0-10 scores, the review_method capability
+  decision trace (decision_owner "hermes", the skill you actually selected and why,
+  inputs_checked), and the "## Skill Decision Trace" section in the log.
+- A deterministic repair is not a review. You must re-review the repaired manuscript
+  yourself before any pass verdict.
 """
 
 FULL_PIPELINE_OUTPUTS = (
@@ -401,9 +422,10 @@ def _collect_gate_inputs(
         _ensure_minimal_claim_evidence_map_v3_2(context.run_dir)
         _augment_traceable_claim_evidence_rows(context.run_dir)
     if _task.phase == "render_gates":
+        # No padding here: readability/table floors are the writer's job. If the
+        # body is thin, Gate D must block and route repair back to Hermes
+        # (V3_2_SPEC.md Decisions: no deterministic content padding to pass gates).
         _ensure_paper_springer_source_v3_2(context.run_dir)
-        _ensure_minimum_readability_body_v3_2(context.run_dir)
-        _ensure_quarto_tables_v3_2(context.run_dir)
         _repair_generated_content_quality_v3_2(context.run_dir)
         _normalize_thousands_separators_for_gate_f(context.run_dir)
     if _task.phase == "review_heal":
@@ -413,6 +435,7 @@ def _collect_gate_inputs(
         _ensure_minimal_claim_evidence_map_v3_2(context.run_dir)
         _ensure_review_record_v3_2(context.run_dir)
         _normalize_review_record_schema(context.run_dir)
+        _stamp_review_manuscript_hash(context.run_dir)
     gate_inputs = paperctl._build_dossier(context.run_dir)
     if data_harness is not None:
         gate_inputs["data_completeness"] = data_harness["completeness"]
@@ -425,9 +448,14 @@ def _collect_gate_inputs(
         except json.JSONDecodeError:
             gate_inputs["review"] = {"p0_count": 1, "delivery": "invalid-json"}
     review_log_path = context.run_dir / "quality_review_log.md"
-    gate_inputs["review_log_present"] = review_log_path.is_file() and bool(
-        review_log_path.read_text(encoding="utf-8", errors="ignore").strip()
+    review_log_text = (
+        review_log_path.read_text(encoding="utf-8", errors="ignore")
+        if review_log_path.is_file()
+        else ""
     )
+    gate_inputs["review_log_present"] = bool(review_log_text.strip())
+    gate_inputs["review_log_text"] = review_log_text[:40000]
+    gate_inputs["manuscript_sha256"] = review_provenance.manuscript_sha256(context.run_dir)
     artifacts = {
         rel: context.run_dir / rel
         for rel in _task.expected_outputs
@@ -1225,28 +1253,28 @@ def _apply_exact_review_replacements(run_dir: Path) -> bool:
     if unresolved or not applied:
         return False
 
-    review["delivery"] = "pass"
-    review["p0_count"] = 0
-    review["floor_100"] = max(float(review.get("floor_100") or 0), 82.0)
+    # Deterministic code may apply the reviewer's exact fixes, but it must never
+    # certify the verdict. Delivery stays "revise" so the bounded repair round
+    # re-runs the Hermes reviewer against the repaired manuscript (V3_2_SPEC.md
+    # Decisions: no deterministic pass-like review).
+    review["delivery"] = "revise"
     review["findings"] = [finding for finding in findings if not (isinstance(finding, dict) and finding.get("status") == "resolved")]
     loop = review.get("review_loop") if isinstance(review.get("review_loop"), dict) else {}
-    loop["status"] = "passed"
-    loop["rounds"] = max(1, int(loop.get("rounds") or 1) + 1)
-    loop["floor_failed"] = False
-    loop["independent_reviewer"] = bool(loop.get("independent_reviewer", True))
+    loop["status"] = "repairs_applied_rereview_required"
+    loop["rounds"] = max(1, int(loop.get("rounds") or 1))
     loop["fixer_model"] = str(loop.get("fixer_model") or "deterministic-review-heal")
-    loop["reviewer_model"] = str(loop.get("reviewer_model") or "hermes-reviewer")
     review["review_loop"] = loop
     review["deterministic_review_heal"] = {
         "status": "applied",
         "applied_count": len(applied),
         "method": "exact_reviewer_replacement",
+        "rereview_required": True,
     }
     review_path.write_text(json.dumps(review, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")
     _append_repair_log(
         run_dir,
         "deterministic_review_heal",
-        "Applied %d exact reviewer replacement(s), then marked review loop pass-like for Gate R recheck." % len(applied),
+        "Applied %d exact reviewer replacement(s); delivery kept at revise pending Hermes re-review." % len(applied),
     )
     return True
 
@@ -1355,14 +1383,42 @@ def _apply_review_structural_repairs(run_dir: Path) -> bool:
     return bool(result.get("changed")) if isinstance(result, dict) else False
 
 
+def _stamp_review_manuscript_hash(run_dir: Path) -> bool:
+    """Bind the review verdict to the manuscript bytes it was written against.
+
+    This is harness state-keeping, not judgment: right after the Hermes review
+    ran in this phase, the manuscript on disk is exactly what it reviewed, so
+    stamping the current hash is a faithful record. Gate R and Gate Z later
+    fail closed when the manuscript changes after this stamp (the 2026-07-02
+    audit found pass verdicts delivered against manuscripts rewritten an hour
+    after the review).
+    """
+    review_path = run_dir / "quality_review_round1.json"
+    review = _read_json(review_path)
+    if not isinstance(review, dict):
+        return False
+    method = review.get("review_method")
+    if not isinstance(method, dict) or not method:
+        return False
+    if str(method.get("reviewed_manuscript_sha256") or "").strip():
+        return False
+    method["reviewed_manuscript_sha256"] = review_provenance.manuscript_sha256(run_dir)
+    review["review_method"] = method
+    review_path.write_text(json.dumps(review, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+    return True
+
+
 def _normalize_review_record_schema(run_dir: Path) -> bool:
     review_path = run_dir / "quality_review_round1.json"
     review = _read_json(review_path)
     if not isinstance(review, dict):
         return False
 
+    # Schema normalization only: convert alternate field names and score scales
+    # to the canonical V3.2 shape. It must never upgrade the verdict — no status
+    # flips, no independent_reviewer coercion, no reviewer/fixer backfill, no
+    # floor_failed rewrites (V3_2_SPEC.md Decisions: validators own truth).
     changed = False
-    delivery = str(review.get("delivery") or "").lower()
     if "p0_count" not in review and isinstance(review.get("p0_findings"), list):
         review["p0_count"] = len(review["p0_findings"])
         changed = True
@@ -1371,44 +1427,25 @@ def _normalize_review_record_schema(run_dir: Path) -> bool:
         if overall_score is not None:
             review["floor_100"] = round(overall_score * 10.0, 3) if overall_score <= 10 else overall_score
             changed = True
-    floor_100 = _numeric_review_value(review.get("floor_100"))
-    p0_count = _int_review_value(review.get("p0_count"), default=1)
-    pass_like = delivery in {"pass", "passed", "ok"} and p0_count == 0 and floor_100 is not None and floor_100 >= 80
 
     loop = review.get("review_loop") if isinstance(review.get("review_loop"), dict) else {}
     if not isinstance(review.get("review_loop"), dict):
         changed = True
     independent = loop.get("independent_reviewer")
     if isinstance(independent, dict):
-        loop["independent_reviewer"] = bool(pass_like and _dict_says_pass_like(independent))
+        loop["independent_reviewer"] = _dict_says_pass_like(independent)
         changed = True
-    elif independent is not True:
-        normalized_independent = bool(
-            pass_like or str(independent).lower() in {"true", "yes", "pass", "passed", "ok", "done"}
-        )
+    elif isinstance(independent, str):
+        normalized_independent = independent.strip().lower() in {"true", "yes", "pass", "passed", "ok", "done"}
         if loop.get("independent_reviewer") != normalized_independent:
             loop["independent_reviewer"] = normalized_independent
             changed = True
 
-    expected_status = "passed" if pass_like else "blocked_revise"
-    if str(loop.get("status") or "").lower() not in {"pass", "passed", "ok", "done"} and pass_like:
-        loop["status"] = expected_status
-        changed = True
-    elif not pass_like and not loop.get("status"):
-        loop["status"] = expected_status
+    if not loop.get("status"):
+        loop["status"] = "unreported"
         changed = True
     if not isinstance(loop.get("rounds"), int) or isinstance(loop.get("rounds"), bool) or int(loop.get("rounds") or 0) < 1:
         loop["rounds"] = 1
-        changed = True
-    if not loop.get("reviewer_model"):
-        loop["reviewer_model"] = "hermes bounded final re-review"
-        changed = True
-    if not loop.get("fixer_model"):
-        loop["fixer_model"] = "deterministic structural repair"
-        changed = True
-    expected_floor_failed = not pass_like
-    if loop.get("floor_failed") is not expected_floor_failed:
-        loop["floor_failed"] = expected_floor_failed
         changed = True
     if review.get("review_loop") != loop:
         review["review_loop"] = loop
@@ -1443,6 +1480,15 @@ def _normalize_review_record_schema(run_dir: Path) -> bool:
 
 
 def _ensure_review_record_v3_2(run_dir: Path) -> bool:
+    """Guarantee a review record exists for Gate R to read.
+
+    ⚠️ This backfill may only produce a DIAGNOSTIC record with delivery="revise".
+    It must never emit a pass-like verdict: the 2026-07-02 audit found four
+    production jobs delivered with a synthesized "deterministic bounded final
+    review" pass (floor 82.0 fabricated from word count + file existence).
+    A pass verdict can only come from the Hermes reviewer with review_method
+    provenance (V3_2_SPEC.md Decisions).
+    """
     review_path = run_dir / "quality_review_round1.json"
     log_path = run_dir / "quality_review_log.md"
     draft = (run_dir / "paper_draft_v0.qmd").read_text(encoding="utf-8", errors="ignore") if (run_dir / "paper_draft_v0.qmd").is_file() else ""
@@ -1450,10 +1496,11 @@ def _ensure_review_record_v3_2(run_dir: Path) -> bool:
     refs_present = (run_dir / "references.bib").is_file()
     real_results_present = (run_dir / "real_experiments" / "real_results.json").is_file()
     words = len(draft.split())
-    pass_like = bool(words >= 3000 and claim_map_present and refs_present and real_results_present)
+    artifacts_complete = bool(words >= 3000 and claim_map_present and refs_present and real_results_present)
+    stale_incomplete = False
     if review_path.is_file():
         existing_review = _read_json(review_path)
-        stale_incomplete = pass_like and _review_record_is_stale_incomplete_artifact_verdict(existing_review)
+        stale_incomplete = artifacts_complete and _review_record_is_stale_incomplete_artifact_verdict(existing_review)
         if _review_record_has_delivery_schema(existing_review) and not stale_incomplete:
             if not log_path.is_file() or log_path.stat().st_size < 200:
                 existing = log_path.read_text(encoding="utf-8", errors="ignore") if log_path.is_file() else ""
@@ -1465,50 +1512,57 @@ def _ensure_review_record_v3_2(run_dir: Path) -> bool:
         if log_path.is_file():
             existing = log_path.read_text(encoding="utf-8", errors="ignore") if log_path.is_file() else ""
             reason = (
-                "Existing review JSON carried a stale incomplete-artifact P0 after V3.2 repairs completed the required artifacts."
+                "Prior review carried a stale incomplete-artifact P0 after V3.2 repairs completed the artifacts; a Hermes re-review is required before delivery."
                 if stale_incomplete
-                else "Existing review JSON lacked delivery, floor, or dimensions; deterministic bounded review replaced it with a complete V3.2 review schema."
+                else "Existing review JSON lacked delivery, floor, or dimensions; a diagnostic revise record was written so the repair round can request a complete Hermes review."
             )
             log_path.write_text(
-                (existing.rstrip() + "\n\n## deterministic_review_schema_completion\n\n%s\n" % reason).lstrip(),
+                (existing.rstrip() + "\n\n## deterministic_review_diagnostic\n\n%s\n" % reason).lstrip(),
                 encoding="utf-8",
             )
-    floor = 82.0 if pass_like else 72.0
-    delivery = "pass" if pass_like else "revise"
-    p0_count = 0 if pass_like else 1
-    dimensions = {
-        "academic_rigor": {"score": 8.0 if pass_like else 6.8, "rationale": "Claims are bounded to available V3.2 artifacts and prior hard gates."},
-        "novelty_positioning": {"score": 7.8 if pass_like else 6.5, "rationale": "Positioning is conservative and explicitly scoped to the research contract."},
-        "experimental_completeness": {"score": 7.6 if pass_like else 6.2, "rationale": "The manuscript reports only the available real_results artifact and avoids unsupported expansion."},
-        "writing_quality": {"score": 8.2 if pass_like else 6.8, "rationale": "The draft exceeds the readability floor and maintains section-level structure."},
-        "practical_feasibility": {"score": 8.0 if pass_like else 6.5, "rationale": "The output is reproducible from local run artifacts."},
-        "citation_accuracy": {"score": 8.4 if pass_like else 6.5, "rationale": "Citations are drawn from references.bib and remain linkable in QMD."},
-        "format_compliance": {"score": 8.3 if pass_like else 6.5, "rationale": "QMD includes citation links and numbered sections; final PDF is handled by format_repair."},
-    }
-    findings = [] if pass_like else [
-        {
+    delivery = "revise"
+    floor = 0.0
+    p0_count = 1
+    dimensions: dict[str, dict[str, Any]] = {}
+    if stale_incomplete:
+        finding = {
+            "severity": "P0",
+            "location": "review_heal",
+            "issue": "Prior review verdict is stale: it predates the V3.2 repairs that completed the manuscript artifacts.",
+            "concrete_fix": "Run the Hermes domain-expert review against the current artifacts and record the capability decision trace.",
+            "rationale": "A verdict about an older manuscript state cannot certify the current one.",
+        }
+    elif not artifacts_complete:
+        finding = {
             "severity": "P0",
             "location": "review_heal",
             "issue": "Required manuscript artifacts are still incomplete.",
-            "concrete_fix": "Complete draft, claim evidence, references, and real_results before delivery.",
-            "rationale": "Review fallback cannot pass incomplete declared artifacts.",
+            "concrete_fix": "Complete draft, claim evidence, references, and real_results, then run the Hermes review.",
+            "rationale": "A diagnostic placeholder cannot review incomplete artifacts.",
         }
-    ]
+    else:
+        finding = {
+            "severity": "P0",
+            "location": "review_heal",
+            "issue": "No Hermes expert review artifact was produced for this round.",
+            "concrete_fix": "Run the Hermes domain-expert review and write quality_review_round1.json with review_method provenance.",
+            "rationale": "Deterministic code cannot certify review quality (V3_2_SPEC.md Decisions).",
+        }
     review = {
         "schema_version": "paperlab.review.v3.2",
-        "reviewer": "deterministic bounded final review",
+        "reviewer": "deterministic diagnostic placeholder (not an expert review)",
         "p0_count": p0_count,
         "delivery": delivery,
         "floor_100": floor,
-        "findings": findings,
+        "findings": [finding],
         "dimensions": dimensions,
         "review_loop": {
-            "status": "passed" if pass_like else "blocked_revise",
+            "status": "blocked_revise",
             "rounds": 1,
-            "reviewer_model": "deterministic bounded final review",
-            "fixer_model": "deterministic structural repair",
-            "floor_failed": not pass_like,
-            "independent_reviewer": bool(pass_like),
+            "reviewer_model": "deterministic diagnostic placeholder",
+            "fixer_model": "",
+            "floor_failed": True,
+            "independent_reviewer": False,
         },
     }
     review_path.write_text(json.dumps(review, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")
@@ -1517,18 +1571,13 @@ def _ensure_review_record_v3_2(run_dir: Path) -> bool:
             [
                 "# Quality Review Log",
                 "",
-                "## deterministic_bounded_final_review",
+                "## deterministic_review_diagnostic",
                 "",
-                "Reviewer: deterministic bounded final review.",
-                "Basis: paper_draft_v0.qmd, claim_evidence_map.md, references.bib, doi_audit.json, real_experiments/real_results.json, and prior V3.2 gates.",
+                "Reviewer: deterministic diagnostic placeholder (not an expert review).",
+                "This record exists only so Gate R has evidence to block on; it certifies nothing.",
                 "Decision: %s, floor_100=%s, p0_count=%s." % (delivery, floor, p0_count),
-                "Dimension scores:",
-                *[
-                    "- %s: %.1f - %s" % (name, value["score"], value["rationale"])
-                    for name, value in dimensions.items()
-                ],
-                "Remaining findings: %s." % ("none" if not findings else json.dumps(findings, ensure_ascii=False)),
-                "This review is deterministic and artifact-bounded; it does not add external evidence.",
+                "Blocking finding: %s" % json.dumps(finding, ensure_ascii=False),
+                "Next step: the bounded repair round must run the Hermes domain-expert review with a skill decision trace.",
             ]
         )
         + "\n",
@@ -1747,20 +1796,75 @@ def _format_repair_handler(
     pdf = context.run_dir / "paper_draft_v0.pdf"
     pdf.unlink(missing_ok=True)
 
+    # Review-freshness protocol: this phase's own transforms (springer source,
+    # boilerplate strip, number formatting, render fixes) are deterministic and
+    # unit-tested, so they may advance the reviewed-manuscript stamp — but only
+    # when nothing else touched the manuscript between the review and this phase.
+    # Any other post-review mutation leaves a stale stamp and Gate Z fails closed.
+    pre_format_sha = review_provenance.manuscript_sha256(context.run_dir)
+
+    # No content padding here (no readability addendum, no filler tables): if the
+    # manuscript cannot pass D/Z on its own content, the job must fail those gates,
+    # not be padded past them (V3_2_SPEC.md Decisions).
     _ensure_paper_springer_source_v3_2(context.run_dir)
-    _ensure_minimum_readability_body_v3_2(context.run_dir)
-    _ensure_quarto_tables_v3_2(context.run_dir)
     _repair_generated_content_quality_v3_2(context.run_dir)
     repair_result = format_repair.verify_and_repair(context.run_dir, contract)
+    post_format_sha = review_provenance.manuscript_sha256(context.run_dir)
+    review_fresh = _reconcile_review_freshness_after_format_repair(
+        context.run_dir, pre_format_sha=pre_format_sha, post_format_sha=post_format_sha
+    )
+
     validation = _validate_delivery_pdf(pdf, context.run_dir)
     artifacts = {"paper_draft_v0.pdf": pdf} if pdf.is_file() else {}
     return {
         "gate_inputs": {
             "delivery_pdf_validation": validation,
+            "review_freshness": review_fresh,
+            "manuscript_sha256": post_format_sha,
         },
         "artifacts": artifacts,
         "format_repair": repair_result,
     }
+
+
+def _reconcile_review_freshness_after_format_repair(
+    run_dir: Path,
+    *,
+    pre_format_sha: str,
+    post_format_sha: str,
+) -> dict[str, object]:
+    review_path = run_dir / "quality_review_round1.json"
+    review = _read_json(review_path)
+    if not isinstance(review, dict):
+        return {"fresh": False, "findings": ["quality_review_round1.json missing"]}
+    method = review.get("review_method")
+    method = method if isinstance(method, dict) else {}
+    stamp = str(method.get("reviewed_manuscript_sha256") or "").strip()
+    if not stamp:
+        return {
+            "fresh": False,
+            "findings": ["review_method.reviewed_manuscript_sha256 missing; verdict is unbound"],
+        }
+    if stamp != pre_format_sha:
+        return {
+            "fresh": False,
+            "findings": [
+                "review verdict is stale: manuscript changed between the Hermes review and format_repair"
+            ],
+        }
+    if post_format_sha != pre_format_sha:
+        method["reviewed_manuscript_sha256"] = post_format_sha
+        method.setdefault("post_review_transforms", []).append("format_repair")
+        review["review_method"] = method
+        review_path.write_text(
+            json.dumps(review, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8"
+        )
+        _append_repair_log(
+            run_dir,
+            "review_freshness_reconciliation",
+            "format_repair applied deterministic transforms; reviewed-manuscript stamp advanced with provenance note.",
+        )
+    return {"fresh": True, "findings": []}
 
 
 def _read_json(path):

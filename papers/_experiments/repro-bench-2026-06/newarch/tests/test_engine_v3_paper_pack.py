@@ -103,6 +103,7 @@ def test_review_gate_requires_self_heal_loop_and_log():
             "p0_count": 0,
             "delivery": "pass",
             "floor_100": 90,
+            "review_method": _review_method_fixture(),
             "review_loop": {
                 "status": "passed",
                 "rounds": 1,
@@ -114,6 +115,7 @@ def test_review_gate_requires_self_heal_loop_and_log():
             "dimensions": _review_dimensions_fixture(),
         },
         "review_log_present": True,
+        "review_log_text": _DECISION_TRACE_LOG,
     }
 
     thin = run_gates(pack, thin_review, only={"R"})
@@ -156,23 +158,48 @@ def test_review_gate_accepts_floor_100_score_object():
             "p0_count": 0,
             "delivery": "pass",
             "floor_100": {"status": "passed", "score": 92, "floor_failed": False},
+            "review_method": _review_method_fixture(),
             "review_loop": {
                 "status": "passed",
                 "rounds": 2,
                 "reviewer_model": "codex-reviewer",
                 "fixer_model": "codex-fixer",
-                "independent_reviewer": "mechanical independent pass",
+                "independent_reviewer": True,
                 "floor_failed": False,
             },
             "dimension_scores": _review_dimensions_fixture(),
         },
         "review_log_present": True,
+        "review_log_text": _DECISION_TRACE_LOG,
     }
 
     report = run_gates(pack, dossier, only={"R"})
 
     assert report.blocked is False
     assert report.results[0].evidence["floor_100"] == 92
+
+
+
+def _review_method_fixture(**overrides):
+    method = {
+        "schema_version": "paperlab.review_method.v3.2",
+        "decision_owner": "hermes",
+        "capability_class": "domain_expert_review",
+        "selected_skill": "paper-review-skill",
+        "selection_reason": "domain expert review before delivery",
+        "vip_capability_required": True,
+        "vip_capability_available": True,
+        "inputs_checked": ["paper_draft_v0.qmd", "references.bib"],
+        "reviewed_manuscript_sha256": "f" * 64,
+    }
+    method.update(overrides)
+    return method
+
+
+_DECISION_TRACE_LOG = (
+    "# Quality review log\n\n## Skill Decision Trace\n\n"
+    "- selected: paper-review-skill\n"
+)
 
 
 def _review_dimensions_fixture():
@@ -185,6 +212,104 @@ def _review_dimensions_fixture():
         "citation_accuracy": 8.6,
         "format_compliance": 8.5,
     }
+
+
+
+
+def _pass_like_review(**overrides):
+    review = {
+        "p0_count": 0,
+        "delivery": "pass",
+        "floor_100": 88,
+        "review_method": _review_method_fixture(),
+        "review_loop": {
+            "status": "passed",
+            "rounds": 1,
+            "reviewer_model": "codex-reviewer",
+            "fixer_model": "big-pickle",
+            "independent_reviewer": True,
+            "floor_failed": False,
+        },
+        "dimensions": _review_dimensions_fixture(),
+    }
+    review.update(overrides)
+    return review
+
+
+def test_review_gate_rejects_deterministic_reviewer_string():
+    pack = PaperPack()
+    review = _pass_like_review()
+    review["review_loop"]["reviewer_model"] = "deterministic bounded final review"
+    report = run_gates(
+        pack,
+        {"review": review, "review_log_present": True, "review_log_text": _DECISION_TRACE_LOG},
+        only={"R"},
+    )
+
+    assert report.blocked is True
+    assert "loop_ok=False" in report.results[0].details
+
+
+def test_review_gate_requires_review_method_provenance():
+    pack = PaperPack()
+    review = _pass_like_review()
+    del review["review_method"]
+    report = run_gates(
+        pack,
+        {"review": review, "review_log_present": True, "review_log_text": _DECISION_TRACE_LOG},
+        only={"R"},
+    )
+
+    assert report.blocked is True
+    assert "review_method provenance missing" in report.results[0].details
+
+
+def test_review_gate_requires_skill_decision_trace_in_log():
+    pack = PaperPack()
+    report = run_gates(
+        pack,
+        {
+            "review": _pass_like_review(),
+            "review_log_present": True,
+            "review_log_text": "# log\nround 1 passed\n",
+        },
+        only={"R"},
+    )
+
+    assert report.blocked is True
+    assert "decision trace" in report.results[0].details
+
+
+def test_review_gate_rejects_stale_manuscript_hash():
+    pack = PaperPack()
+    report = run_gates(
+        pack,
+        {
+            "review": _pass_like_review(),
+            "review_log_present": True,
+            "review_log_text": _DECISION_TRACE_LOG,
+            "manuscript_sha256": "0" * 64,
+        },
+        only={"R"},
+    )
+
+    assert report.blocked is True
+    assert "stale" in report.results[0].details
+
+
+def test_review_gate_blocks_when_vip_capability_unavailable():
+    pack = PaperPack()
+    review = _pass_like_review(
+        review_method=_review_method_fixture(vip_capability_available=False)
+    )
+    report = run_gates(
+        pack,
+        {"review": review, "review_log_present": True, "review_log_text": _DECISION_TRACE_LOG},
+        only={"R"},
+    )
+
+    assert report.blocked is True
+    assert "vip capability" in report.results[0].details.lower()
 
 
 def test_delivery_gate_requires_pdf_validation():
@@ -214,6 +339,18 @@ def test_delivery_gate_requires_pdf_validation():
         "numbered_section_detected": True,
         "findings": [],
     }
+    missing_freshness = run_gates(pack, dossier, only={"Z"})
+
+    assert missing_freshness.blocked is True
+    assert "review freshness" in missing_freshness.results[0].details
+
+    dossier.evidence["review_freshness"] = {"fresh": False, "findings": ["review verdict is stale: manuscript changed between the Hermes review and format_repair"]}
+    stale = run_gates(pack, dossier, only={"Z"})
+
+    assert stale.blocked is True
+    assert "stale" in stale.results[0].details
+
+    dossier.evidence["review_freshness"] = {"fresh": True, "findings": []}
     valid = run_gates(pack, dossier, only={"Z"})
 
     assert valid.blocked is False

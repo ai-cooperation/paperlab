@@ -183,7 +183,11 @@ def test_render_handler_backfills_paper_springer_from_draft(tmp_path: Path):
     assert "number-sections: true" in springer
     assert "For V3.2 production quality" not in springer
     assert springer.count("## Evidence Boundary Notes") <= 1
-    assert _validate_table_widths(run_dir)["valid"] is True
+    # No filler tables are injected any more: a table-less manuscript must FAIL
+    # table validation so the gate routes repair back to the writer, instead of
+    # being padded past Gate Z with traceability filler tables.
+    assert _validate_table_widths(run_dir)["valid"] is False
+    assert "Traceability Tables" not in springer
     assert "paper_springer.qmd" in result["artifacts"]
 
 
@@ -295,7 +299,7 @@ def test_render_gate_handler_normalizes_thousands_commas_before_logic_audit(tmp_
     assert "5432 observations" in (run_dir / "paper_draft_v0.qmd").read_text(encoding="utf-8")
 
 
-def test_review_heal_applies_exact_reviewer_replacements_and_marks_loop_passed(tmp_path: Path):
+def test_review_heal_applies_exact_replacements_but_keeps_delivery_revise(tmp_path: Path):
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     target = "The method is production ready without further validation."
@@ -326,14 +330,14 @@ def test_review_heal_applies_exact_reviewer_replacements_and_marks_loop_passed(t
     )
 
     review = result["gate_inputs"]["review"]
-    assert review["delivery"] == "pass"
-    assert review["review_loop"]["status"] == "passed"
-    assert review["review_loop"]["floor_failed"] is False
+    assert review["delivery"] == "revise"
+    assert review["review_loop"]["status"] == "repairs_applied_rereview_required"
+    assert review["deterministic_review_heal"]["rereview_required"] is True
     assert "deterministic_review_heal" in (run_dir / "quality_review_log.md").read_text(encoding="utf-8")
     assert replacement in (run_dir / "paper_draft_v0.qmd").read_text(encoding="utf-8")
 
 
-def test_review_heal_regenerates_flagged_figures_and_marks_loop_passed(tmp_path: Path):
+def test_review_heal_regenerates_flagged_figures_but_requires_rereview(tmp_path: Path):
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     (run_dir / "real_experiments").mkdir()
@@ -370,15 +374,16 @@ def test_review_heal_regenerates_flagged_figures_and_marks_loop_passed(tmp_path:
     )
 
     review = result["gate_inputs"]["review"]
-    assert review["delivery"] == "pass"
-    assert review["review_loop"]["independent_reviewer"] is True
+    assert review["delivery"] == "revise"
+    assert review["review_loop"]["status"] == "repairs_applied_rereview_required"
+    assert review["review_loop"]["independent_reviewer"] is False
     assert (fig_dir / "fig_prisma_flow.png").stat().st_size > 1000
     assert "PRISMA-style evidence screening flow" in (fig_dir / "fig_prisma_flow.svg").read_text(encoding="utf-8")
     assert "Public-data to ESCO/EPC risk workflow" in (fig_dir / "fig_method_overview.svg").read_text(encoding="utf-8")
     assert "deterministic_review_heal" in (run_dir / "quality_review_log.md").read_text(encoding="utf-8")
 
 
-def test_review_heal_removes_flagged_out_of_domain_citation_before_passing(tmp_path: Path):
+def test_review_heal_removes_flagged_out_of_domain_citation_then_requires_rereview(tmp_path: Path):
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     sentence = "External-validity caveats are informed by a weak transfer reference @Hasan2020Diabetes."
@@ -414,7 +419,8 @@ def test_review_heal_removes_flagged_out_of_domain_citation_before_passing(tmp_p
     )
 
     review = result["gate_inputs"]["review"]
-    assert review["delivery"] == "pass"
+    assert review["delivery"] == "revise"
+    assert review["review_loop"]["status"] == "repairs_applied_rereview_required"
     assert review["findings"] == []
     assert "Hasan2020Diabetes" not in (run_dir / "paper_draft_v0.qmd").read_text(encoding="utf-8")
     assert "Hasan2020Diabetes" not in (run_dir / "references.bib").read_text(encoding="utf-8")
@@ -521,9 +527,9 @@ def test_review_heal_normalizes_alternate_dimension_score_schema(tmp_path: Path)
     review = result["gate_inputs"]["review"]
     assert review["p0_count"] == 0
     assert review["floor_100"] == 82.0
-    assert review["review_loop"]["status"] == "passed"
-    assert review["review_loop"]["independent_reviewer"] is True
-    assert review["review_loop"]["floor_failed"] is False
+    assert review["review_loop"]["status"] == "blocked_revise"
+    assert review["review_loop"]["independent_reviewer"] is False
+    assert review["review_loop"]["floor_failed"] is True
     assert sorted(review["dimensions"]) == [
         "academic_rigor",
         "citation_accuracy",
@@ -536,7 +542,7 @@ def test_review_heal_normalizes_alternate_dimension_score_schema(tmp_path: Path)
     assert review["dimensions"]["citation_accuracy"]["score"] == 9.3
 
 
-def test_review_heal_backfills_bounded_review_record_when_missing(tmp_path: Path):
+def test_review_heal_backfills_diagnostic_revise_record_when_missing(tmp_path: Path):
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     (run_dir / "paper_draft_v0.qmd").write_text("word " * 3100, encoding="utf-8")
@@ -552,22 +558,16 @@ def test_review_heal_backfills_bounded_review_record_when_missing(tmp_path: Path
     )
 
     review = result["gate_inputs"]["review"]
-    assert review["delivery"] == "pass"
-    assert review["floor_100"] >= 80
-    assert review["review_loop"]["independent_reviewer"] is True
-    assert sorted(review["dimensions"]) == [
-        "academic_rigor",
-        "citation_accuracy",
-        "experimental_completeness",
-        "format_compliance",
-        "novelty_positioning",
-        "practical_feasibility",
-        "writing_quality",
-    ]
+    assert review["delivery"] == "revise"
+    assert review["p0_count"] == 1
+    assert review["floor_100"] < 80
+    assert review["review_loop"]["independent_reviewer"] is False
+    assert "diagnostic placeholder" in review["review_loop"]["reviewer_model"]
+    assert review["dimensions"] == {}
     assert (run_dir / "quality_review_log.md").stat().st_size >= 200
 
 
-def test_review_heal_replaces_stale_incomplete_artifact_review_after_repairs(tmp_path: Path):
+def test_review_heal_invalidates_stale_incomplete_review_and_requires_rereview(tmp_path: Path):
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     (run_dir / "paper_draft_v0.qmd").write_text("word " * 3100, encoding="utf-8")
@@ -610,10 +610,10 @@ def test_review_heal_replaces_stale_incomplete_artifact_review_after_repairs(tmp
     )
 
     review = result["gate_inputs"]["review"]
-    assert review["delivery"] == "pass"
-    assert review["floor_100"] >= 80
-    assert review["p0_count"] == 0
-    assert review["review_loop"]["independent_reviewer"] is True
+    assert review["delivery"] == "revise"
+    assert review["p0_count"] == 1
+    assert "stale" in json.dumps(review["findings"]).lower()
+    assert review["review_loop"]["independent_reviewer"] is False
 
 
 def test_review_heal_materializes_missing_claim_evidence_map_before_review(tmp_path: Path):
@@ -632,8 +632,8 @@ def test_review_heal_materializes_missing_claim_evidence_map_before_review(tmp_p
 
     review = result["gate_inputs"]["review"]
     assert (run_dir / "claim_evidence_map.md").is_file()
-    assert review["delivery"] == "pass"
-    assert review["p0_count"] == 0
+    assert review["delivery"] == "revise"
+    assert review["p0_count"] == 1
 
 
 def test_bounded_golden_pipeline_runs_selected_gates_through_v3(tmp_path: Path, golden_dir: Path):
@@ -726,6 +726,12 @@ def test_full_paper_pipeline_runs_all_phases_and_delivery_gate(
         if "quality_review_round1.json" in prompt:
             (cwd / "quality_review_round1.json").write_text(
                 '{"p0_count": 0, "delivery": "pass", "floor_100": 82.0, '
+                '"review_method": {"schema_version": "paperlab.review_method.v3.2", '
+                '"decision_owner": "hermes", "capability_class": "domain_expert_review", '
+                '"selected_skill": "paper-review-skill", '
+                '"selection_reason": "domain expert review before delivery", '
+                '"vip_capability_required": true, "vip_capability_available": true, '
+                '"inputs_checked": ["paper_draft_v0.qmd", "references.bib"]}, '
                 '"review_loop": {"status": "passed", "rounds": 1, '
                 '"reviewer_model": "codex-class", "fixer_model": "big-pickle", '
                 '"independent_reviewer": true, "floor_failed": false}, '
@@ -741,7 +747,11 @@ def test_full_paper_pipeline_runs_all_phases_and_delivery_gate(
             )
         if "quality_review_log.md" in prompt:
             (cwd / "quality_review_log.md").write_text(
-                "# Quality review log\n\n- round 1: passed; no P0; floor ok\n",
+                "# Quality review log\n\n## Skill Decision Trace\n\n"
+                "- visible: paper-review-skill, elite-reviewer-audit\n"
+                "- selected: paper-review-skill because the task needs a domain expert review\n"
+                "- inputs checked: paper_draft_v0.qmd, references.bib\n\n"
+                "- round 1: passed; no P0; floor ok\n",
                 encoding="utf-8",
             )
         return CliRunResult(exit_code=0, stdout="CHILD_OK", stderr="")

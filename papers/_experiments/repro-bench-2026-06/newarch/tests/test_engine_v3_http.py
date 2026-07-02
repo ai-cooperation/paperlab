@@ -71,6 +71,12 @@ def _full_fixture_runtime(golden_dir: Path):
         if "quality_review_round1.json" in prompt:
             (cwd / "quality_review_round1.json").write_text(
                 '{"p0_count": 0, "delivery": "pass", "floor_100": 82.0, '
+                '"review_method": {"schema_version": "paperlab.review_method.v3.2", '
+                '"decision_owner": "hermes", "capability_class": "domain_expert_review", '
+                '"selected_skill": "paper-review-skill", '
+                '"selection_reason": "domain expert review before delivery", '
+                '"vip_capability_required": true, "vip_capability_available": true, '
+                '"inputs_checked": ["paper_draft_v0.qmd", "references.bib"]}, '
                 '"review_loop": {"status": "passed", "rounds": 1, '
                 '"reviewer_model": "codex-class", "fixer_model": "big-pickle", '
                 '"independent_reviewer": true, "floor_failed": false}, '
@@ -86,7 +92,8 @@ def _full_fixture_runtime(golden_dir: Path):
             )
         if "quality_review_log.md" in prompt:
             (cwd / "quality_review_log.md").write_text(
-                "# Quality review log\n\n"
+                "# Quality review log\n\n## Skill Decision Trace\n\n"
+                "- selected: paper-review-skill because the task needs a domain expert review\n\n"
                 + "- round 1: passed; no P0; floor ok; seven dimensions checked.\n" * 20,
                 encoding="utf-8",
             )

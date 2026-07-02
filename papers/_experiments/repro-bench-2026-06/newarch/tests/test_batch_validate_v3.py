@@ -50,7 +50,7 @@ def test_validate_job_rejects_done_flow_without_acceptance_pdf_contract(tmp_path
     run_dir.mkdir(parents=True)
     _write_dossier(run_dir, z_validation={"valid": True})
     _write_review(run_dir)
-    (run_dir / "quality_review_log.md").write_text("# log\n\n" + "reviewed\n" * 100, encoding="utf-8")
+    (run_dir / "quality_review_log.md").write_text("# log\n\n## Skill Decision Trace\n\n- selected: paper-review-skill\n\n" + "reviewed\n" * 100, encoding="utf-8")
     (run_dir / "paper_draft_v0.pdf").write_bytes(b"%PDF-1.4\n" + b"x" * 120_000)
 
     row = validate_jobs(tmp_path / "jobs", job_ids=["v3_bad"])[0]
@@ -76,7 +76,7 @@ def test_validate_job_requires_z_gate_pdf_validation_details(tmp_path: Path):
         },
     )
     _write_review(run_dir)
-    (run_dir / "quality_review_log.md").write_text("# log\n\n" + "reviewed\n" * 100, encoding="utf-8")
+    (run_dir / "quality_review_log.md").write_text("# log\n\n## Skill Decision Trace\n\n- selected: paper-review-skill\n\n" + "reviewed\n" * 100, encoding="utf-8")
     (run_dir / "paper_draft_v0.pdf").write_bytes(b"%PDF-1.4\n" + b"x" * 120_000)
 
     row = validate_jobs(tmp_path / "jobs", job_ids=["v3_raw_cite"])[0]
@@ -95,7 +95,7 @@ def test_validate_job_requires_content_quality_validation_in_z_gate(tmp_path: Pa
     validation.pop("content_quality")
     _write_dossier(run_dir, z_validation=validation)
     _write_review(run_dir)
-    (run_dir / "quality_review_log.md").write_text("# log\n\n" + "reviewed\n" * 100, encoding="utf-8")
+    (run_dir / "quality_review_log.md").write_text("# log\n\n## Skill Decision Trace\n\n- selected: paper-review-skill\n\n" + "reviewed\n" * 100, encoding="utf-8")
     (run_dir / "paper_draft_v0.pdf").write_bytes(b"%PDF-1.4\n" + b"x" * 120_000)
 
     row = validate_jobs(tmp_path / "jobs", job_ids=["v3_missing_content_quality"])[0]
@@ -111,7 +111,7 @@ def test_validate_job_marks_done_pass_only_for_full_acceptance_contract(tmp_path
     _write_manifest(run_dir)
     _write_dossier(run_dir, z_validation=_valid_pdf_validation())
     _write_review(run_dir)
-    (run_dir / "quality_review_log.md").write_text("# log\n\n" + "reviewed\n" * 100, encoding="utf-8")
+    (run_dir / "quality_review_log.md").write_text("# log\n\n## Skill Decision Trace\n\n- selected: paper-review-skill\n\n" + "reviewed\n" * 100, encoding="utf-8")
     (run_dir / "paper_draft_v0.pdf").write_bytes(b"%PDF-1.4\n" + b"x" * 120_000)
 
     row = validate_jobs(tmp_path / "jobs", job_ids=["v3_good"])[0]
@@ -128,7 +128,7 @@ def test_validate_job_accepts_compact_pdf_when_z_gate_validates_delivery(tmp_pat
     _write_manifest(run_dir)
     _write_dossier(run_dir, z_validation={**_valid_pdf_validation(), "size": 77_138})
     _write_review(run_dir)
-    (run_dir / "quality_review_log.md").write_text("# log\n\n" + "reviewed\n" * 100, encoding="utf-8")
+    (run_dir / "quality_review_log.md").write_text("# log\n\n## Skill Decision Trace\n\n- selected: paper-review-skill\n\n" + "reviewed\n" * 100, encoding="utf-8")
     (run_dir / "paper_draft_v0.pdf").write_bytes(b"%PDF-1.4\n" + b"x" * 77_000)
 
     row = validate_jobs(tmp_path / "jobs", job_ids=["v3_compact_pdf"])[0]
@@ -144,7 +144,7 @@ def test_validate_job_rejects_tiny_pdf_even_when_z_gate_is_stale_valid(tmp_path:
     _write_manifest(run_dir)
     _write_dossier(run_dir, z_validation={**_valid_pdf_validation(), "size": 2_048})
     _write_review(run_dir)
-    (run_dir / "quality_review_log.md").write_text("# log\n\n" + "reviewed\n" * 100, encoding="utf-8")
+    (run_dir / "quality_review_log.md").write_text("# log\n\n## Skill Decision Trace\n\n- selected: paper-review-skill\n\n" + "reviewed\n" * 100, encoding="utf-8")
     (run_dir / "paper_draft_v0.pdf").write_bytes(b"%PDF-1.4\n" + b"x" * 2_000)
 
     row = validate_jobs(tmp_path / "jobs", job_ids=["v3_tiny_pdf"])[0]
@@ -169,7 +169,7 @@ def test_validate_job_rejects_review_dimension_scores_outside_zero_to_ten(tmp_pa
     _write_manifest(run_dir)
     _write_dossier(run_dir, z_validation=_valid_pdf_validation())
     _write_review(run_dir, dimension_score=86)
-    (run_dir / "quality_review_log.md").write_text("# log\n\n" + "reviewed\n" * 100, encoding="utf-8")
+    (run_dir / "quality_review_log.md").write_text("# log\n\n## Skill Decision Trace\n\n- selected: paper-review-skill\n\n" + "reviewed\n" * 100, encoding="utf-8")
     (run_dir / "paper_draft_v0.pdf").write_bytes(b"%PDF-1.4\n" + b"x" * 120_000)
 
     row = validate_jobs(tmp_path / "jobs", job_ids=["v3_bad_scores"])[0]
@@ -278,12 +278,30 @@ def _write_dossier(run_dir: Path, *, z_validation: dict) -> None:
 
 
 def _write_review(run_dir: Path, *, dimension_score: float = 8.2) -> None:
+    from engine_v3 import review_provenance
+
+    (run_dir / "quality_review_log.md").write_text(
+        "# Quality review log\n\n## Skill Decision Trace\n\n"
+        "- selected: paper-review-skill\n\n" + "reviewed\n" * 100,
+        encoding="utf-8",
+    )
     (run_dir / "quality_review_round1.json").write_text(
         json.dumps(
             {
                 "p0_count": 0,
                 "delivery": "pass",
                 "floor_100": 84,
+                "review_method": {
+                    "schema_version": "paperlab.review_method.v3.2",
+                    "decision_owner": "hermes",
+                    "capability_class": "domain_expert_review",
+                    "selected_skill": "paper-review-skill",
+                    "selection_reason": "domain expert review before delivery",
+                    "vip_capability_required": True,
+                    "vip_capability_available": True,
+                    "inputs_checked": ["paper_draft_v0.qmd", "references.bib"],
+                    "reviewed_manuscript_sha256": review_provenance.manuscript_sha256(run_dir),
+                },
                 "review_loop": {
                     "status": "passed",
                     "rounds": 1,
