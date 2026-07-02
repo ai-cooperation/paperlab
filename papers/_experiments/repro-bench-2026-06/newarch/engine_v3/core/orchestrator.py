@@ -698,9 +698,16 @@ def _maybe_require_vip_delivery_review(dossier: Dossier, run_dir) -> bool:
             if isinstance(loaded, dict):
                 contract = loaded
                 break
-    tier = str(contract.get("level") or contract.get("tier") or "").strip().lower()
-    if tier != "vip":
+    # tier can live in either field ("level" is often the journal tier while
+    # "tier" carries the service tier - run5 shipped level=journal, tier=vip
+    # and the checkpoint silently skipped). VIP in EITHER field triggers D2.
+    tier_values = {
+        str(contract.get(key) or "").strip().lower() for key in ("level", "tier")
+    }
+    if "vip" not in tier_values:
+        _clear_stale_phase_checkpoint(dossier)
         return False
+    _clear_stale_phase_checkpoint(dossier)
     approval_path = Path(run_dir) / "human_review_approval.json"
     approval = None
     if approval_path.is_file():
@@ -724,6 +731,21 @@ def _maybe_require_vip_delivery_review(dossier: Dossier, run_dir) -> bool:
     }
     _trace(dossier, "human_review_required", phase="delivery")
     return True
+
+
+def _clear_stale_phase_checkpoint(dossier: Dossier) -> None:
+    """A phase-level human_decision_required checkpoint describes a blocked
+    phase. Once every phase is done, that description is stale and would
+    mislead the status page (run5 finished with the superseded data-phase
+    checkpoint still in evidence)."""
+    checkpoint = dossier.evidence.get("human_checkpoint")
+    if not isinstance(checkpoint, dict):
+        return
+    if str(checkpoint.get("status") or "") != "human_decision_required":
+        return
+    phases = dict(getattr(dossier, "phases", {}) or {})
+    if phases and all(status == "done" for status in phases.values()):
+        dossier.evidence.pop("human_checkpoint", None)
 
 
 def _maybe_record_human_checkpoint(dossier: Dossier, phase_id: str, gate_report) -> None:

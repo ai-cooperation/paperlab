@@ -104,3 +104,48 @@ def test_status_endpoint_surfaces_human_review_and_approval_flow(tmp_path: Path)
 
     status_after = tc.get("/v3/jobs/v3_vip_test/status").json()
     assert status_after["status"] == "done"
+
+
+def test_vip_in_tier_field_triggers_checkpoint_even_when_level_is_journal(tmp_path: Path):
+    """run5 shipped level=journal, tier=vip and the checkpoint silently
+    skipped because only the first non-empty field was inspected."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "research_contract.json").write_text(
+        json.dumps({"topic": "t", "level": "journal", "tier": "vip"}), encoding="utf-8"
+    )
+    store = DossierStore(run_dir)
+    dossier = store.create(job_id="v3_vip_test", domain="paper")
+    for phase in ("data", "review_heal", "format_repair"):
+        dossier.mark_phase(phase, "done")
+
+    assert _maybe_require_vip_delivery_review(dossier, run_dir) is True
+    assert dossier.evidence["human_checkpoint"]["status"] == "human_review_required"
+
+
+def test_stale_phase_checkpoint_cleared_when_all_phases_done(tmp_path: Path):
+    run_dir = tmp_path / "run"
+    store, dossier = _make_done_dossier(run_dir, tier="standard")
+    dossier.evidence["human_checkpoint"] = {
+        "status": "human_decision_required",
+        "phase": "data",
+        "reason": "superseded: data later passed",
+    }
+
+    assert _maybe_require_vip_delivery_review(dossier, run_dir) is False
+    assert "human_checkpoint" not in dossier.evidence
+
+
+def test_vip_delivery_checkpoint_replaces_stale_phase_checkpoint(tmp_path: Path):
+    run_dir = tmp_path / "run"
+    store, dossier = _make_done_dossier(run_dir, tier="vip")
+    dossier.evidence["human_checkpoint"] = {
+        "status": "human_decision_required",
+        "phase": "data",
+        "reason": "superseded: data later passed",
+    }
+
+    assert _maybe_require_vip_delivery_review(dossier, run_dir) is True
+    checkpoint = dossier.evidence["human_checkpoint"]
+    assert checkpoint["status"] == "human_review_required"
+    assert checkpoint["phase"] == "delivery"
