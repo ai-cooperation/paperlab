@@ -211,7 +211,17 @@ def _validate_review(run_dir: Path, *, min_floor: float) -> tuple[bool, float | 
         findings.append("review p0_count is not zero")
 
     loop = review.get("review_loop") if isinstance(review.get("review_loop"), dict) else {}
-    findings.extend(review_provenance.validate_review_artifacts(run_dir))
+    # Function-level import: engine_v3.packs.__init__ -> packs.paper ->
+    # engine_v3.core.dossier imports this module back (write_artifact_manifest),
+    # so a module-level import here would be a circular import.
+    from engine_v3.packs import paper_artifacts
+
+    findings.extend(review_provenance.validate_review_artifacts(
+        run_dir,
+        review_file=paper_artifacts.REVIEW_FILE,
+        review_log_file=paper_artifacts.REVIEW_LOG_FILE,
+        manuscript_files=paper_artifacts.MANUSCRIPT_FILES,
+    ))
     if loop.get("independent_reviewer") is not True:
         findings.append("review_loop.independent_reviewer must be boolean true")
     if str(loop.get("status") or "").lower() not in {"pass", "passed", "ok", "done"}:

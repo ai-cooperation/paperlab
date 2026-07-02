@@ -92,15 +92,15 @@ def test_review_log_decision_trace_detection():
 
 def test_manuscript_sha256_changes_with_content(tmp_path: Path):
     (tmp_path / "paper_draft_v0.qmd").write_text("version one", encoding="utf-8")
-    first = rp.manuscript_sha256(tmp_path)
+    first = rp.manuscript_sha256(tmp_path, ("paper_draft_v0.qmd",))
     (tmp_path / "paper_draft_v0.qmd").write_text("version two", encoding="utf-8")
-    second = rp.manuscript_sha256(tmp_path)
+    second = rp.manuscript_sha256(tmp_path, ("paper_draft_v0.qmd",))
     assert first and second and first != second
 
 
 def test_freshness_requires_stamp_and_match(tmp_path: Path):
     (tmp_path / "paper_draft_v0.qmd").write_text("reviewed content", encoding="utf-8")
-    current = rp.manuscript_sha256(tmp_path)
+    current = rp.manuscript_sha256(tmp_path, ("paper_draft_v0.qmd",))
 
     no_stamp = {"review_method": _valid_review_method()}
     assert any(
@@ -121,7 +121,7 @@ def test_freshness_requires_stamp_and_match(tmp_path: Path):
 
 def test_validate_review_record_composes_all_checks(tmp_path: Path):
     (tmp_path / "paper_draft_v0.qmd").write_text("reviewed content", encoding="utf-8")
-    current = rp.manuscript_sha256(tmp_path)
+    current = rp.manuscript_sha256(tmp_path, ("paper_draft_v0.qmd",))
     review = {
         "review_loop": {"reviewer_model": "deterministic bounded final review"},
         "review_method": _valid_review_method(reviewed_manuscript_sha256=current),

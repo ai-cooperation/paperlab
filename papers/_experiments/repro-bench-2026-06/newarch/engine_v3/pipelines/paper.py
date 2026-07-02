@@ -11,6 +11,7 @@ import format_repair
 import paperctl
 
 from engine_v3 import review_provenance
+from engine_v3.packs import paper_artifacts
 from engine_v3.core import BrainTask, PhaseSpec, RuntimeContext
 
 
@@ -455,7 +456,7 @@ def _collect_gate_inputs(
     )
     gate_inputs["review_log_present"] = bool(review_log_text.strip())
     gate_inputs["review_log_text"] = review_log_text[:40000]
-    gate_inputs["manuscript_sha256"] = review_provenance.manuscript_sha256(context.run_dir)
+    gate_inputs["manuscript_sha256"] = review_provenance.manuscript_sha256(context.run_dir, paper_artifacts.MANUSCRIPT_FILES)
     artifacts = {
         rel: context.run_dir / rel
         for rel in _task.expected_outputs
@@ -1415,7 +1416,7 @@ def _stamp_review_manuscript_hash(run_dir: Path) -> bool:
         return False
     if str(method.get("reviewed_manuscript_sha256") or "").strip():
         return False
-    method["reviewed_manuscript_sha256"] = review_provenance.manuscript_sha256(run_dir)
+    method["reviewed_manuscript_sha256"] = review_provenance.manuscript_sha256(run_dir, paper_artifacts.MANUSCRIPT_FILES)
     review["review_method"] = method
     review_path.write_text(json.dumps(review, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")
     return True
@@ -1814,7 +1815,7 @@ def _format_repair_handler(
     # unit-tested, so they may advance the reviewed-manuscript stamp — but only
     # when nothing else touched the manuscript between the review and this phase.
     # Any other post-review mutation leaves a stale stamp and Gate Z fails closed.
-    pre_format_sha = review_provenance.manuscript_sha256(context.run_dir)
+    pre_format_sha = review_provenance.manuscript_sha256(context.run_dir, paper_artifacts.MANUSCRIPT_FILES)
 
     # No content padding here (no readability addendum, no filler tables): if the
     # manuscript cannot pass D/Z on its own content, the job must fail those gates,
@@ -1822,7 +1823,7 @@ def _format_repair_handler(
     _ensure_paper_springer_source_v3_2(context.run_dir)
     _repair_generated_content_quality_v3_2(context.run_dir)
     repair_result = format_repair.verify_and_repair(context.run_dir, contract)
-    post_format_sha = review_provenance.manuscript_sha256(context.run_dir)
+    post_format_sha = review_provenance.manuscript_sha256(context.run_dir, paper_artifacts.MANUSCRIPT_FILES)
     review_fresh = _reconcile_review_freshness_after_format_repair(
         context.run_dir, pre_format_sha=pre_format_sha, post_format_sha=post_format_sha
     )

@@ -300,7 +300,7 @@ def _write_review(run_dir: Path, *, dimension_score: float = 8.2) -> None:
                     "vip_capability_required": True,
                     "vip_capability_available": True,
                     "inputs_checked": ["paper_draft_v0.qmd", "references.bib"],
-                    "reviewed_manuscript_sha256": review_provenance.manuscript_sha256(run_dir),
+                    "reviewed_manuscript_sha256": review_provenance.manuscript_sha256(run_dir, ("paper_draft_v0.qmd",)),
                 },
                 "review_loop": {
                     "status": "passed",

@@ -35,7 +35,11 @@ UNTRUSTED_REVIEWER_MARKERS = (
 
 DECISION_TRACE_HEADING = "skill decision trace"
 
-MANUSCRIPT_FILES = ("paper_draft_v0.qmd",)
+# Domain neutrality invariant (V3_2_SPEC.md Decisions D4): this module is
+# engine-layer and must hold ZERO domain-specific artifact names. Each domain
+# pack declares its own review/manuscript file names (see
+# engine_v3/packs/paper_artifacts.py) and passes them in as parameters.
+# Litmus: adding a new domain pack requires no change in this file.
 
 
 def reviewer_is_untrusted(reviewer: Any) -> bool:
@@ -45,9 +49,9 @@ def reviewer_is_untrusted(reviewer: Any) -> bool:
     return any(marker in text for marker in UNTRUSTED_REVIEWER_MARKERS)
 
 
-def manuscript_sha256(run_dir: Path | str) -> str:
+def manuscript_sha256(run_dir: Path | str, manuscript_files: tuple[str, ...] | list[str]) -> str:
     digest = hashlib.sha256()
-    for rel in MANUSCRIPT_FILES:
+    for rel in manuscript_files:
         path = Path(run_dir) / rel
         if path.is_file():
             digest.update(path.read_bytes())
@@ -101,27 +105,33 @@ def review_freshness_findings(
     return []
 
 
-def validate_review_artifacts(run_dir: Path | str) -> list[str]:
+def validate_review_artifacts(
+    run_dir: Path | str,
+    *,
+    review_file: str,
+    review_log_file: str,
+    manuscript_files: tuple[str, ...] | list[str],
+) -> list[str]:
     """Provenance findings computed straight from a run directory.
 
-    Entry point for acceptance_gate_v3.py / batch_validate_v3.py so their rules
-    cannot drift from Gate R.
+    Entry point for domain validators (acceptance/batch) so their rules cannot
+    drift from the review gate. Artifact names come from the domain pack.
     """
     import json
 
     run_path = Path(run_dir)
-    review_path = run_path / "quality_review_round1.json"
+    review_path = run_path / review_file
     try:
         review = json.loads(review_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return ["missing or invalid quality_review_round1.json"]
+        return ["missing or invalid %s" % review_file]
     if not isinstance(review, dict):
-        return ["missing or invalid quality_review_round1.json"]
-    log_path = run_path / "quality_review_log.md"
+        return ["missing or invalid %s" % review_file]
+    log_path = run_path / review_log_file
     log_text = log_path.read_text(encoding="utf-8", errors="ignore") if log_path.is_file() else ""
     return validate_review_record(
         review,
-        current_manuscript_sha256=manuscript_sha256(run_path),
+        current_manuscript_sha256=manuscript_sha256(run_path, manuscript_files),
         review_log_text=log_text,
     )
 
@@ -144,5 +154,5 @@ def validate_review_record(
     findings.extend(validate_review_method(review))
     findings.extend(review_freshness_findings(review, current_manuscript_sha256))
     if not review_log_has_decision_trace(review_log_text):
-        findings.append("quality_review_log.md has no skill decision trace section")
+        findings.append("review log has no skill decision trace section")
     return findings

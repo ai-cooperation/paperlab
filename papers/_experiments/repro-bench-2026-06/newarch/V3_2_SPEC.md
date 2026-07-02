@@ -476,3 +476,19 @@ The B coherent-agent engine (`paper_agent/`) is paused. V3.2 fixes are
 product fixes at P0 priority. The review-integrity work (no deterministic
 pass-like review, provenance-verified Gate R, verdict freshness, content
 honesty gates) is the launch blocker set.
+
+### D4. The general-engine intent is binding (2026-07-02, product owner)
+
+This engine is the general Hermes+Skill research/report engine; paper is
+only the FIRST domain proof. Insurance and IFRS packs share the same
+framework. Every mechanism added for the paper product (review provenance,
+freshness, downgrade routing, human checkpoints) must be designed
+domain-neutral in the general layer, with domain artifact names declared by
+the domain pack (see `engine_v3/packs/paper_artifacts.py`).
+
+Enforcement is mechanical, not aspirational:
+`tests/test_engine_layer_domain_neutrality.py` scans the general layer
+(engine_v3 root + core/) for domain tokens and fails on any new leak. Its
+KNOWN_DEBT allowlist records pre-existing violations and may only shrink.
+Litmus: adding a new domain pack must require zero changes in general-layer
+source.
