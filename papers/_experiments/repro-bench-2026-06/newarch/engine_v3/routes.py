@@ -274,11 +274,16 @@ def register(
         dossier_status = _status(dossier.phases)
         lock_state = _lock_state(_lock_path(job_id))
         status = "running" if lock_state == "active" and dossier_status not in {"blocked", "failed", "done"} else dossier_status
+        checkpoint = dossier.evidence.get("human_checkpoint")
+        checkpoint = checkpoint if isinstance(checkpoint, dict) else None
+        if status == "done" and checkpoint and checkpoint.get("status") == "human_review_required":
+            status = "human_review_required"
         return {
             "engine": "v3",
             "engine_revision": dossier.evidence.get("engine_revision"),
             "job_id": dossier.job_id,
             "status": status,
+            "human_checkpoint": checkpoint,
             "lock_state": lock_state,
             "domain": dossier.domain,
             "phases": dict(dossier.phases),
@@ -291,6 +296,51 @@ def register(
             "error": dossier.evidence.get("error"),
             **_project_status(dossier, run_dir),
         }
+
+    @app.post("/v3/jobs/{job_id}/human-review")
+    async def v3_human_review(
+        job_id: str,
+        request: Request,
+        authorization: Optional[str] = Header(default=None, alias="Authorization"),
+    ) -> dict[str, Any]:
+        _require_post_auth(authorization, auth_token)
+        run_dir = _run_dir(job_id)
+        store = DossierStore(run_dir)
+        if not store.exists():
+            raise HTTPException(status_code=404, detail="job not found")
+        payload = await _json(request)
+        decision = str(payload.get("decision") or "").strip().lower()
+        if decision not in {"approve", "reject"}:
+            raise HTTPException(status_code=400, detail="decision must be approve or reject")
+        from datetime import datetime, timezone
+
+        record = {
+            "approved": decision == "approve",
+            "decision": decision,
+            "approved_by": str(payload.get("reviewer") or "unknown"),
+            "approved_at": datetime.now(timezone.utc).isoformat(),
+            "note": str(payload.get("note") or ""),
+        }
+        (run_dir / "human_review_approval.json").write_text(
+            json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        dossier = store.load()
+        if decision == "approve":
+            dossier.evidence["human_checkpoint"] = {
+                "status": "approved",
+                "phase": "delivery",
+                "approved_by": record["approved_by"],
+                "approved_at": record["approved_at"],
+            }
+        else:
+            dossier.evidence["human_checkpoint"] = {
+                "status": "human_review_required",
+                "phase": "delivery",
+                "reason": "human reviewer requested revision: %s" % (record["note"] or "no note"),
+                "options": ["approve_delivery", "request_revision", "stop_job"],
+            }
+        store.save(dossier)
+        return {"job_id": job_id, "decision": decision, "human_checkpoint": dossier.evidence["human_checkpoint"]}
 
     @app.get("/v3/jobs/{job_id}/artifact/{artifact_id:path}")
     def v3_artifact(job_id: str, artifact_id: str) -> FileResponse:

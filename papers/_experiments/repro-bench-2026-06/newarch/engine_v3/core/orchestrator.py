@@ -299,6 +299,8 @@ class EngineV3Orchestrator:
             _trace(dossier, "phase_done", phase=phase.id)
             self.dossier_store.save(dossier)
 
+        if _maybe_require_vip_delivery_review(dossier, self.dossier_store.run_dir):
+            self.dossier_store.save(dossier)
         return dossier
 
     def _run_phase_handler_and_gates(
@@ -647,6 +649,58 @@ def _update_gate_substeps(dossier: Dossier, phase_id: str, gate_report) -> None:
             continue
         step["status"] = "blocked" if gate_report.blocked else "done"
         step["failed_blocks"] = failed_blocks
+
+
+def _maybe_require_vip_delivery_review(dossier: Dossier, run_dir) -> bool:
+    """D2 (V3_2_SPEC.md Decisions): a VIP job stops at human_review_required
+    before final delivery even when every mechanical gate passes. Mechanical
+    gates cannot verify grounding/judgment-level quality (the a64ad5b
+    gate-widening incident shipped a fabricated paper past green gates).
+    Approval is recorded in human_review_approval.json inside the run dir.
+    """
+    from pathlib import Path
+    import json as _json
+
+    phases = dict(getattr(dossier, "phases", {}) or {})
+    if not phases or any(status != "done" for status in phases.values()):
+        return False
+    contract = {}
+    for name in ("research_contract.json", "research_contract.input.json"):
+        path = Path(run_dir) / name
+        if path.is_file():
+            try:
+                loaded = _json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, _json.JSONDecodeError):
+                continue
+            if isinstance(loaded, dict):
+                contract = loaded
+                break
+    tier = str(contract.get("level") or contract.get("tier") or "").strip().lower()
+    if tier != "vip":
+        return False
+    approval_path = Path(run_dir) / "human_review_approval.json"
+    approval = None
+    if approval_path.is_file():
+        try:
+            approval = _json.loads(approval_path.read_text(encoding="utf-8"))
+        except (OSError, _json.JSONDecodeError):
+            approval = None
+    if isinstance(approval, dict) and approval.get("approved") is True:
+        dossier.evidence["human_checkpoint"] = {
+            "status": "approved",
+            "phase": "delivery",
+            "approved_by": approval.get("approved_by"),
+            "approved_at": approval.get("approved_at"),
+        }
+        return True
+    dossier.evidence["human_checkpoint"] = {
+        "status": "human_review_required",
+        "phase": "delivery",
+        "reason": "VIP delivery requires a human quality review even when mechanical gates pass (V3_2_SPEC.md Decisions D2)",
+        "options": ["approve_delivery", "request_revision", "stop_job"],
+    }
+    _trace(dossier, "human_review_required", phase="delivery")
+    return True
 
 
 def _maybe_record_human_checkpoint(dossier: Dossier, phase_id: str, gate_report) -> None:
