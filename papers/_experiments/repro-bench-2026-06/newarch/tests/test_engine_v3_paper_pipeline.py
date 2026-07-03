@@ -1429,3 +1429,31 @@ def test_review_heal_removes_stale_pdf_so_reviewer_audits_sources(tmp_path: Path
     )
 
     assert not (run_dir / "paper_draft_v0.pdf").is_file()
+
+
+def test_paper_gate_plugin_uses_v3_requirements_on_v3_runs(tmp_path: Path):
+    """Round 10: the hermes paper_gate plugin blocked the reviewer's render on
+    a V3.2 run by demanding v2 legacy audit artifacts, which surfaced as an
+    unresolvable P0. On a v3 run (dossier.v3.json present) only the v3
+    prerequisites apply."""
+    import paper_gate
+
+    (tmp_path / "dossier.v3.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "claim_evidence_map.md").write_text("| C | E |\n", encoding="utf-8")
+    (tmp_path / "references.bib").write_text("@article{a,title={A}}\n", encoding="utf-8")
+    (tmp_path / "quality_review_log.md").write_text("# log\n", encoding="utf-8")
+
+    result = paper_gate._pre_tool_call(
+        tool_name="terminal",
+        args={"command": "quarto render paper_springer.qmd", "workdir": str(tmp_path)},
+    )
+    assert result is None
+
+    # v2 run (no dossier.v3.json): legacy requirements still enforced
+    v2_dir = tmp_path / "v2"
+    v2_dir.mkdir()
+    blocked = paper_gate._pre_tool_call(
+        tool_name="terminal",
+        args={"command": "quarto render paper.qmd", "workdir": str(v2_dir)},
+    )
+    assert blocked is not None and blocked["action"] == "block"
