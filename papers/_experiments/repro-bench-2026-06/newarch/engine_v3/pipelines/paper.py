@@ -451,6 +451,12 @@ def _collect_gate_inputs(
         _normalize_thousands_separators_for_gate_f(context.run_dir)
     pending_content: list[str] = []
     if _task.phase == "review_heal":
+        # The delivery PDF is the PREVIOUS format_repair's render and is
+        # definitionally stale during review_heal. Round 8: the reviewer read
+        # it, found the already-fixed caption, and issued a P0 revise that kept
+        # the run from ever reaching the re-render. Remove it so the reviewer
+        # audits manuscript sources; format_repair re-renders from scratch.
+        (context.run_dir / "paper_draft_v0.pdf").unlink(missing_ok=True)
         pending_content = _surface_pending_content_findings(context.run_dir)
         _apply_review_structural_repairs(context.run_dir)
         _apply_exact_review_replacements(context.run_dir)

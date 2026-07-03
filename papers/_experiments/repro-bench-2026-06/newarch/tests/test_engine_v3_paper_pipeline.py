@@ -1407,3 +1407,25 @@ def test_review_prompts_reference_pending_content_findings():
     for prompt in (REVIEW_HEAL_PROMPT, REVIEW_HEAL_REPAIR_PROMPT):
         assert "pending_content_findings.md" in prompt
         assert "deterministic" in prompt.lower()
+
+
+def test_review_heal_removes_stale_pdf_so_reviewer_audits_sources(tmp_path: Path):
+    """Round 8 chicken-and-egg: manuscript sources were clean but the reviewer
+    read the PREVIOUS round's rendered PDF (with the old caption) and issued a
+    P0 revise, so the run never reached format_repair which would have
+    re-rendered it. The stale PDF is definitionally outdated during
+    review_heal; remove it so the reviewer audits sources only."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "paper_draft_v0.qmd").write_text(
+        '---\ntitle: "English Title"\n---\n\n' + ("English body. " * 50),
+        encoding="utf-8",
+    )
+    (run_dir / "paper_draft_v0.pdf").write_bytes(b"%PDF-1.4 stale render")
+
+    paper_pipeline._collect_gate_inputs(
+        BrainTask(phase="review_heal", task_id="review_heal:brain"),
+        RuntimeContext(job_id="job-1", run_dir=run_dir),
+    )
+
+    assert not (run_dir / "paper_draft_v0.pdf").is_file()
