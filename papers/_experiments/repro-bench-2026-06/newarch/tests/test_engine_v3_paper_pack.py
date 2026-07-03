@@ -382,3 +382,42 @@ def test_paper_pack_viability_probe_delegates_to_real_paper_logic(load_fixture_j
     assert verdict.viable is True
     assert verdict.metric["max_poolable_k"] == 8
     assert verdict.contract_hash
+
+
+def test_review_gate_blocks_pass_verdict_while_content_findings_pending():
+    """Round 7: a stale-but-valid pass review sailed through preflight while
+    the manuscript still carried gate-blocked captions, so Hermes never ran.
+    Pending deterministic content findings must fail Gate R so the review
+    phase re-runs and the reviewer fixes them."""
+    pack = PaperPack()
+    report = run_gates(
+        pack,
+        {
+            "review": _pass_like_review(),
+            "review_log_present": True,
+            "review_log_text": _DECISION_TRACE_LOG,
+            "pending_content_findings": [
+                "figure caption in paper_draft_v0.qmd claims pooled estimate but real_results has no effects"
+            ],
+        },
+        only={"R"},
+    )
+
+    assert report.blocked is True
+    assert "pending content finding" in report.results[0].details.lower()
+
+
+def test_review_gate_passes_when_no_pending_content_findings():
+    pack = PaperPack()
+    report = run_gates(
+        pack,
+        {
+            "review": _pass_like_review(),
+            "review_log_present": True,
+            "review_log_text": _DECISION_TRACE_LOG,
+            "pending_content_findings": [],
+        },
+        only={"R"},
+    )
+
+    assert report.blocked is False

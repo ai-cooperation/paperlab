@@ -449,8 +449,9 @@ def _collect_gate_inputs(
         _ensure_paper_springer_source_v3_2(context.run_dir)
         _repair_generated_content_quality_v3_2(context.run_dir)
         _normalize_thousands_separators_for_gate_f(context.run_dir)
+    pending_content: list[str] = []
     if _task.phase == "review_heal":
-        _surface_pending_content_findings(context.run_dir)
+        pending_content = _surface_pending_content_findings(context.run_dir)
         _apply_review_structural_repairs(context.run_dir)
         _apply_exact_review_replacements(context.run_dir)
         _repair_generated_content_quality_v3_2(context.run_dir)
@@ -478,6 +479,8 @@ def _collect_gate_inputs(
     gate_inputs["review_log_present"] = bool(review_log_text.strip())
     gate_inputs["review_log_text"] = review_log_text[:40000]
     gate_inputs["manuscript_sha256"] = review_provenance.manuscript_sha256(context.run_dir, paper_artifacts.MANUSCRIPT_FILES)
+    if _task.phase == "review_heal":
+        gate_inputs["pending_content_findings"] = pending_content
     artifacts = {
         rel: context.run_dir / rel
         for rel in _task.expected_outputs
@@ -1365,7 +1368,7 @@ def _apply_review_structural_repairs(run_dir: Path) -> bool:
     return bool(result.get("changed")) if isinstance(result, dict) else False
 
 
-def _surface_pending_content_findings(run_dir: Path) -> bool:
+def _surface_pending_content_findings(run_dir: Path) -> list[str]:
     """Bridge from deterministic gates to the semantic worker.
 
     Round 6 (2026-07-03): the review passed while the gate-flagged caption
@@ -1380,7 +1383,7 @@ def _surface_pending_content_findings(run_dir: Path) -> bool:
         findings.extend(str(f) for f in (result.get("findings") or []))
     if not findings:
         path.unlink(missing_ok=True)
-        return False
+        return []
     path.write_text(
         "# Pending deterministic content findings\n\n"
         "Each item below WILL be blocked by a deterministic delivery gate.\n"
@@ -1390,7 +1393,7 @@ def _surface_pending_content_findings(run_dir: Path) -> bool:
         + "\n",
         encoding="utf-8",
     )
-    return True
+    return findings
 
 
 def _stamp_review_manuscript_hash(run_dir: Path) -> bool:

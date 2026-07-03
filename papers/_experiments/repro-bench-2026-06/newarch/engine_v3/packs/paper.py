@@ -267,6 +267,15 @@ def _gate_review(dossier: Any) -> GateResult:
         current_manuscript_sha256=str(data.get("manuscript_sha256") or "") or None,
         review_log_text=data.get("review_log_text"),
     )
+    # Deterministic content findings still pending in the manuscript: a pass
+    # verdict cannot stand over gate-blocked content (round 7: a stale-but-
+    # valid pass review sailed through preflight and Hermes never re-ran).
+    pending = data.get("pending_content_findings")
+    pending = [str(f) for f in pending] if isinstance(pending, list) else []
+    if pending:
+        provenance_findings = list(provenance_findings) + [
+            "pending content finding: %s" % f[:140] for f in pending[:4]
+        ]
     provenance_ok = not provenance_findings
     ok = (
         p0_count == 0
