@@ -251,6 +251,14 @@ V3.2 boundary:
 - legacy v2 audit artifacts such as doi_verification_report.md, gate_report.json,
   figure_audit.md, coherence_audit.md, and gate_d_readability.md are not required
   V3.2 review outputs and must not fail delivery solely because they are absent.
+- You review the manuscript SOURCE (qmd/sections). The delivery PDF is re-rendered
+  by the next phase and its freshness is enforced by a deterministic gate; a stale
+  PDF relative to your edits is expected here and must not be a finding.
+- If real_results.json records a lane_downgrade, judge the manuscript AS the
+  downgraded deliverable (e.g. an honest evidence-map/narrative review), not as an
+  incomplete version of the originally contracted synthesis. Grading a downgraded
+  run against the original contract type re-blocks a decision the product owner
+  already made; instead verify the downgrade is stated and no pooled claims leak.
 - If review finds fixable manuscript, table, citation, or visual-layout issues, repair
   paper_draft_v0.qmd, paper_springer.qmd, and the affected sections within this phase.
 """
