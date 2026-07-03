@@ -90,6 +90,7 @@ def revalidate_jobs(
                 _prepare_acceptance_repair_resume(jobs_dir, job_id, preflight)
                 _prepare_review_provenance_resume(jobs_dir, job_id)
                 _prepare_content_finding_resume(jobs_dir, job_id)
+                _prepare_revise_verdict_resume(jobs_dir, job_id)
             outcome = runner(jobs_dir, job_id)
         except Exception as exc:  # noqa: BLE001 - batch runners must keep going.
             outcome = RunOutcome(
@@ -198,6 +199,52 @@ def _prepare_content_finding_resume(jobs_dir: Path, job_id: str) -> bool:
     if not findings:
         return False
     return _reset_quality_phases(run_dir, job_id, findings, reset_event="content_finding_reset")
+
+
+REVISE_VERDICT_RETRY_LIMIT = 2
+
+
+def _prepare_revise_verdict_resume(jobs_dir: Path, job_id: str) -> bool:
+    """A trusted revise verdict on a blocked quality phase IS the retry signal:
+    without a budget refresh the phase re-enters with zero budget and replays
+    the stale verdict verbatim (round-2 defect). Bounded by a convergence
+    guard - after REVISE_VERDICT_RETRY_LIMIT retries still ending in revise,
+    stop honestly (non-convergence defaults to a real deficiency, a64ad5b)."""
+    run_dir = jobs_dir / job_id / "run"
+    try:
+        review = json.loads((run_dir / "quality_review_round1.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(review, dict):
+        return False
+    delivery = str(review.get("delivery") or "").lower()
+    if delivery in {"pass", "passed", "ok"}:
+        return False
+    try:
+        dossier = json.loads((run_dir / "dossier.v3.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    phases = dossier.get("phases") if isinstance(dossier.get("phases"), dict) else {}
+    if phases.get("review_heal") != "blocked":
+        return False
+    resets = (dossier.get("evidence") or {}).get("quality_phase_resets") or []
+    prior_retries = sum(
+        1 for r in resets if isinstance(r, dict) and r.get("event") == "revise_verdict_retry"
+    )
+    if prior_retries >= REVISE_VERDICT_RETRY_LIMIT:
+        print(
+            "REVALIDATE_REVISE_RETRY_EXHAUSTED\t%s\tretries=%d; verdict stays %s (honest stop)"
+            % (job_id, prior_retries, delivery),
+            flush=True,
+        )
+        return False
+    return _reset_quality_phases(
+        run_dir,
+        job_id,
+        ["review verdict %s; granting bounded re-review retry %d/%d" % (delivery, prior_retries + 1, REVISE_VERDICT_RETRY_LIMIT)],
+        reset_event="revise_verdict_retry",
+        phases_to_reset=("review_heal", "format_repair"),
+    )
 
 
 def _prepare_review_provenance_resume(jobs_dir: Path, job_id: str) -> bool:

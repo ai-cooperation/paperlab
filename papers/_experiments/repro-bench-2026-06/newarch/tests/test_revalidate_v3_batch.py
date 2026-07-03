@@ -339,3 +339,80 @@ def test_no_content_reset_when_manuscript_clean(tmp_path: Path):
     assert _prepare_content_finding_resume(tmp_path, "v3_job") is False
     dossier = json.loads((run_dir / "dossier.v3.json").read_text(encoding="utf-8"))
     assert dossier["phases"]["review_heal"] == "done"
+
+
+def test_revise_verdict_grants_retry_budget(tmp_path: Path):
+    """Round 2 replayed round 1's findings verbatim: a valid-provenance revise
+    verdict triggered no reset, so review_heal had zero budget and never
+    re-ran. A revise verdict IS the retry signal."""
+    from revalidate_v3_batch import _prepare_revise_verdict_resume
+
+    run_dir = tmp_path / "v3_job" / "run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "paper_draft_v0.qmd").write_text("body", encoding="utf-8")
+    (run_dir / "quality_review_round1.json").write_text(
+        '{"delivery":"revise","p0_count":1,"review_loop":{"status":"failed_with_unresolved_p0","reviewer_model":"codex-reviewer"}}',
+        encoding="utf-8",
+    )
+    (run_dir / "dossier.v3.json").write_text(
+        json.dumps(
+            {
+                "phases": {"review_heal": "blocked", "format_repair": "blocked"},
+                "delegations": [{"task_id": "review_heal:repair:3"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert _prepare_revise_verdict_resume(tmp_path, "v3_job") is True
+    dossier = json.loads((run_dir / "dossier.v3.json").read_text(encoding="utf-8"))
+    assert dossier["evidence"]["repair_budget_baseline"]["review_heal"] == 3
+    assert "revise_verdict_retry" in json.dumps(dossier["evidence"])
+
+
+def test_revise_verdict_retry_stops_after_convergence_guard(tmp_path: Path):
+    """Unlimited retries would loop forever on a manuscript that cannot pass;
+    after two retries with a still-revise verdict, stop honestly (per the
+    a64ad5b lesson: non-convergence defaults to a real deficiency, not a
+    too-strict gate)."""
+    from revalidate_v3_batch import _prepare_revise_verdict_resume
+
+    run_dir = tmp_path / "v3_job" / "run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "quality_review_round1.json").write_text(
+        '{"delivery":"revise","p0_count":1,"review_loop":{"status":"failed_with_unresolved_p0","reviewer_model":"codex-reviewer"}}',
+        encoding="utf-8",
+    )
+    (run_dir / "dossier.v3.json").write_text(
+        json.dumps(
+            {
+                "phases": {"review_heal": "blocked", "format_repair": "blocked"},
+                "evidence": {
+                    "quality_phase_resets": [
+                        {"event": "revise_verdict_retry", "findings": []},
+                        {"event": "revise_verdict_retry", "findings": []},
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert _prepare_revise_verdict_resume(tmp_path, "v3_job") is False
+
+
+def test_pass_verdict_does_not_trigger_revise_retry(tmp_path: Path):
+    from revalidate_v3_batch import _prepare_revise_verdict_resume
+
+    run_dir = tmp_path / "v3_job" / "run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "quality_review_round1.json").write_text(
+        '{"delivery":"pass","p0_count":0,"review_loop":{"status":"passed","reviewer_model":"codex-reviewer"}}',
+        encoding="utf-8",
+    )
+    (run_dir / "dossier.v3.json").write_text(
+        json.dumps({"phases": {"review_heal": "done", "format_repair": "done"}}),
+        encoding="utf-8",
+    )
+
+    assert _prepare_revise_verdict_resume(tmp_path, "v3_job") is False
