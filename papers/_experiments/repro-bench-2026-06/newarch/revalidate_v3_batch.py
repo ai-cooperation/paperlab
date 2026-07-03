@@ -89,6 +89,7 @@ def revalidate_jobs(
                 preflight = validate(jobs_dir, job_ids=[job_id], min_floor=min_floor)[0]
                 _prepare_acceptance_repair_resume(jobs_dir, job_id, preflight)
                 _prepare_review_provenance_resume(jobs_dir, job_id)
+                _prepare_content_finding_resume(jobs_dir, job_id)
             outcome = runner(jobs_dir, job_id)
         except Exception as exc:  # noqa: BLE001 - batch runners must keep going.
             outcome = RunOutcome(
@@ -124,6 +125,79 @@ def _prepare_acceptance_repair_resume(jobs_dir: Path, job_id: str, validation: J
     phases["format_repair"] = "blocked"
     dossier_path.write_text(json.dumps(dossier, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")
     return True
+
+
+def _reset_quality_phases(
+    run_dir: Path,
+    job_id: str,
+    findings: list[str],
+    *,
+    reset_event: str,
+    phases_to_reset: tuple[str, ...] = ("render_gates", "review_heal", "format_repair"),
+) -> bool:
+    """Reset the quality phases to blocked with a fresh repair budget so
+    orchestrator resume re-runs them. Records the reset event in evidence."""
+    dossier_path = run_dir / "dossier.v3.json"
+    try:
+        dossier = json.loads(dossier_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    phases = dossier.get("phases")
+    if not isinstance(phases, dict):
+        return False
+    changed = False
+    for phase in phases_to_reset:
+        if phases.get(phase) == "done":
+            phases[phase] = "blocked"
+            changed = True
+    evidence = dossier.setdefault("evidence", {})
+    baselines = evidence.setdefault("repair_budget_baseline", {})
+    delegations = dossier.get("delegations") or []
+    for phase in phases_to_reset:
+        if phases.get(phase) != "blocked":
+            continue
+        prefix = "%s:repair:" % phase
+        attempts = [
+            int(str(d.get("task_id") or "").rsplit(":", 1)[-1])
+            for d in delegations
+            if str(d.get("task_id") or "").startswith(prefix)
+            and str(d.get("task_id") or "").rsplit(":", 1)[-1].isdigit()
+        ]
+        baseline = max(attempts, default=0)
+        if baselines.get(phase) != baseline:
+            baselines[phase] = baseline
+            changed = True
+    if not changed:
+        return False
+    resets = evidence.setdefault("quality_phase_resets", [])
+    resets.append({"event": reset_event, "findings": findings[:6]})
+    dossier_path.write_text(json.dumps(dossier, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+    print("REVALIDATE_%s\t%s\t%s" % (reset_event.upper(), job_id, "; ".join(findings[:3])), flush=True)
+    return True
+
+
+def _prepare_content_finding_resume(jobs_dir: Path, job_id: str) -> bool:
+    """Route Gate Z content findings back to review_heal.
+
+    Title language, caption overclaims, and renderer-reported overflow need
+    Hermes manuscript edits; format_repair cannot fix them in place. Computed
+    from the run directory (ground truth), not from dossier history, so any
+    content-finding class routes here without enumerating gate messages. The
+    re-run reviewer loads the strengthened review skill and owns the fix."""
+    from engine_v3.pipelines.paper import (
+        _validate_caption_claims,
+        _validate_render_log_overflow,
+        _validate_title_language,
+    )
+
+    run_dir = jobs_dir / job_id / "run"
+    findings: list[str] = []
+    for validator in (_validate_render_log_overflow, _validate_caption_claims, _validate_title_language):
+        result = validator(run_dir)
+        findings.extend(str(f) for f in (result.get("findings") or []))
+    if not findings:
+        return False
+    return _reset_quality_phases(run_dir, job_id, findings, reset_event="content_finding_reset")
 
 
 def _prepare_review_provenance_resume(jobs_dir: Path, job_id: str) -> bool:

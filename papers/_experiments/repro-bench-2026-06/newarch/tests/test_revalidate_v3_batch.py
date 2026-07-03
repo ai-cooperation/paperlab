@@ -244,3 +244,98 @@ def test_revalidation_leaves_phases_alone_when_review_provenance_valid(tmp_path:
     assert changed is False
     dossier = json.loads((run_dir / "dossier.v3.json").read_text(encoding="utf-8"))
     assert dossier["phases"]["review_heal"] == "done"
+
+
+def _seed_valid_review(run_dir: Path) -> None:
+    from engine_v3 import review_provenance
+
+    stamp = review_provenance.manuscript_sha256(run_dir, ("paper_draft_v0.qmd",))
+    (run_dir / "quality_review_round1.json").write_text(
+        json.dumps(
+            {
+                "p0_count": 0,
+                "delivery": "pass",
+                "floor_100": 84,
+                "review_method": {
+                    "schema_version": "paperlab.review_method.v3.2",
+                    "decision_owner": "hermes",
+                    "capability_class": "domain_expert_review",
+                    "selected_skill": "paper-review-and-citation-check",
+                    "selection_reason": "domain expert review",
+                    "vip_capability_required": True,
+                    "vip_capability_available": True,
+                    "inputs_checked": ["paper_draft_v0.qmd"],
+                    "reviewed_manuscript_sha256": stamp,
+                },
+                "review_loop": {
+                    "status": "passed",
+                    "rounds": 1,
+                    "reviewer_model": "codex-reviewer",
+                    "fixer_model": "big-pickle",
+                    "independent_reviewer": True,
+                    "floor_failed": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "quality_review_log.md").write_text(
+        "# log\n\n## Skill Decision Trace\n\n- selected: paper-review-and-citation-check\n",
+        encoding="utf-8",
+    )
+
+
+def test_content_findings_route_back_to_review_heal(tmp_path: Path):
+    """Gate Z content findings (title language, caption overclaim, render
+    overflow) need Hermes manuscript edits; format_repair cannot fix them in
+    place. The revalidation driver must reset review_heal so the reviewer
+    (with the strengthened skill) repairs and re-reviews."""
+    from revalidate_v3_batch import _prepare_content_finding_resume
+
+    run_dir = tmp_path / "v3_job" / "run"
+    run_dir.mkdir(parents=True)
+    # Chinese title on an English body = content finding
+    (run_dir / "paper_draft_v0.qmd").write_text(
+        '---\ntitle: "校園正念介入研究"\n---\n\n' + ("English body text. " * 60),
+        encoding="utf-8",
+    )
+    _seed_valid_review(run_dir)
+    (run_dir / "dossier.v3.json").write_text(
+        json.dumps(
+            {
+                "phases": {"data": "done", "write": "done", "render_gates": "done", "review_heal": "done", "format_repair": "done"},
+                "delegations": [{"task_id": "review_heal:repair:2"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    changed = _prepare_content_finding_resume(tmp_path, "v3_job")
+
+    assert changed is True
+    dossier = json.loads((run_dir / "dossier.v3.json").read_text(encoding="utf-8"))
+    assert dossier["phases"]["review_heal"] == "blocked"
+    assert dossier["phases"]["format_repair"] == "blocked"
+    assert dossier["phases"]["write"] == "done"
+    assert dossier["evidence"]["repair_budget_baseline"]["review_heal"] == 2
+    assert "content_finding_reset" in json.dumps(dossier["evidence"])
+
+
+def test_no_content_reset_when_manuscript_clean(tmp_path: Path):
+    from revalidate_v3_batch import _prepare_content_finding_resume
+
+    run_dir = tmp_path / "v3_job" / "run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "paper_draft_v0.qmd").write_text(
+        '---\ntitle: "School Mindfulness Study"\n---\n\n' + ("English body text. " * 60),
+        encoding="utf-8",
+    )
+    _seed_valid_review(run_dir)
+    (run_dir / "dossier.v3.json").write_text(
+        json.dumps({"phases": {"review_heal": "done", "format_repair": "done"}}),
+        encoding="utf-8",
+    )
+
+    assert _prepare_content_finding_resume(tmp_path, "v3_job") is False
+    dossier = json.loads((run_dir / "dossier.v3.json").read_text(encoding="utf-8"))
+    assert dossier["phases"]["review_heal"] == "done"
