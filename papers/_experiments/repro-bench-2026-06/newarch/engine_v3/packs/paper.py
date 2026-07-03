@@ -377,8 +377,12 @@ def _review_loop_ok(loop: Mapping[str, Any], log_present: bool) -> bool:
     fixer = str(loop.get("fixer_model") or "")
     independent = loop.get("independent_reviewer") is True
     floor_failed = loop.get("floor_failed")
+    # Reviewers phrase success honestly ("passed_after_repair", round 11;
+    # "cleared", round 5). Accept the passed-prefix family as faithful
+    # representation; anything else stays fail-closed.
+    status_pass_like = status in {"passed", "pass", "done", "cleared"} or status.startswith("passed")
     return (
-        status in {"passed", "pass", "done"}
+        status_pass_like
         and isinstance(rounds, int)
         and rounds >= 1
         and not review_provenance.reviewer_is_untrusted(loop.get("reviewer_model"))

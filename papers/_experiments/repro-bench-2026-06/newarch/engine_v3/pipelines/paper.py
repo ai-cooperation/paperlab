@@ -213,7 +213,9 @@ Hard requirements for quality_review_round1.json:
 - floor_100 must be a numeric 0-100 score. If detailed floor findings are needed,
   put them in floor_100_details, not in floor_100.
 - Include top-level review_loop with status, rounds, reviewer_model, fixer_model,
-  floor_failed, and independent_reviewer fields.
+  floor_failed, and independent_reviewer fields. review_loop.status must be exactly
+  "passed" when the loop cleared or "blocked_revise" when it did not; do not invent
+  variants.
 - Include top-level dimensions with exactly these expert-review dimensions:
   academic_rigor, novelty_positioning, experimental_completeness, writing_quality,
   practical_feasibility, citation_accuracy, and format_compliance.

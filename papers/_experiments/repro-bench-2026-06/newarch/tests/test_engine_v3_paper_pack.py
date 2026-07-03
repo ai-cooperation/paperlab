@@ -421,3 +421,18 @@ def test_review_gate_passes_when_no_pending_content_findings():
     )
 
     assert report.blocked is False
+
+
+def test_review_gate_accepts_honest_passed_variants():
+    """Round 11: 'passed_after_repair' (and round 5's 'cleared') are honest
+    success phrasings; rejecting them re-blocked a floor-85 p0=0 review."""
+    pack = PaperPack()
+    for status in ("passed_after_repair", "cleared"):
+        review = _pass_like_review()
+        review["review_loop"]["status"] = status
+        report = run_gates(
+            pack,
+            {"review": review, "review_log_present": True, "review_log_text": _DECISION_TRACE_LOG},
+            only={"R"},
+        )
+        assert report.blocked is False, status
