@@ -226,6 +226,13 @@ Hard requirements for quality_review_round1.json:
 - If issues remain, include actionable findings and keep delivery as "revise".
 - Do not stop at review_only when the issue is fixable; modify the affected artifacts.
 
+Deterministic blocker worklist:
+- If pending_content_findings.md exists in the run directory, every line in it is a
+  deterministic delivery-gate blocker computed from run artifacts. Fix each one in ALL
+  manuscript surfaces (paper_draft_v0.qmd, paper_springer.qmd, and the matching
+  sections/*.md) before writing the review. Delivery cannot be "pass" while any
+  pending finding remains unfixed.
+
 Hard requirements for review_method (capability decision trace):
 - You own the review decision. Inspect the review capabilities visible in your skill
   context and choose the one that fits a domain-expert review of this manuscript.
@@ -289,6 +296,8 @@ Hard boundary:
   inputs_checked), and the "## Skill Decision Trace" section in the log.
 - A deterministic repair is not a review. You must re-review the repaired manuscript
   yourself before any pass verdict.
+- If pending_content_findings.md exists, every line is a deterministic delivery-gate
+  blocker; fix each in ALL manuscript surfaces before any pass verdict.
 """
 
 FULL_PIPELINE_OUTPUTS = (
@@ -441,6 +450,7 @@ def _collect_gate_inputs(
         _repair_generated_content_quality_v3_2(context.run_dir)
         _normalize_thousands_separators_for_gate_f(context.run_dir)
     if _task.phase == "review_heal":
+        _surface_pending_content_findings(context.run_dir)
         _apply_review_structural_repairs(context.run_dir)
         _apply_exact_review_replacements(context.run_dir)
         _repair_generated_content_quality_v3_2(context.run_dir)
@@ -1353,6 +1363,34 @@ def _apply_review_structural_repairs(run_dir: Path) -> bool:
         return False
     result = repair_run(run_dir)
     return bool(result.get("changed")) if isinstance(result, dict) else False
+
+
+def _surface_pending_content_findings(run_dir: Path) -> bool:
+    """Bridge from deterministic gates to the semantic worker.
+
+    Round 6 (2026-07-03): the review passed while the gate-flagged caption
+    survived, because content-finding resets only re-ran the phase without
+    telling Hermes WHAT the gate would block. This writes the current
+    deterministic content findings (ground truth, recomputed now) where the
+    review prompt puts them on Hermes's worklist; gates still re-verify."""
+    path = run_dir / "pending_content_findings.md"
+    findings: list[str] = []
+    for validator in (_validate_render_log_overflow, _validate_caption_claims, _validate_title_language):
+        result = validator(run_dir)
+        findings.extend(str(f) for f in (result.get("findings") or []))
+    if not findings:
+        path.unlink(missing_ok=True)
+        return False
+    path.write_text(
+        "# Pending deterministic content findings\n\n"
+        "Each item below WILL be blocked by a deterministic delivery gate.\n"
+        "Fix every one in ALL manuscript surfaces (paper_draft_v0.qmd,\n"
+        "paper_springer.qmd, and the matching sections/*.md).\n\n"
+        + "\n".join("- %s" % f for f in findings)
+        + "\n",
+        encoding="utf-8",
+    )
+    return True
 
 
 def _stamp_review_manuscript_hash(run_dir: Path) -> bool:

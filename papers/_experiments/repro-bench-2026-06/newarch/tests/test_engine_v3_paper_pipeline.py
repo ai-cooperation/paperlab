@@ -1353,3 +1353,57 @@ def test_caption_gate_scans_sections_for_reinfiltration(tmp_path: Path):
 
     assert result["valid"] is False
     assert any("sections/results.md" in f for f in result["findings"])
+
+
+def test_review_heal_surfaces_pending_content_findings_to_hermes(tmp_path: Path):
+    """Round 6: review passed but the flagged caption survived because the
+    gate's findings never reached the reviewer. The review_heal collection now
+    writes pending_content_findings.md (deterministic ground truth) so the
+    prompt puts the exact blockers on Hermes's worklist."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "paper_draft_v0.qmd").write_text(
+        '---\ntitle: "English Title"\n---\n\n'
+        "![Forest plot of pooled effect sizes.](figures/fig_forest_plot.png){#fig-forest}\n\n"
+        + ("English body. " * 50),
+        encoding="utf-8",
+    )
+    (run_dir / "real_experiments").mkdir()
+    (run_dir / "real_experiments" / "real_results.json").write_text(
+        '{"max_poolable_k": 0, "synthesis": {"numeric_effect_count": 0}}',
+        encoding="utf-8",
+    )
+
+    paper_pipeline._collect_gate_inputs(
+        BrainTask(phase="review_heal", task_id="review_heal:brain"),
+        RuntimeContext(job_id="job-1", run_dir=run_dir),
+    )
+
+    pending = (run_dir / "pending_content_findings.md").read_text(encoding="utf-8")
+    assert "pooled effect" in pending or "effect size" in pending
+    assert "paper_draft_v0.qmd" in pending
+
+
+def test_pending_content_findings_removed_when_clean(tmp_path: Path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "paper_draft_v0.qmd").write_text(
+        '---\ntitle: "English Title"\n---\n\n' + ("English body. " * 50),
+        encoding="utf-8",
+    )
+    (run_dir / "pending_content_findings.md").write_text("stale", encoding="utf-8")
+
+    paper_pipeline._collect_gate_inputs(
+        BrainTask(phase="review_heal", task_id="review_heal:brain"),
+        RuntimeContext(job_id="job-1", run_dir=run_dir),
+    )
+
+    assert not (run_dir / "pending_content_findings.md").is_file()
+
+
+def test_review_prompts_reference_pending_content_findings():
+    from engine_v3.pipelines.paper import REVIEW_HEAL_PROMPT, REVIEW_HEAL_REPAIR_PROMPT
+
+    for prompt in (REVIEW_HEAL_PROMPT, REVIEW_HEAL_REPAIR_PROMPT):
+        assert "pending_content_findings.md" in prompt
+        assert "deterministic" in prompt.lower()
