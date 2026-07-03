@@ -1190,3 +1190,118 @@ def _write_two_valid_tables(run_dir: Path) -> None:
         ': Ablation Results {#tbl-ablation tbl-colwidths="[35,65]"}\n',
         encoding="utf-8",
     )
+
+
+def test_render_log_overfull_hbox_blocks_delivery(tmp_path: Path):
+    """2026-07-02 mindfulness PDF shipped Table 1 with the long artifact
+    filename overflowing into the neighbor column. The renderer had already
+    reported it (Overfull \\hbox in paper_springer.log) - the gate must consume
+    that ground truth instead of trusting declared tbl-colwidths."""
+    from engine_v3.pipelines.paper import _validate_render_log_overflow
+
+    log = tmp_path / "paper_springer.log"
+    log.write_text(
+        "some latex noise\n"
+        "Overfull \\hbox (23.13pt too wide) in paragraph at lines 210--214\n"
+        "more noise\n"
+        "Overfull \\hbox (1.2pt too wide) in paragraph at lines 300--301\n",
+        encoding="utf-8",
+    )
+
+    result = _validate_render_log_overflow(tmp_path)
+
+    # 23pt is a visible overlap -> finding; 1.2pt is ordinary TeX noise -> ignored
+    assert result["valid"] is False
+    assert result["overfull_count"] == 1
+    assert any("Overfull" in f for f in result["findings"])
+
+
+def test_render_log_overflow_passes_on_clean_or_minor_log(tmp_path: Path):
+    from engine_v3.pipelines.paper import _validate_render_log_overflow
+
+    (tmp_path / "paper_springer.log").write_text(
+        "Overfull \\hbox (2.9pt too wide) detected\n", encoding="utf-8"
+    )
+    assert _validate_render_log_overflow(tmp_path)["valid"] is True
+
+    (tmp_path / "paper_springer.log").unlink()
+    missing = _validate_render_log_overflow(tmp_path)
+    assert missing["valid"] is True
+    assert missing["log_present"] is False
+
+
+def test_caption_claims_must_match_poolability(tmp_path: Path):
+    """Figure 4's caption claimed 'effect sizes and the random-effects pooled
+    estimate' on a run whose real_results said poolable_k=0. Caption text is
+    claim surface; it must obey claim<=evidence like body prose."""
+    from engine_v3.pipelines.paper import _validate_caption_claims
+
+    (tmp_path / "paper_draft_v0.qmd").write_text(
+        "---\ntitle: x\n---\n\n"
+        "![Forest plot of study-level effect sizes and the random-effects pooled estimate.](figures/fig_forest_plot.png){#fig-forest}\n\n"
+        "![PRISMA-style flow diagram of study selection.](figures/fig_prisma_flow.png){#fig-prisma}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "real_experiments").mkdir()
+    (tmp_path / "real_experiments" / "real_results.json").write_text(
+        '{"max_poolable_k": 0, "synthesis": {"numeric_effect_count": 0}}',
+        encoding="utf-8",
+    )
+
+    result = _validate_caption_claims(tmp_path)
+
+    assert result["valid"] is False
+    assert any("pooled estimate" in f or "effect size" in f for f in result["findings"])
+    # the honest PRISMA caption must not be flagged
+    assert not any("PRISMA" in f for f in result["findings"])
+
+
+def test_caption_claims_allowed_when_effects_exist(tmp_path: Path):
+    from engine_v3.pipelines.paper import _validate_caption_claims
+
+    (tmp_path / "paper_draft_v0.qmd").write_text(
+        "![Forest plot of pooled effect sizes.](figures/fig_forest_plot.png){#fig-forest}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "real_experiments").mkdir()
+    (tmp_path / "real_experiments" / "real_results.json").write_text(
+        '{"max_poolable_k": 8, "synthesis": {"numeric_effect_count": 8}}',
+        encoding="utf-8",
+    )
+
+    assert _validate_caption_claims(tmp_path)["valid"] is True
+
+
+def test_title_language_must_match_body_language(tmp_path: Path):
+    """The mindfulness PDF shipped a Chinese title on an all-English
+    manuscript (title copied verbatim from the b-side contract topic)."""
+    from engine_v3.pipelines.paper import _validate_title_language
+
+    (tmp_path / "paper_draft_v0.qmd").write_text(
+        '---\ntitle: "校園正念介入對青少年憂鬱與焦慮的效果量"\n---\n\n'
+        "## Introduction\n\n"
+        + ("This is an English manuscript body about mindfulness. " * 40),
+        encoding="utf-8",
+    )
+
+    result = _validate_title_language(tmp_path)
+
+    assert result["valid"] is False
+    assert any("language" in f.lower() for f in result["findings"])
+
+
+def test_title_language_consistent_passes(tmp_path: Path):
+    from engine_v3.pipelines.paper import _validate_title_language
+
+    (tmp_path / "paper_draft_v0.qmd").write_text(
+        '---\ntitle: "School Mindfulness and Adolescent Outcomes"\n---\n\n'
+        + ("English body text here. " * 40),
+        encoding="utf-8",
+    )
+    assert _validate_title_language(tmp_path)["valid"] is True
+
+    (tmp_path / "paper_draft_v0.qmd").write_text(
+        '---\ntitle: "校園正念介入研究"\n---\n\n' + ("這是中文正文內容，全文以中文撰寫的研究論文草稿。" * 40),
+        encoding="utf-8",
+    )
+    assert _validate_title_language(tmp_path)["valid"] is True

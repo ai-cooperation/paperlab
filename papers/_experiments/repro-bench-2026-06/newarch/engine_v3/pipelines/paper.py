@@ -1896,9 +1896,25 @@ def _validate_delivery_pdf(pdf, run_dir=None) -> dict[str, object]:
     else:
         findings.append("pdftotext could not extract PDF text for validation")
 
-    table_widths = _validate_table_widths(Path(run_dir) if run_dir is not None else pdf.parent)
+    check_dir = Path(run_dir) if run_dir is not None else pdf.parent
+    table_widths = _validate_table_widths(check_dir)
     evidence["table_widths"] = table_widths
     findings.extend(table_widths.get("findings") or [])
+
+    # 2026-07-02 human-QA gaps, now mechanical: renderer-reported overflow
+    # (Table 1 column collision), caption claims beyond evidence (Figure 4
+    # "pooled estimate" on a poolable_k=0 run), title/body language mismatch.
+    render_overflow = _validate_render_log_overflow(check_dir)
+    evidence["render_overflow"] = render_overflow
+    findings.extend(render_overflow.get("findings") or [])
+
+    caption_claims = _validate_caption_claims(check_dir)
+    evidence["caption_claims"] = caption_claims
+    findings.extend(caption_claims.get("findings") or [])
+
+    title_language = _validate_title_language(check_dir)
+    evidence["title_language"] = title_language
+    findings.extend(title_language.get("findings") or [])
 
     return {**evidence, "valid": not findings, "findings": findings}
 
@@ -1934,6 +1950,122 @@ def _validate_pdf_content_quality(text: str) -> dict[str, object]:
         "traceability_addendum_count": addendum_count,
         "traceability_table_heading_count": traceability_table_count,
         "findings": findings,
+    }
+
+
+OVERFULL_HBOX_VISIBLE_PT = 5.0
+
+# Caption claim tokens that require extracted/poolable effects to exist.
+# Cause-agnostic at the claim level: any caption asserting these statistical
+# objects is checked against the machine-produced real_results, mirroring
+# claim<=evidence for body prose (2026-07-02: Figure 4 caption claimed a
+# random-effects pooled estimate on a poolable_k=0 run).
+CAPTION_EFFECT_CLAIM_TOKENS = (
+    "pooled estimate",
+    "pooled effect",
+    "effect size",
+    "random-effects",
+    "meta-analytic estimate",
+    "significant",
+)
+
+
+def _validate_render_log_overflow(run_dir: Path) -> dict[str, object]:
+    """Consume the renderer's own Overfull \hbox report (ground truth) instead
+    of trusting declared tbl-colwidths. Anything wider than
+    OVERFULL_HBOX_VISIBLE_PT is a visible overlap; sub-threshold warnings are
+    ordinary TeX noise."""
+    log_path = run_dir / "paper_springer.log"
+    if not log_path.is_file():
+        return {"valid": True, "log_present": False, "overfull_count": 0, "findings": []}
+    text = log_path.read_text(encoding="utf-8", errors="ignore")
+    findings: list[str] = []
+    count = 0
+    for match in re.finditer(r"Overfull \\hbox \(([0-9.]+)pt too wide\)([^\n]*)", text):
+        try:
+            width = float(match.group(1))
+        except ValueError:
+            continue
+        if width < OVERFULL_HBOX_VISIBLE_PT:
+            continue
+        count += 1
+        findings.append(
+            "render log reports visible Overfull \\hbox (%.1fpt too wide)%s"
+            % (width, match.group(2).strip()[:80] and (" " + match.group(2).strip()[:80]))
+        )
+    return {
+        "valid": not findings,
+        "log_present": True,
+        "overfull_count": count,
+        "findings": findings,
+    }
+
+
+def _manuscript_figure_captions(run_dir: Path) -> list[str]:
+    captions: list[str] = []
+    for rel in ("paper_draft_v0.qmd", "paper_springer.qmd"):
+        path = run_dir / rel
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        captions.extend(m.group(1).strip() for m in re.finditer(r"!\[([^\]]+)\]\(figures/", text))
+        break
+    return captions
+
+
+def _validate_caption_claims(run_dir: Path) -> dict[str, object]:
+    real_results = _read_json(run_dir / "real_experiments" / "real_results.json")
+    synthesis = real_results.get("synthesis") if isinstance(real_results.get("synthesis"), dict) else {}
+    effect_count = _int_review_value(synthesis.get("numeric_effect_count"), default=0)
+    poolable = _int_review_value(real_results.get("max_poolable_k"), default=0)
+    if max(effect_count, poolable) > 0:
+        return {"valid": True, "findings": []}
+    findings: list[str] = []
+    for caption in _manuscript_figure_captions(run_dir):
+        lowered = caption.lower()
+        hits = [token for token in CAPTION_EFFECT_CLAIM_TOKENS if token in lowered]
+        if hits:
+            findings.append(
+                "figure caption claims %s but real_results has no extracted/poolable effects: %r"
+                % (", ".join(sorted(hits)), caption[:120])
+            )
+    return {"valid": not findings, "findings": findings}
+
+
+def _cjk_ratio(text: str) -> float:
+    letters = [ch for ch in text if ch.isalpha()]
+    if not letters:
+        return 0.0
+    cjk = sum(1 for ch in letters if "\u4e00" <= ch <= "\u9fff")
+    return cjk / len(letters)
+
+
+def _validate_title_language(run_dir: Path) -> dict[str, object]:
+    """The manuscript title must be in the manuscript's language. The title is
+    copied from the b-side contract topic, which may be in the grill
+    conversation's language (2026-07-02: Chinese title on an all-English
+    manuscript)."""
+    path = run_dir / "paper_draft_v0.qmd"
+    if not path.is_file():
+        return {"valid": True, "findings": []}
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    title_match = re.search(r'(?m)^title:\s*"?([^"\n]+)"?', text)
+    if not title_match:
+        return {"valid": True, "findings": []}
+    title = title_match.group(1)
+    body = re.sub(r"(?s)\A---.*?---", "", text, count=1)
+    title_cjk = _cjk_ratio(title)
+    body_cjk = _cjk_ratio(body)
+    mismatch = (title_cjk >= 0.5 and body_cjk < 0.1) or (title_cjk < 0.1 and body_cjk >= 0.5)
+    if not mismatch:
+        return {"valid": True, "findings": []}
+    return {
+        "valid": False,
+        "findings": [
+            "title language does not match manuscript body language "
+            "(title CJK ratio %.2f vs body %.2f); translate the title into the manuscript language"
+            % (title_cjk, body_cjk)
+        ],
     }
 
 
