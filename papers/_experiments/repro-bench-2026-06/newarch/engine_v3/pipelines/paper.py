@@ -1426,9 +1426,28 @@ def _stamp_review_manuscript_hash(run_dir: Path) -> bool:
     method = review.get("review_method")
     if not isinstance(method, dict) or not method:
         return False
-    if str(method.get("reviewed_manuscript_sha256") or "").strip():
-        return False
-    method["reviewed_manuscript_sha256"] = review_provenance.manuscript_sha256(run_dir, paper_artifacts.MANUSCRIPT_FILES)
+    existing_stamp = str(method.get("reviewed_manuscript_sha256") or "").strip()
+    current = review_provenance.manuscript_sha256(run_dir, paper_artifacts.MANUSCRIPT_FILES)
+    if existing_stamp:
+        if existing_stamp == current:
+            return False
+        # Round 13: Hermes repaired the manuscript and rewrote the review in
+        # the SAME attempt but copied the previous stamp along. If the review
+        # file is newer than every manuscript source, it reviewed the current
+        # state - re-stamp faithfully. A review OLDER than the sources keeps
+        # its stale stamp so Gate R still catches post-review edits.
+        try:
+            review_mtime = review_path.stat().st_mtime
+            source_mtimes = [
+                (run_dir / rel).stat().st_mtime
+                for rel in paper_artifacts.MANUSCRIPT_FILES
+                if (run_dir / rel).is_file()
+            ]
+        except OSError:
+            return False
+        if not source_mtimes or review_mtime < max(source_mtimes):
+            return False
+    method["reviewed_manuscript_sha256"] = current
     review["review_method"] = method
     review_path.write_text(json.dumps(review, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")
     return True

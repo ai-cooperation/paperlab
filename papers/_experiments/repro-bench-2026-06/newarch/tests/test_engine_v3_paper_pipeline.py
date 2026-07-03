@@ -1457,3 +1457,69 @@ def test_paper_gate_plugin_uses_v3_requirements_on_v3_runs(tmp_path: Path):
         args={"command": "quarto render paper.qmd", "workdir": str(v2_dir)},
     )
     assert blocked is not None and blocked["action"] == "block"
+
+
+def test_stamp_refreshes_when_review_is_newer_than_manuscript(tmp_path: Path):
+    """Round 13: Hermes repaired the manuscript and rewrote the review in the
+    same attempt, but copied the previous stamp into review_method; the
+    stamp-once logic kept the stale hash and Gate R blocked a legitimate
+    fresh review. If the review file is newer than every manuscript source,
+    it reviewed the current state - re-stamp faithfully."""
+    import os, time
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "paper_draft_v0.qmd").write_text("repaired manuscript", encoding="utf-8")
+    old = time.time() - 100
+    os.utime(run_dir / "paper_draft_v0.qmd", (old, old))
+    (run_dir / "quality_review_round1.json").write_text(
+        json.dumps(
+            {
+                "delivery": "pass",
+                "review_method": {
+                    "decision_owner": "hermes",
+                    "reviewed_manuscript_sha256": "0" * 64,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    from engine_v3 import review_provenance
+    from engine_v3.pipelines.paper import _stamp_review_manuscript_hash
+
+    changed = _stamp_review_manuscript_hash(run_dir)
+
+    assert changed is True
+    review = json.loads((run_dir / "quality_review_round1.json").read_text(encoding="utf-8"))
+    assert review["review_method"]["reviewed_manuscript_sha256"] == review_provenance.manuscript_sha256(
+        run_dir, ("paper_draft_v0.qmd",)
+    )
+
+
+def test_stamp_preserved_when_manuscript_newer_than_review(tmp_path: Path):
+    import os, time
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "quality_review_round1.json").write_text(
+        json.dumps(
+            {
+                "delivery": "pass",
+                "review_method": {
+                    "decision_owner": "hermes",
+                    "reviewed_manuscript_sha256": "0" * 64,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    old = time.time() - 100
+    os.utime(run_dir / "quality_review_round1.json", (old, old))
+    (run_dir / "paper_draft_v0.qmd").write_text("edited AFTER review", encoding="utf-8")
+
+    from engine_v3.pipelines.paper import _stamp_review_manuscript_hash
+
+    assert _stamp_review_manuscript_hash(run_dir) is False
+    review = json.loads((run_dir / "quality_review_round1.json").read_text(encoding="utf-8"))
+    assert review["review_method"]["reviewed_manuscript_sha256"] == "0" * 64
