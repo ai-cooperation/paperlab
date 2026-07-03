@@ -155,7 +155,9 @@ Hard requirements:
   limitations and next-phase instructions.
 """
 REVIEW_OUTPUTS = ["quality_review_round1.json", "quality_review_log.md"]
-REVIEW_HEAL_OUTPUTS = REVIEW_OUTPUTS + WRITE_OUTPUTS + ["paper_springer.qmd"] + FIGURE_OUTPUTS
+REVIEW_HEAL_OUTPUTS = (
+    REVIEW_OUTPUTS + WRITE_OUTPUTS + ["paper_springer.qmd", "claim_evidence_map.md"] + FIGURE_OUTPUTS
+)
 REVIEW_HEAL_REPAIR_OUTPUTS = REVIEW_HEAL_OUTPUTS
 FORMAT_REPAIR_OUTPUTS = ["paper_draft_v0.pdf"]
 
@@ -258,9 +260,12 @@ V3.2 boundary:
 - legacy v2 audit artifacts such as doi_verification_report.md, gate_report.json,
   figure_audit.md, coherence_audit.md, and gate_d_readability.md are not required
   V3.2 review outputs and must not fail delivery solely because they are absent.
-- You review the manuscript SOURCE (qmd/sections). The delivery PDF is re-rendered
-  by the next phase and its freshness is enforced by a deterministic gate; a stale
-  PDF relative to your edits is expected here and must not be a finding.
+- You review the manuscript SOURCE (qmd/sections). The delivery PDF is owned
+  entirely by the next phase (format_repair renders it from scratch) and by
+  deterministic gates. NO property of the PDF is reviewable here: not its absence
+  (it is deleted by design before your run), not its staleness, not its content.
+  Any finding about paper_draft_v0.pdf or artifact_manifest.json PDF references
+  is out of scope and must not appear in your review.
 - If real_results.json records a lane_downgrade, judge the manuscript AS the
   downgraded deliverable (e.g. an honest evidence-map/narrative review), not as an
   incomplete version of the originally contracted synthesis. Grading a downgraded
