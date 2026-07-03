@@ -261,6 +261,9 @@ V3.2 boundary:
   already made; instead verify the downgrade is stated and no pooled claims leak.
 - If review finds fixable manuscript, table, citation, or visual-layout issues, repair
   paper_draft_v0.qmd, paper_springer.qmd, and the affected sections within this phase.
+- Every manuscript fix must be applied to paper_draft_v0.qmd, paper_springer.qmd, AND
+  the matching sections/*.md file. A fix applied only to the qmd re-infiltrates from
+  the stale section file on the next recomposition.
 """
 
 REVIEW_HEAL_REPAIR_PROMPT = """Run bounded final re-review after deterministic structural repairs.
@@ -2009,15 +2012,23 @@ def _validate_render_log_overflow(run_dir: Path) -> dict[str, object]:
     }
 
 
-def _manuscript_figure_captions(run_dir: Path) -> list[str]:
-    captions: list[str] = []
-    for rel in ("paper_draft_v0.qmd", "paper_springer.qmd"):
+def _manuscript_figure_captions(run_dir: Path) -> list[tuple[str, str]]:
+    """(source_file, caption) pairs from EVERY manuscript source. Sections are
+    included because a caption fixed in the qmd re-infiltrates when Hermes
+    recomposes from a stale section file (2026-07-03 round 5)."""
+    sources = ["paper_draft_v0.qmd", "paper_springer.qmd"]
+    sections_dir = run_dir / "sections"
+    if sections_dir.is_dir():
+        sources.extend(sorted("sections/%s" % p.name for p in sections_dir.glob("*.md")))
+    captions: list[tuple[str, str]] = []
+    for rel in sources:
         path = run_dir / rel
         if not path.is_file():
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")
-        captions.extend(m.group(1).strip() for m in re.finditer(r"!\[([^\]]+)\]\(figures/", text))
-        break
+        captions.extend(
+            (rel, m.group(1).strip()) for m in re.finditer(r"!\[([^\]]+)\]\(figures/", text)
+        )
     return captions
 
 
@@ -2033,7 +2044,7 @@ def _validate_caption_claims(run_dir: Path) -> dict[str, object]:
         "no ", "not ", "0 ", "zero ", "without ", "deferred", "pending",
         "not estimated", "not pooled", "no pooled", "status",
     )
-    for caption in _manuscript_figure_captions(run_dir):
+    for source, caption in _manuscript_figure_captions(run_dir):
         lowered = caption.lower()
         hits = [token for token in CAPTION_EFFECT_CLAIM_TOKENS if token in lowered]
         # An honest disclosure ("0 extracted effect sizes", "pooling deferred")
@@ -2043,8 +2054,8 @@ def _validate_caption_claims(run_dir: Path) -> dict[str, object]:
             continue
         if hits:
             findings.append(
-                "figure caption claims %s but real_results has no extracted/poolable effects: %r"
-                % (", ".join(sorted(hits)), caption[:120])
+                "figure caption in %s claims %s but real_results has no extracted/poolable effects: %r"
+                % (source, ", ".join(sorted(hits)), caption[:120])
             )
     return {"valid": not findings, "findings": findings}
 

@@ -1325,3 +1325,31 @@ def test_caption_gate_allows_negated_honest_statements(tmp_path: Path):
     )
 
     assert _validate_caption_claims(tmp_path)["valid"] is True
+
+
+def test_caption_gate_scans_sections_for_reinfiltration(tmp_path: Path):
+    """Round 5: the fabricated caption fixed in paper_draft_v0.qmd came BACK
+    because sections/results.md still carried it and Hermes recomposed from
+    sections. The gate must scan every manuscript source and name the file,
+    so the repair prompt tells Hermes exactly where to fix."""
+    from engine_v3.pipelines.paper import _validate_caption_claims
+
+    (tmp_path / "paper_draft_v0.qmd").write_text(
+        "![Outcome-domain pooling status: 0 extracted effect sizes, not pooled.](figures/fig_forest_plot.png){#fig-forest}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "sections").mkdir()
+    (tmp_path / "sections" / "results.md").write_text(
+        "![Forest plot of study-level effect sizes and the random-effects pooled estimate.](figures/fig_forest_plot.png){#fig-forest}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "real_experiments").mkdir()
+    (tmp_path / "real_experiments" / "real_results.json").write_text(
+        '{"max_poolable_k": 0, "synthesis": {"numeric_effect_count": 0}}',
+        encoding="utf-8",
+    )
+
+    result = _validate_caption_claims(tmp_path)
+
+    assert result["valid"] is False
+    assert any("sections/results.md" in f for f in result["findings"])
