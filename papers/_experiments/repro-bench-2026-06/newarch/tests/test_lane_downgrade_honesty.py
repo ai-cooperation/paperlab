@@ -106,3 +106,33 @@ def test_claim_boundary_states_downgrade_in_manuscript_guidance(tmp_path: Path):
 
     assert "downgraded from meta-analysis" in boundary
     assert "must not present a forest plot" in boundary
+
+
+def test_figspec_caption_matches_poolability(tmp_path: Path):
+    """Round 12: format_repair's figure injector wrote the hard-coded caption
+    'Forest plot of study-level effect sizes and the random-effects pooled
+    estimate' back into the manuscript on every run - on a poolable_k=0 job
+    that caption is a fabricated claim Gate Z (correctly) blocks. The figspec
+    must pick the caption from the run's actual evidence state."""
+    import json as _json
+    import tables
+
+    contract = {"data_source": {"type": "meta-analysis"}}
+
+    (tmp_path / "real_experiments").mkdir()
+    (tmp_path / "real_experiments" / "real_results.json").write_text(
+        _json.dumps({"max_poolable_k": 0, "synthesis": {"numeric_effect_count": 0}}),
+        encoding="utf-8",
+    )
+    spec = tables.figspec_for(contract, run_dir=tmp_path)
+    forest = next(row for row in spec if row[0] == "fig-forest")
+    assert "pooled estimate" not in forest[2]
+    assert "no pooled effect" in forest[2].lower() or "not pooled" in forest[2].lower()
+
+    (tmp_path / "real_experiments" / "real_results.json").write_text(
+        _json.dumps({"max_poolable_k": 8, "synthesis": {"numeric_effect_count": 8}}),
+        encoding="utf-8",
+    )
+    spec = tables.figspec_for(contract, run_dir=tmp_path)
+    forest = next(row for row in spec if row[0] == "fig-forest")
+    assert "pooled estimate" in forest[2]

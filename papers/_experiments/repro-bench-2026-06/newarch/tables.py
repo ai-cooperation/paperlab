@@ -336,13 +336,50 @@ DATASET_FIGSPEC = [
 ]
 
 
-def figspec_for(contract: dict[str, Any] | None) -> list[tuple[str, str, str]]:
-    """Pick the figure spec by lane. Mirrors pipeline._is_dataset_lane using the
-    capabilities registry: an arbitrary public DATASET (not HUPD) uses the dataset
-    figures; everything else uses the meta-analysis figures."""
+# Honest caption for the forest slot when the run extracted no poolable
+# effects (2026-07-04 round 12: the injector wrote the pooled-estimate caption
+# back on every format_repair run and Gate Z correctly blocked it each time).
+_FOREST_NO_POOL_CAPTION = (
+    "Outcome-domain pooling status: no pooled effect estimates were extractable in this run."
+)
+
+
+def _run_has_poolable_effects(run_dir: Any) -> bool:
+    if run_dir is None:
+        return True
+    try:
+        import json as _json
+        from pathlib import Path as _Path
+
+        rr = _json.loads(
+            (_Path(run_dir) / "real_experiments" / "real_results.json").read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        return True
+    synthesis = rr.get("synthesis") if isinstance(rr.get("synthesis"), dict) else {}
+    try:
+        effect_count = int(synthesis.get("numeric_effect_count") or 0)
+        poolable = int(rr.get("max_poolable_k") or 0)
+    except (TypeError, ValueError):
+        return True
+    return max(effect_count, poolable) > 0
+
+
+def figspec_for(contract: dict[str, Any] | None, run_dir: Any = None) -> list[tuple[str, str, str]]:
+    """Pick the figure spec by lane AND evidence state. Mirrors
+    pipeline._is_dataset_lane via the capabilities registry; the forest-slot
+    caption must match what the run actually produced (claim<=evidence applies
+    to injected captions too)."""
     ds = (contract or {}).get("data_source") or {}
     is_dataset = str(ds.get("type") or "").lower() == "dataset" and not capabilities.is_registered_fast_lane(ds)
-    return DATASET_FIGSPEC if is_dataset else _FIGSPEC
+    if is_dataset:
+        return DATASET_FIGSPEC
+    if _run_has_poolable_effects(run_dir):
+        return _FIGSPEC
+    return [
+        (fig_id, filename, _FOREST_NO_POOL_CAPTION if fig_id == "fig-forest" else caption)
+        for fig_id, filename, caption in _FIGSPEC
+    ]
 
 
 def available_fig_refs(run_dir: Path, figspec: list[tuple[str, str, str]]) -> list[str]:

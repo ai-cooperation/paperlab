@@ -36,7 +36,7 @@ def render(run_dir: Path, contract: dict[str, Any]) -> bool:
         tables.inject(run_dir, contract)
         # by-construction: floats land in the body. figspec is lane-aware (the dataset
         # lane's forest/dose/flow vs the meta lane's forest/prisma/method).
-        tables.inject_figures(run_dir, figspec=tables.figspec_for(contract))
+        tables.inject_figures(run_dir, figspec=tables.figspec_for(contract, run_dir=run_dir))
     except Exception:  # noqa: BLE001 - a missing table/figure must not abort the render
         pass
     return render_springer.render(run_dir, contract)
