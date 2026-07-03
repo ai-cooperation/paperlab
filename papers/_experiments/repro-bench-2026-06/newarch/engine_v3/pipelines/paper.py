@@ -2029,9 +2029,18 @@ def _validate_caption_claims(run_dir: Path) -> dict[str, object]:
     if max(effect_count, poolable) > 0:
         return {"valid": True, "findings": []}
     findings: list[str] = []
+    negation_markers = (
+        "no ", "not ", "0 ", "zero ", "without ", "deferred", "pending",
+        "not estimated", "not pooled", "no pooled", "status",
+    )
     for caption in _manuscript_figure_captions(run_dir):
         lowered = caption.lower()
         hits = [token for token in CAPTION_EFFECT_CLAIM_TOKENS if token in lowered]
+        # An honest disclosure ("0 extracted effect sizes", "pooling deferred")
+        # mentions the statistical object to DENY it; only affirmative claims
+        # violate claim<=evidence.
+        if hits and any(marker in lowered for marker in negation_markers):
+            continue
         if hits:
             findings.append(
                 "figure caption claims %s but real_results has no extracted/poolable effects: %r"

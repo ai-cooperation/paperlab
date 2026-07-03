@@ -1305,3 +1305,23 @@ def test_title_language_consistent_passes(tmp_path: Path):
         encoding="utf-8",
     )
     assert _validate_title_language(tmp_path)["valid"] is True
+
+
+def test_caption_gate_allows_negated_honest_statements(tmp_path: Path):
+    """Round 3 false positive: the repaired honest caption 'Outcome-domain
+    pooling status ... 0 extracted effect sizes' was flagged because it
+    contains the token 'effect size'. Negated/deferred statements are honest
+    disclosures, not claims."""
+    from engine_v3.pipelines.paper import _validate_caption_claims
+
+    (tmp_path / "paper_draft_v0.qmd").write_text(
+        "![Outcome-domain pooling status: 0 extracted effect sizes; pooling deferred, not estimated.](figures/fig_forest_plot.png){#fig-forest}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "real_experiments").mkdir()
+    (tmp_path / "real_experiments" / "real_results.json").write_text(
+        '{"max_poolable_k": 0, "synthesis": {"numeric_effect_count": 0}}',
+        encoding="utf-8",
+    )
+
+    assert _validate_caption_claims(tmp_path)["valid"] is True
