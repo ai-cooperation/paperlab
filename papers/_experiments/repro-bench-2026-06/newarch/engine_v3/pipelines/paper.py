@@ -222,6 +222,12 @@ Hard requirements for quality_review_round1.json:
   floor_failed, and independent_reviewer fields. review_loop.status must be exactly
   "passed" when the loop cleared or "blocked_revise" when it did not; do not invent
   variants.
+- independent_reviewer means: the verdict came from a dedicated final review pass
+  over the finished manuscript AFTER all repairs in this run, applying the selected
+  review skill with fresh eyes (the manuscript hash stamp corroborates this). It
+  does not mean a different model reviewed. Set it to true when you performed that
+  dedicated pass; set it to false only if you skipped it and graded during repair —
+  a false value blocks delivery.
 - Include top-level dimensions with exactly these expert-review dimensions:
   academic_rigor, novelty_positioning, experimental_completeness, writing_quality,
   practical_feasibility, citation_accuracy, and format_compliance.
@@ -317,6 +323,10 @@ Hard boundary:
   inputs_checked), and the "## Skill Decision Trace" section in the log.
 - A deterministic repair is not a review. You must re-review the repaired manuscript
   yourself before any pass verdict.
+- review_loop.independent_reviewer means: the verdict came from a dedicated final
+  review pass over the finished manuscript after all repairs (it does not mean a
+  different model reviewed). Set it to true when you performed that dedicated pass;
+  false blocks delivery.
 - If pending_content_findings.md exists, every line is a deterministic delivery-gate
   blocker; fix each in ALL manuscript surfaces before any pass verdict.
 """

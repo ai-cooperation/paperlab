@@ -1409,6 +1409,23 @@ def test_review_prompts_reference_pending_content_findings():
         assert "deterministic" in prompt.lower()
 
 
+def test_review_prompts_pin_independent_reviewer_semantics():
+    """Round 18: a fully passing review (floor 80, p0=0, provenance ok) was
+    blocked solely because Hermes interpreted review_loop.independent_reviewer
+    as 'a different model reviewed' and honestly wrote false. Same failure
+    family as the 'passed_after_repair' vocabulary drift (round 11): a gate-
+    consumed field whose semantics the prompt never pinned. The prompts must
+    define the canonical meaning: a dedicated final review pass over the
+    finished manuscript after all repairs — not a different model."""
+    from engine_v3.pipelines.paper import REVIEW_HEAL_PROMPT, REVIEW_HEAL_REPAIR_PROMPT
+
+    for prompt in (REVIEW_HEAL_PROMPT, REVIEW_HEAL_REPAIR_PROMPT):
+        assert "independent_reviewer" in prompt
+        lowered = " ".join(prompt.lower().split())
+        assert "dedicated final review pass" in lowered
+        assert "does not mean a different model" in lowered
+
+
 def test_review_heal_removes_stale_pdf_so_reviewer_audits_sources(tmp_path: Path):
     """Round 8 chicken-and-egg: manuscript sources were clean but the reviewer
     read the PREVIOUS round's rendered PDF (with the old caption) and issued a
