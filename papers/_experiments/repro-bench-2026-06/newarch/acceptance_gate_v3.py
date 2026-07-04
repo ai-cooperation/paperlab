@@ -94,6 +94,21 @@ def evaluate_run_acceptance(
     }
     passed = all(checks.values())
     if passed:
+        # D2 (V3_2_SPEC.md Decisions): mechanical all-green with a PENDING
+        # human checkpoint is not deliverable. Round 20 reported done_pass /
+        # "acceptable PDF delivered" on a VIP run whose dossier held
+        # human_review_required - the checkpoint was only consulted on the
+        # failure path.
+        if _needs_human(dossier_data):
+            return _decision(
+                "human_review_required",
+                False,
+                "mechanical acceptance passed; VIP delivery awaits human review (D2)",
+                [],
+                checks,
+                floor_100,
+                delivery,
+            )
         return _decision("done_pass", True, "acceptable PDF delivered", [], checks, floor_100, delivery)
     if _needs_human(dossier_data):
         return _decision(
@@ -336,7 +351,9 @@ def _needs_human(dossier: Mapping[str, Any]) -> bool:
     evidence = dossier.get("evidence") if isinstance(dossier.get("evidence"), dict) else {}
     checkpoint = evidence.get("human_checkpoint")
     if isinstance(checkpoint, dict):
-        return bool(checkpoint)
+        # Only a PENDING checkpoint gates delivery; an approved/resolved one
+        # must not keep flagging the run as needing a human.
+        return str(checkpoint.get("status") or "") == "human_review_required"
     return bool(checkpoint)
 
 

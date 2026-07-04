@@ -387,9 +387,14 @@ def _run_one_orchestrator(jobs_dir: Path, job_id: str) -> RunOutcome:
         dossier_store=DossierStore(run_dir),
     ).run(job_id=job_id, resume=True)
     phases = dict(dossier.phases)
+    checkpoint = (dossier.evidence or {}).get("human_checkpoint")
+    pending_human = (
+        isinstance(checkpoint, dict)
+        and str(checkpoint.get("status") or "") == "human_review_required"
+    )
     return RunOutcome(
         job_id=job_id,
-        status=_status(phases),
+        status=_status(phases, pending_human=pending_human),
         phases=phases,
         seconds=round(time.monotonic() - started, 1),
         has_pdf=(run_dir / "paper_draft_v0.pdf").is_file(),
@@ -397,13 +402,15 @@ def _run_one_orchestrator(jobs_dir: Path, job_id: str) -> RunOutcome:
     )
 
 
-def _status(phases: dict[str, str]) -> str:
+def _status(phases: dict[str, str], *, pending_human: bool = False) -> str:
     if any(status == "error" for status in phases.values()):
         return "failed"
     if any(status == "blocked" for status in phases.values()):
         return "blocked"
     if phases.get("format_repair") == "done":
-        return "done"
+        # D2: a pending human checkpoint means the run is awaiting delivery
+        # review - reporting "done" reads as deliverable (round 20).
+        return "human_review_required" if pending_human else "done"
     return "partial" if phases else "missing"
 
 

@@ -533,6 +533,18 @@ def test_loop_metadata_retry_not_triggered_on_revise_verdict(tmp_path: Path):
     assert _prepare_loop_metadata_resume(tmp_path, "v3_job") is False
 
 
+def test_run_status_surfaces_pending_human_checkpoint():
+    """Round 20: the run outcome said status=done although the dossier held a
+    pending D2 checkpoint - 'done' reads as deliverable in the batch log."""
+    from revalidate_v3_batch import _status
+
+    phases = {"review_heal": "done", "format_repair": "done"}
+    assert _status(phases, pending_human=True) == "human_review_required"
+    assert _status(phases, pending_human=False) == "done"
+    # A blocked run stays blocked regardless of checkpoint state.
+    assert _status({"review_heal": "blocked"}, pending_human=True) == "blocked"
+
+
 def test_content_reset_uses_shared_validator_registry(tmp_path: Path):
     """Round 15: the revalidator's own hard-coded validator list missed the
     new citation-dump gate, so no reset fired and a dirty manuscript passed

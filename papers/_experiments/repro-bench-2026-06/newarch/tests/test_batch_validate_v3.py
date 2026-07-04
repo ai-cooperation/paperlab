@@ -122,6 +122,62 @@ def test_validate_job_marks_done_pass_only_for_full_acceptance_contract(tmp_path
     assert row.findings == []
 
 
+def _seed_full_acceptance_run(run_dir: Path, *, evidence: dict | None = None) -> None:
+    run_dir.mkdir(parents=True)
+    _write_manifest(run_dir)
+    _write_dossier(run_dir, z_validation=_valid_pdf_validation(), evidence=evidence)
+    _write_review(run_dir)
+    (run_dir / "quality_review_log.md").write_text(
+        "# log\n\n## Skill Decision Trace\n\n- selected: paper-review-skill\n\n" + "reviewed\n" * 100,
+        encoding="utf-8",
+    )
+    (run_dir / "paper_draft_v0.pdf").write_bytes(b"%PDF-1.4\n" + b"x" * 120_000)
+
+
+def test_pending_human_checkpoint_blocks_done_pass_label(tmp_path: Path):
+    """Round 20: a VIP run with a PENDING human checkpoint was reported
+    done_pass / 'acceptable PDF delivered' - the D2 stop existed in the
+    dossier but the acceptance gate only consulted it on the failure path.
+    Mechanical all-green with a pending checkpoint is human_review_required,
+    not deliverable."""
+    run_dir = tmp_path / "jobs" / "v3_vip_pending" / "run"
+    _seed_full_acceptance_run(
+        run_dir,
+        evidence={
+            "human_checkpoint": {
+                "status": "human_review_required",
+                "phase": "delivery",
+                "reason": "VIP delivery requires a human quality review (D2)",
+            }
+        },
+    )
+
+    row = validate_jobs(tmp_path / "jobs", job_ids=["v3_vip_pending"])[0]
+
+    assert row.acceptance_status == "human_review_required"
+    assert row.passed is False
+    assert row.acceptance_ok is False
+
+
+def test_approved_human_checkpoint_allows_done_pass(tmp_path: Path):
+    run_dir = tmp_path / "jobs" / "v3_vip_approved" / "run"
+    _seed_full_acceptance_run(
+        run_dir,
+        evidence={
+            "human_checkpoint": {
+                "status": "approved",
+                "phase": "delivery",
+                "approved_by": "operator",
+            }
+        },
+    )
+
+    row = validate_jobs(tmp_path / "jobs", job_ids=["v3_vip_approved"])[0]
+
+    assert row.passed is True
+    assert row.acceptance_status == "done_pass"
+
+
 def test_validate_job_accepts_compact_pdf_when_z_gate_validates_delivery(tmp_path: Path):
     run_dir = tmp_path / "jobs" / "v3_compact_pdf" / "run"
     run_dir.mkdir(parents=True)
@@ -221,7 +277,7 @@ def _write_manifest(run_dir: Path) -> None:
     )
 
 
-def _write_dossier(run_dir: Path, *, z_validation: dict) -> None:
+def _write_dossier(run_dir: Path, *, z_validation: dict, evidence: dict | None = None) -> None:
     phases = {
         "data": "done",
         "gap": "done",
@@ -268,7 +324,7 @@ def _write_dossier(run_dir: Path, *, z_validation: dict) -> None:
                     "quality_review_round1.json": {"path": "quality_review_round1.json", "sha256": "def"},
                     "quality_review_log.md": {"path": "quality_review_log.md", "sha256": "ghi"},
                 },
-                "evidence": {},
+                "evidence": evidence or {},
                 "gate_reports": gate_reports,
                 "delegations": [],
             }
