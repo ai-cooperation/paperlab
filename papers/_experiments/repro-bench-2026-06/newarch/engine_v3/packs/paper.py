@@ -377,10 +377,10 @@ def _review_loop_ok(loop: Mapping[str, Any], log_present: bool) -> bool:
     fixer = str(loop.get("fixer_model") or "")
     independent = loop.get("independent_reviewer") is True
     floor_failed = loop.get("floor_failed")
-    # Reviewers phrase success honestly ("passed_after_repair", round 11;
-    # "cleared", round 5). Accept the passed-prefix family as faithful
-    # representation; anything else stays fail-closed.
-    status_pass_like = status in {"passed", "pass", "done", "cleared"} or status.startswith("passed")
+    # Shared vocabulary with acceptance_gate_v3 via review_provenance (batch
+    # job v3_0f6a0c83f9cf: Gate R accepted "cleared" but acceptance kept its
+    # own hard-coded set and rejected the same record - one registry).
+    status_pass_like = review_provenance.review_status_pass_like(status)
     return (
         status_pass_like
         and isinstance(rounds, int)

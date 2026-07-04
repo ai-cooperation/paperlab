@@ -178,6 +178,29 @@ def test_approved_human_checkpoint_allows_done_pass(tmp_path: Path):
     assert row.acceptance_status == "done_pass"
 
 
+def test_acceptance_shares_gate_r_pass_like_status_vocabulary(tmp_path: Path):
+    """Batch job v3_0f6a0c83f9cf: Hermes wrote review_loop.status='cleared';
+    Gate R accepts the pass-prefix family (round 5/11 lessons) but the
+    acceptance gate kept its own hard-coded {pass, passed, ok, done} and
+    rejected the same record. Both consumers must share one vocabulary
+    (round-15 registry lesson)."""
+    run_dir = tmp_path / "jobs" / "v3_cleared" / "run"
+    run_dir.mkdir(parents=True)
+    _write_manifest(run_dir)
+    _write_dossier(run_dir, z_validation=_valid_pdf_validation())
+    _write_review(run_dir, loop_status="cleared")
+    (run_dir / "quality_review_log.md").write_text(
+        "# log\n\n## Skill Decision Trace\n\n- selected: paper-review-skill\n\n" + "reviewed\n" * 100,
+        encoding="utf-8",
+    )
+    (run_dir / "paper_draft_v0.pdf").write_bytes(b"%PDF-1.4\n" + b"x" * 120_000)
+
+    row = validate_jobs(tmp_path / "jobs", job_ids=["v3_cleared"])[0]
+
+    assert not any("not pass-like" in f for f in row.findings)
+    assert row.passed is True
+
+
 def test_validate_job_accepts_compact_pdf_when_z_gate_validates_delivery(tmp_path: Path):
     run_dir = tmp_path / "jobs" / "v3_compact_pdf" / "run"
     run_dir.mkdir(parents=True)
@@ -333,7 +356,7 @@ def _write_dossier(run_dir: Path, *, z_validation: dict, evidence: dict | None =
     )
 
 
-def _write_review(run_dir: Path, *, dimension_score: float = 8.2) -> None:
+def _write_review(run_dir: Path, *, dimension_score: float = 8.2, loop_status: str = "passed") -> None:
     from engine_v3 import review_provenance
 
     (run_dir / "quality_review_log.md").write_text(
@@ -359,7 +382,7 @@ def _write_review(run_dir: Path, *, dimension_score: float = 8.2) -> None:
                     "reviewed_manuscript_sha256": review_provenance.manuscript_sha256(run_dir, ("paper_draft_v0.qmd",)),
                 },
                 "review_loop": {
-                    "status": "passed",
+                    "status": loop_status,
                     "rounds": 1,
                     "reviewer_model": "hermes-reviewer",
                     "fixer_model": "hermes-fixer",

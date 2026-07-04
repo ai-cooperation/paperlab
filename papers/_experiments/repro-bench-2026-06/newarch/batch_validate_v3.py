@@ -224,7 +224,7 @@ def _validate_review(run_dir: Path, *, min_floor: float) -> tuple[bool, float | 
     ))
     if loop.get("independent_reviewer") is not True:
         findings.append("review_loop.independent_reviewer must be boolean true")
-    if str(loop.get("status") or "").lower() not in {"pass", "passed", "ok", "done"}:
+    if not review_provenance.review_status_pass_like(loop.get("status")):
         findings.append("review_loop.status is not pass-like: %s" % loop.get("status"))
 
     dimensions = review.get("dimensions") if isinstance(review.get("dimensions"), dict) else {}

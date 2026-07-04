@@ -49,6 +49,18 @@ def reviewer_is_untrusted(reviewer: Any) -> bool:
     return any(marker in text for marker in UNTRUSTED_REVIEWER_MARKERS)
 
 
+# Reviewers phrase success honestly ("cleared", round 5; "passed_after_repair",
+# round 11). One vocabulary for every consumer: Gate R accepted the family but
+# acceptance_gate kept its own hard-coded set and rejected the same record
+# (batch job v3_0f6a0c83f9cf). Anything outside the family stays fail-closed.
+REVIEW_STATUS_PASS_LIKE = ("passed", "pass", "done", "cleared", "ok")
+
+
+def review_status_pass_like(status: Any) -> bool:
+    text = str(status or "").strip().lower()
+    return text in REVIEW_STATUS_PASS_LIKE or text.startswith("passed")
+
+
 def manuscript_sha256(run_dir: Path | str, manuscript_files: tuple[str, ...] | list[str]) -> str:
     digest = hashlib.sha256()
     for rel in manuscript_files:
