@@ -418,6 +418,121 @@ def test_pass_verdict_does_not_trigger_revise_retry(tmp_path: Path):
     assert _prepare_revise_verdict_resume(tmp_path, "v3_job") is False
 
 
+def _write_pass_review_with_loop(run_dir: Path, loop: dict) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "quality_review_round1.json").write_text(
+        json.dumps({"delivery": "pass", "p0_count": 0, "review_loop": loop}),
+        encoding="utf-8",
+    )
+    (run_dir / "quality_review_log.md").write_text("## Skill Decision Trace\nok", encoding="utf-8")
+
+
+def test_pass_verdict_failing_loop_metadata_grants_retry(tmp_path: Path):
+    """Round 18: a fully passing review (floor 80, p0=0, provenance ok) was
+    Gate-R blocked solely on review_loop.independent_reviewer=false. No
+    preparer owned that class - not revise (delivery=pass), not provenance
+    (loop metadata is Gate R's, not provenance's) - so reruns replayed the
+    same blocked state forever. A trusted pass verdict rejected for loop
+    metadata IS a retry signal, same as a revise verdict."""
+    from revalidate_v3_batch import _prepare_loop_metadata_resume
+
+    run_dir = tmp_path / "v3_job" / "run"
+    _write_pass_review_with_loop(
+        run_dir,
+        {
+            "status": "passed",
+            "rounds": 1,
+            "reviewer_model": "gpt-5.5-codex-hermes",
+            "fixer_model": "gpt-5.5-codex-hermes",
+            "floor_failed": False,
+            "independent_reviewer": False,
+        },
+    )
+    (run_dir / "dossier.v3.json").write_text(
+        json.dumps(
+            {
+                "phases": {"review_heal": "blocked", "format_repair": "blocked"},
+                "delegations": [{"task_id": "review_heal:repair:2"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert _prepare_loop_metadata_resume(tmp_path, "v3_job") is True
+    dossier = json.loads((run_dir / "dossier.v3.json").read_text(encoding="utf-8"))
+    assert dossier["evidence"]["repair_budget_baseline"]["review_heal"] == 2
+    events = [r["event"] for r in dossier["evidence"]["quality_phase_resets"]]
+    assert "loop_metadata_retry" in events
+
+
+def test_loop_metadata_retry_stops_after_convergence_guard(tmp_path: Path):
+    from revalidate_v3_batch import _prepare_loop_metadata_resume
+
+    run_dir = tmp_path / "v3_job" / "run"
+    _write_pass_review_with_loop(
+        run_dir,
+        {"status": "passed", "rounds": 1, "reviewer_model": "codex", "fixer_model": "codex", "floor_failed": False, "independent_reviewer": False},
+    )
+    (run_dir / "dossier.v3.json").write_text(
+        json.dumps(
+            {
+                "phases": {"review_heal": "blocked", "format_repair": "blocked"},
+                "evidence": {
+                    "quality_phase_resets": [
+                        {"event": "loop_metadata_retry", "findings": []},
+                        {"event": "loop_metadata_retry", "findings": []},
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert _prepare_loop_metadata_resume(tmp_path, "v3_job") is False
+
+
+def test_loop_metadata_retry_not_triggered_when_loop_healthy(tmp_path: Path):
+    from revalidate_v3_batch import _prepare_loop_metadata_resume
+
+    run_dir = tmp_path / "v3_job" / "run"
+    _write_pass_review_with_loop(
+        run_dir,
+        {
+            "status": "passed",
+            "rounds": 1,
+            "reviewer_model": "codex-reviewer",
+            "fixer_model": "codex-fixer",
+            "floor_failed": False,
+            "independent_reviewer": True,
+        },
+    )
+    (run_dir / "dossier.v3.json").write_text(
+        json.dumps({"phases": {"review_heal": "blocked", "format_repair": "blocked"}}),
+        encoding="utf-8",
+    )
+
+    assert _prepare_loop_metadata_resume(tmp_path, "v3_job") is False
+
+
+def test_loop_metadata_retry_not_triggered_on_revise_verdict(tmp_path: Path):
+    """Revise verdicts belong to _prepare_revise_verdict_resume; this preparer
+    owns only the pass-verdict-rejected-for-loop-metadata class."""
+    from revalidate_v3_batch import _prepare_loop_metadata_resume
+
+    run_dir = tmp_path / "v3_job" / "run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "quality_review_round1.json").write_text(
+        '{"delivery":"revise","p0_count":1,"review_loop":{"status":"blocked_revise","independent_reviewer":false}}',
+        encoding="utf-8",
+    )
+    (run_dir / "dossier.v3.json").write_text(
+        json.dumps({"phases": {"review_heal": "blocked", "format_repair": "blocked"}}),
+        encoding="utf-8",
+    )
+
+    assert _prepare_loop_metadata_resume(tmp_path, "v3_job") is False
+
+
 def test_content_reset_uses_shared_validator_registry(tmp_path: Path):
     """Round 15: the revalidator's own hard-coded validator list missed the
     new citation-dump gate, so no reset fired and a dirty manuscript passed

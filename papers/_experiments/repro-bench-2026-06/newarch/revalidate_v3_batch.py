@@ -91,6 +91,7 @@ def revalidate_jobs(
                 _prepare_review_provenance_resume(jobs_dir, job_id)
                 _prepare_content_finding_resume(jobs_dir, job_id)
                 _prepare_revise_verdict_resume(jobs_dir, job_id)
+                _prepare_loop_metadata_resume(jobs_dir, job_id)
             outcome = runner(jobs_dir, job_id)
         except Exception as exc:  # noqa: BLE001 - batch runners must keep going.
             outcome = RunOutcome(
@@ -239,6 +240,62 @@ def _prepare_revise_verdict_resume(jobs_dir: Path, job_id: str) -> bool:
         job_id,
         ["review verdict %s; granting bounded re-review retry %d/%d" % (delivery, prior_retries + 1, REVISE_VERDICT_RETRY_LIMIT)],
         reset_event="revise_verdict_retry",
+        phases_to_reset=("review_heal", "format_repair"),
+    )
+
+
+LOOP_METADATA_RETRY_LIMIT = 2
+
+
+def _prepare_loop_metadata_resume(jobs_dir: Path, job_id: str) -> bool:
+    """A trusted pass verdict rejected by Gate R for review_loop metadata is a
+    retry signal (round 18: independent_reviewer=false blocked a floor-80,
+    p0=0, provenance-clean review; no preparer owned the class, so reruns
+    replayed the blocked state verbatim). Consumes the same _review_loop_ok
+    ground truth as Gate R, so any loop-metadata failure routes here without
+    enumerating field names. Bounded by its own convergence guard."""
+    from engine_v3.packs.paper import _review_loop_ok
+
+    run_dir = jobs_dir / job_id / "run"
+    try:
+        review = json.loads((run_dir / "quality_review_round1.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(review, dict):
+        return False
+    delivery = str(review.get("delivery") or "").lower()
+    if delivery not in {"pass", "passed", "ok"}:
+        return False
+    loop = review.get("review_loop") if isinstance(review.get("review_loop"), dict) else {}
+    log_present = (run_dir / "quality_review_log.md").is_file()
+    if _review_loop_ok(loop, log_present):
+        return False
+    try:
+        dossier = json.loads((run_dir / "dossier.v3.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    phases = dossier.get("phases") if isinstance(dossier.get("phases"), dict) else {}
+    if phases.get("review_heal") != "blocked":
+        return False
+    resets = (dossier.get("evidence") or {}).get("quality_phase_resets") or []
+    prior_retries = sum(
+        1 for r in resets if isinstance(r, dict) and r.get("event") == "loop_metadata_retry"
+    )
+    if prior_retries >= LOOP_METADATA_RETRY_LIMIT:
+        print(
+            "REVALIDATE_LOOP_METADATA_RETRY_EXHAUSTED\t%s\tretries=%d (honest stop)"
+            % (job_id, prior_retries),
+            flush=True,
+        )
+        return False
+    return _reset_quality_phases(
+        run_dir,
+        job_id,
+        [
+            "pass verdict rejected for review_loop metadata; granting bounded re-review retry %d/%d"
+            % (prior_retries + 1, LOOP_METADATA_RETRY_LIMIT)
+        ],
+        reset_event="loop_metadata_retry",
         phases_to_reset=("review_heal", "format_repair"),
     )
 
