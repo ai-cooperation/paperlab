@@ -1389,6 +1389,19 @@ def _apply_review_structural_repairs(run_dir: Path) -> bool:
     return bool(result.get("changed")) if isinstance(result, dict) else False
 
 
+# Single registry consumed by the review worklist, Gate Z, AND the
+# revalidation reset (round 15: the revalidator kept its own hard-coded
+# three-validator list, so the new citation-dump gate never triggered a
+# reset and a dirty manuscript sailed through as all-done).
+def content_validators():
+    return (
+        _validate_render_log_overflow,
+        _validate_caption_claims,
+        _validate_title_language,
+        _validate_citation_distribution,
+    )
+
+
 def _surface_pending_content_findings(run_dir: Path) -> list[str]:
     """Bridge from deterministic gates to the semantic worker.
 
@@ -1399,7 +1412,7 @@ def _surface_pending_content_findings(run_dir: Path) -> list[str]:
     review prompt puts them on Hermes's worklist; gates still re-verify."""
     path = run_dir / "pending_content_findings.md"
     findings: list[str] = []
-    for validator in (_validate_render_log_overflow, _validate_caption_claims, _validate_title_language, _validate_citation_distribution):
+    for validator in content_validators():
         result = validator(run_dir)
         findings.extend(str(f) for f in (result.get("findings") or []))
     if not findings:

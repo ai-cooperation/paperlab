@@ -185,15 +185,11 @@ def _prepare_content_finding_resume(jobs_dir: Path, job_id: str) -> bool:
     from the run directory (ground truth), not from dossier history, so any
     content-finding class routes here without enumerating gate messages. The
     re-run reviewer loads the strengthened review skill and owns the fix."""
-    from engine_v3.pipelines.paper import (
-        _validate_caption_claims,
-        _validate_render_log_overflow,
-        _validate_title_language,
-    )
+    from engine_v3.pipelines.paper import content_validators
 
     run_dir = jobs_dir / job_id / "run"
     findings: list[str] = []
-    for validator in (_validate_render_log_overflow, _validate_caption_claims, _validate_title_language):
+    for validator in content_validators():
         result = validator(run_dir)
         findings.extend(str(f) for f in (result.get("findings") or []))
     if not findings:

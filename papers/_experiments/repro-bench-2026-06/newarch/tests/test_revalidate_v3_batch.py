@@ -416,3 +416,26 @@ def test_pass_verdict_does_not_trigger_revise_retry(tmp_path: Path):
     )
 
     assert _prepare_revise_verdict_resume(tmp_path, "v3_job") is False
+
+
+def test_content_reset_uses_shared_validator_registry(tmp_path: Path):
+    """Round 15: the revalidator's own hard-coded validator list missed the
+    new citation-dump gate, so no reset fired and a dirty manuscript passed
+    as all-done. Both consumers must share one registry."""
+    from revalidate_v3_batch import _prepare_content_finding_resume
+
+    run_dir = tmp_path / "v3_job" / "run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "paper_draft_v0.qmd").write_text(
+        "## Bibliographic Scope Note\n\n"
+        + " ".join("@ref%d" % i for i in range(20)) + "\n",
+        encoding="utf-8",
+    )
+    (run_dir / "dossier.v3.json").write_text(
+        json.dumps({"phases": {"review_heal": "done", "format_repair": "done"}}),
+        encoding="utf-8",
+    )
+
+    assert _prepare_content_finding_resume(tmp_path, "v3_job") is True
+    dossier = json.loads((run_dir / "dossier.v3.json").read_text(encoding="utf-8"))
+    assert dossier["phases"]["review_heal"] == "blocked"
