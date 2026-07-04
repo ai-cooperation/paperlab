@@ -359,6 +359,55 @@ time.sleep(30)
     assert "terminated after no declared outputs appeared" in result.stdout_tail
 
 
+def test_preexisting_unchanged_outputs_get_startup_grace_not_partial_clock(tmp_path: Path):
+    """Round 19: on revalidation reruns every declared output already exists
+    from the previous round, so the watcher classified the run as 'partial'
+    from second zero and killed Hermes after output_partial_idle_s of silent
+    reading - the startup grace NEVER applied to rerun jobs. Same existence-
+    vs-changed bug class as d9417e4b, this time in the idle classifier:
+    startup/partial must be judged by change against the pre-task baseline,
+    not by file existence."""
+    (tmp_path / "quality_review_round1.json").write_text('{"delivery":"revise"}', encoding="utf-8")
+    (tmp_path / "quality_review_log.md").write_text("old log from previous round", encoding="utf-8")
+
+    hermes_bin = tmp_path / "hermes-stub"
+    hermes_bin.write_text(
+        """#!/usr/bin/env python3
+from pathlib import Path
+import time
+time.sleep(1.5)  # silent reading phase: no output changes yet
+Path("quality_review_round1.json").write_text('{"delivery":"pass"}', encoding="utf-8")
+Path("quality_review_log.md").write_text("fresh review log", encoding="utf-8")
+time.sleep(30)
+""",
+        encoding="utf-8",
+    )
+    hermes_bin.chmod(hermes_bin.stat().st_mode | stat.S_IXUSR)
+
+    runtime = HermesCodexRuntime(
+        hermes_bin=str(hermes_bin),
+        timeout_s=20,
+        output_complete_grace_s=0.2,
+        output_partial_idle_s=0.1,
+        output_startup_idle_s=10.0,
+    )
+
+    result = runtime.run_brain(
+        BrainTask(
+            phase="data",
+            prompt="review",
+            expected_outputs=["quality_review_round1.json", "quality_review_log.md"],
+        ),
+        RuntimeContext(job_id="job-1", run_dir=tmp_path),
+    )
+
+    assert result.status == "ok"
+    assert sorted(result.changed_files) == [
+        "quality_review_log.md",
+        "quality_review_round1.json",
+    ]
+
+
 def test_review_heal_watches_review_artifacts_not_manuscript_edits(tmp_path: Path):
     (tmp_path / "paper_draft_v0.qmd").write_text("old draft\n", encoding="utf-8")
     (tmp_path / "paper_springer.qmd").write_text("old springer\n", encoding="utf-8")
@@ -563,7 +612,10 @@ def test_complete_grace_resets_while_hermes_keeps_editing(tmp_path: Path):
 def test_idle_kill_without_output_change_is_reported_not_faked_ok(tmp_path: Path):
     """A watcher kill before any output changed must not masquerade as a
     successful run (run3 repair:4 was killed thinking at 180s idle and came
-    back status ok / changed=[] -> repair_noop burned the budget)."""
+    back status ok / changed=[] -> repair_noop burned the budget). Since the
+    round-19 classifier fix, a pre-existing but UNCHANGED output is a startup
+    scenario (no change vs baseline), so the honest kill reason is
+    startup_idle, not partial_idle."""
     from engine_v3.runtimes.hermes import _output_signature_map, _existing_outputs, _subprocess_runner
 
     expected = ["out_a.txt"]
@@ -576,11 +628,11 @@ def test_idle_kill_without_output_change_is_reported_not_faked_ok(tmp_path: Path
         expected_outputs=expected,
         baseline_signature=baseline,
         output_complete_grace_s=2.0,
-        output_startup_idle_s=60.0,
-        output_partial_idle_s=2.0,
+        output_startup_idle_s=2.0,
+        output_partial_idle_s=60.0,
     )
 
-    assert result.terminated_reason == "partial_idle"
+    assert result.terminated_reason == "startup_idle"
 
 
 def test_runtime_reports_blocked_when_watcher_killed_hermes_without_changes(tmp_path: Path):

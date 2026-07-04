@@ -321,8 +321,17 @@ def _subprocess_runner(
                     break
             else:
                 outputs_seen_at = None
-                signature = _output_signature(existing)
-                if signature:
+                # ⚠️ Startup vs partial is judged by CHANGE against the
+                # pre-task baseline, not by file existence. On rerun jobs
+                # every declared output already exists from the previous
+                # round, so existence-based classification put the run in
+                # the partial branch from second zero and killed Hermes
+                # after output_partial_idle_s of silent reading - the
+                # startup grace never applied (round 19, same bug class
+                # as d9417e4b in _outputs_complete).
+                changed = _changed_outputs(existing, baseline_signature)
+                if changed:
+                    signature = _output_signature(existing)
                     if signature != partial_signature:
                         partial_signature = signature
                         partial_seen_at = now
