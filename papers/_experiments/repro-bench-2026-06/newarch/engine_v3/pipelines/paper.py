@@ -156,7 +156,13 @@ Hard requirements:
 """
 REVIEW_OUTPUTS = ["quality_review_round1.json", "quality_review_log.md"]
 REVIEW_HEAL_OUTPUTS = (
-    REVIEW_OUTPUTS + WRITE_OUTPUTS + ["paper_springer.qmd", "claim_evidence_map.md"] + FIGURE_OUTPUTS
+    REVIEW_OUTPUTS
+    + WRITE_OUTPUTS
+    # the reviewer must be able to FIX what it (or a gate) flags: claim map
+    # thinness, bib mojibake (round 17: the em-dash fix was impossible because
+    # references.bib was not in the allowed output set)
+    + ["paper_springer.qmd", "claim_evidence_map.md", "references.bib"]
+    + FIGURE_OUTPUTS
 )
 REVIEW_HEAL_REPAIR_OUTPUTS = REVIEW_HEAL_OUTPUTS
 FORMAT_REPAIR_OUTPUTS = ["paper_draft_v0.pdf"]
