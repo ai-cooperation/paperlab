@@ -1523,3 +1523,28 @@ def test_stamp_preserved_when_manuscript_newer_than_review(tmp_path: Path):
     assert _stamp_review_manuscript_hash(run_dir) is False
     review = json.loads((run_dir / "quality_review_round1.json").read_text(encoding="utf-8"))
     assert review["review_method"]["reviewed_manuscript_sha256"] == "0" * 64
+
+
+def test_citation_dump_section_blocked(tmp_path: Path):
+    (tmp_path / "paper_draft_v0.qmd").write_text(
+        "## Bibliographic Scope Note\n\n"
+        + " ".join("@ref%d" % i for i in range(30)) + "\n",
+        encoding="utf-8",
+    )
+    from engine_v3.pipelines.paper import _validate_citation_distribution
+
+    result = _validate_citation_distribution(tmp_path)
+    assert result["valid"] is False
+    assert any("citation-dump section" in f for f in result["findings"])
+    assert any("packs 30 citations" in f for f in result["findings"])
+
+
+def test_normal_citation_density_passes(tmp_path: Path):
+    (tmp_path / "paper_draft_v0.qmd").write_text(
+        "## Related Work\n\nPrior reviews [@a2020; @b2021] and trials [@c2022] differ.\n\n"
+        "## Methods\n\nWe follow @d2023 and @e2024.\n",
+        encoding="utf-8",
+    )
+    from engine_v3.pipelines.paper import _validate_citation_distribution
+
+    assert _validate_citation_distribution(tmp_path)["valid"] is True

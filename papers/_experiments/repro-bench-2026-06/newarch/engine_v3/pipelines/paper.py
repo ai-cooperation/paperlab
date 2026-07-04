@@ -230,6 +230,14 @@ Hard requirements for quality_review_round1.json:
 - If issues remain, include actionable findings and keep delivery as "revise".
 - Do not stop at review_only when the issue is fixable; modify the affected artifacts.
 
+Figure and citation hard requirements (figure-design skill, binding):
+- Figures may ONLY be produced with matplotlib in an academic style: no hand-written
+  SVG, no title text embedded inside the image (the caption carries the title), axis
+  labels >= 14pt, nothing clipped at the image border, restrained colors.
+- Every bibliography entry must be cited IN the body section it supports. Do not
+  create any scope-note / bibliographic-note section and do not pack citations into
+  one paragraph - that is gate-gaming and will be blocked.
+
 Deterministic blocker worklist:
 - If pending_content_findings.md exists in the run directory, every line in it is a
   deterministic delivery-gate blocker computed from run artifacts. Fix each one in ALL
@@ -1391,7 +1399,7 @@ def _surface_pending_content_findings(run_dir: Path) -> list[str]:
     review prompt puts them on Hermes's worklist; gates still re-verify."""
     path = run_dir / "pending_content_findings.md"
     findings: list[str] = []
-    for validator in (_validate_render_log_overflow, _validate_caption_claims, _validate_title_language):
+    for validator in (_validate_render_log_overflow, _validate_caption_claims, _validate_title_language, _validate_citation_distribution):
         result = validator(run_dir)
         findings.extend(str(f) for f in (result.get("findings") or []))
     if not findings:
@@ -2000,6 +2008,10 @@ def _validate_delivery_pdf(pdf, run_dir=None) -> dict[str, object]:
     evidence["title_language"] = title_language
     findings.extend(title_language.get("findings") or [])
 
+    citation_distribution = _validate_citation_distribution(check_dir)
+    evidence["citation_distribution"] = citation_distribution
+    findings.extend(citation_distribution.get("findings") or [])
+
     return {**evidence, "valid": not findings, "findings": findings}
 
 
@@ -2129,6 +2141,37 @@ def _validate_caption_claims(run_dir: Path) -> dict[str, object]:
             findings.append(
                 "figure caption in %s claims %s but real_results has no extracted/poolable effects: %r"
                 % (source, ", ".join(sorted(hits)), caption[:120])
+            )
+    return {"valid": not findings, "findings": findings}
+
+
+CITATION_DUMP_PARAGRAPH_LIMIT = 8
+CITATION_DUMP_SECTION_TITLES = ("bibliographic scope", "scope note", "citation note")
+
+
+def _validate_citation_distribution(run_dir: Path) -> dict[str, object]:
+    """No citation-dump sections. The dead-refs gate requires every bib entry
+    cited IN CONTEXT; round 14 the writer invented an '8. Bibliographic Scope
+    Note' section dumping ~40 citations in one paragraph to game the gate -
+    a structure that does not exist in academic writing."""
+    path = run_dir / "paper_draft_v0.qmd"
+    if not path.is_file():
+        return {"valid": True, "findings": []}
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    findings: list[str] = []
+    for match in re.finditer(r"(?m)^#{1,3}\s+(.+)$", text):
+        title = match.group(1).strip().lower()
+        if any(marker in title for marker in CITATION_DUMP_SECTION_TITLES):
+            findings.append(
+                "citation-dump section %r: remove it and distribute citations into the body sections"
+                % match.group(1).strip()[:60]
+            )
+    for para in re.split(r"\n\s*\n", text):
+        cites = len(re.findall(r"@[A-Za-z][\w:-]*", para))
+        if cites > CITATION_DUMP_PARAGRAPH_LIMIT and "references.bib" not in para:
+            findings.append(
+                "paragraph packs %d citations (limit %d): distribute them into the sections they support"
+                % (cites, CITATION_DUMP_PARAGRAPH_LIMIT)
             )
     return {"valid": not findings, "findings": findings}
 
