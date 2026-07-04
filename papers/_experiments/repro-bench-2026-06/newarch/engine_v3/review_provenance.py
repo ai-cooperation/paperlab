@@ -50,10 +50,11 @@ def reviewer_is_untrusted(reviewer: Any) -> bool:
 
 
 # Reviewers phrase success honestly ("cleared", round 5; "passed_after_repair",
-# round 11). One vocabulary for every consumer: Gate R accepted the family but
-# acceptance_gate kept its own hard-coded set and rejected the same record
-# (batch job v3_0f6a0c83f9cf). Anything outside the family stays fail-closed.
-REVIEW_STATUS_PASS_LIKE = ("passed", "pass", "done", "cleared", "ok")
+# round 11; "completed", batch job v3_11c16e4b8735). One vocabulary for every
+# consumer: Gate R accepted the family but acceptance_gate kept its own
+# hard-coded set and rejected the same record (batch job v3_0f6a0c83f9cf).
+# Anything outside the family stays fail-closed.
+REVIEW_STATUS_PASS_LIKE = ("passed", "pass", "done", "cleared", "ok", "completed")
 
 
 def review_status_pass_like(status: Any) -> bool:

@@ -26,10 +26,16 @@ REQUIRED_V3 = (
 )
 
 
-def _required_for(root: Path) -> tuple[str, ...]:
+def _required_for(root: Path) -> tuple[str, ...] | None:
+    # A directory with no paper-run marker is not a delivery target - e.g. a
+    # scratch copy the reviewer renders in /tmp for visual page inspection
+    # (batch job v3_03d8e9b50bfc, 2026-07-04: gating the scratch render
+    # produced a phantom 'Phase 9 artifacts missing' P0 every round).
     if (root / "dossier.v3.json").is_file():
         return REQUIRED_V3
-    return REQUIRED_V2
+    if (root / "research_contract.json").is_file():
+        return REQUIRED_V2
+    return None
 
 
 def _extract_command(args: Any) -> tuple[str, Path]:
@@ -46,7 +52,10 @@ def _pre_tool_call(tool_name: str = "", args: Any = None, **_: Any) -> dict[str,
     gated = ("render" in lowered) or ("submit" in lowered) or ("paper_draft_v0.pdf" in lowered)
     if not gated:
         return None
-    missing = [name for name in _required_for(root) if not (root / name).is_file()]
+    required = _required_for(root)
+    if required is None:
+        return None
+    missing = [name for name in required if not (root / name).is_file()]
     if missing:
         return {
             "action": "block",

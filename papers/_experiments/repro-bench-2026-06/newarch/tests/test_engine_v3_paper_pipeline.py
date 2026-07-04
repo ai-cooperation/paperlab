@@ -1466,14 +1466,38 @@ def test_paper_gate_plugin_uses_v3_requirements_on_v3_runs(tmp_path: Path):
     )
     assert result is None
 
-    # v2 run (no dossier.v3.json): legacy requirements still enforced
+    # v2 run (research_contract.json, no dossier.v3.json): legacy
+    # requirements still enforced
     v2_dir = tmp_path / "v2"
     v2_dir.mkdir()
+    (v2_dir / "research_contract.json").write_text("{}", encoding="utf-8")
     blocked = paper_gate._pre_tool_call(
         tool_name="terminal",
         args={"command": "quarto render paper.qmd", "workdir": str(v2_dir)},
     )
     assert blocked is not None and blocked["action"] == "block"
+
+
+def test_paper_gate_plugin_ignores_scratch_render_dirs(tmp_path: Path):
+    """Batch job v3_03d8e9b50bfc: the reviewer copied sources to
+    /tmp/review_heal17_render for a visual page inspection; that scratch dir
+    has no dossier.v3.json, so the plugin fell back to V2 requirements and
+    blocked the render - which the reviewer honestly reported as a phantom
+    'Phase 9 gate/audit artifacts missing' P0, re-blocking the job every
+    round. A directory with NO paper-run markers (neither dossier.v3.json
+    nor research_contract.json) is not a delivery target; do not gate it."""
+    import paper_gate
+
+    scratch = tmp_path / "scratch_render"
+    scratch.mkdir()
+    (scratch / "paper_draft_v0.qmd").write_text("copy", encoding="utf-8")
+    (scratch / "references.bib").write_text("@article{a,title={A}}\n", encoding="utf-8")
+
+    result = paper_gate._pre_tool_call(
+        tool_name="terminal",
+        args={"command": "quarto render paper_draft_v0.qmd", "workdir": str(scratch)},
+    )
+    assert result is None
 
 
 def test_stamp_refreshes_when_review_is_newer_than_manuscript(tmp_path: Path):

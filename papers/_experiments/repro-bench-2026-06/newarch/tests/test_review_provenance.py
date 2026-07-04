@@ -152,3 +152,16 @@ def test_validate_review_record_composes_all_checks(tmp_path: Path):
         review_log_text="round 1 passed\n",
     )
     assert any("decision trace" in f.lower() for f in no_trace)
+
+
+def test_review_status_pass_like_single_vocabulary():
+    """One vocabulary for Gate R, acceptance_gate_v3, and batch_validate_v3.
+    Reviewers phrase success honestly: 'cleared' (round 5),
+    'passed_after_repair' (round 11), 'completed' (batch job v3_11c16e4b8735).
+    Anything not in the family stays fail-closed."""
+    from engine_v3.review_provenance import review_status_pass_like
+
+    for status in ("passed", "pass", "done", "cleared", "ok", "completed", "passed_after_repair"):
+        assert review_status_pass_like(status) is True, status
+    for status in ("blocked_revise", "revise", "failed", "", None, "blocked_after_bounded_final_rereview"):
+        assert review_status_pass_like(status) is False, status
