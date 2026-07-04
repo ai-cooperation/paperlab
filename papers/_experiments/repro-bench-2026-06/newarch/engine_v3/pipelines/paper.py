@@ -1393,12 +1393,52 @@ def _apply_review_structural_repairs(run_dir: Path) -> bool:
 # revalidation reset (round 15: the revalidator kept its own hard-coded
 # three-validator list, so the new citation-dump gate never triggered a
 # reset and a dirty manuscript sailed through as all-done).
+MOJIBAKE_MARKERS = ("\u00e2\u20ac", "\u00c3\u00a9", "\u00c3\u00a8", "\u00ef\u00bf\u00bd")
+
+
+def _validate_text_encoding(run_dir: Path) -> dict[str, object]:
+    """UTF-8 mojibake in manuscript or bibliography (round 16 residue:
+    'schoolsâ€"a' from a double-encoded em-dash in a bib title)."""
+    findings: list[str] = []
+    for rel in ("paper_draft_v0.qmd", "paper_springer.qmd", "references.bib"):
+        path = run_dir / rel
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        for marker in MOJIBAKE_MARKERS:
+            idx = text.find(marker)
+            if idx >= 0:
+                findings.append(
+                    "mojibake (broken UTF-8) in %s near %r: fix the source string"
+                    % (rel, text[max(0, idx - 20):idx + 20].replace("\n", " "))
+                )
+                break
+    return {"valid": not findings, "findings": findings}
+
+
+def _operator_findings(run_dir: Path) -> dict[str, object]:
+    """Human-QA findings channel: each non-empty line of operator_findings.md
+    becomes a deterministic worklist item (the reviewer must fix it; the file
+    is cleared manually by the operator after verification)."""
+    path = run_dir / "operator_findings.md"
+    if not path.is_file():
+        return {"valid": True, "findings": []}
+    lines = [
+        line.strip().lstrip("- ")
+        for line in path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    return {"valid": not lines, "findings": ["operator finding: %s" % l for l in lines]}
+
+
 def content_validators():
     return (
         _validate_render_log_overflow,
         _validate_caption_claims,
         _validate_title_language,
         _validate_citation_distribution,
+        _validate_text_encoding,
+        _operator_findings,
     )
 
 

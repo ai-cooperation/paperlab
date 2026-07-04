@@ -1548,3 +1548,28 @@ def test_normal_citation_density_passes(tmp_path: Path):
     from engine_v3.pipelines.paper import _validate_citation_distribution
 
     assert _validate_citation_distribution(tmp_path)["valid"] is True
+
+
+def test_mojibake_gate_catches_broken_utf8(tmp_path: Path):
+    (tmp_path / "references.bib").write_text(
+        "@article{z2014,title={Mindfulness in schoolsâ€”a systematic review}}\n",
+        encoding="utf-8",
+    )
+    from engine_v3.pipelines.paper import _validate_text_encoding
+
+    result = _validate_text_encoding(tmp_path)
+    assert result["valid"] is False
+    assert any("mojibake" in f and "references.bib" in f for f in result["findings"])
+
+
+def test_operator_findings_channel(tmp_path: Path):
+    from engine_v3.pipelines.paper import _operator_findings
+
+    assert _operator_findings(tmp_path)["valid"] is True
+    (tmp_path / "operator_findings.md").write_text(
+        "# operator QA\n- Figure 2 box texts collide; widen boxes or shorten labels\n",
+        encoding="utf-8",
+    )
+    result = _operator_findings(tmp_path)
+    assert result["valid"] is False
+    assert any("Figure 2 box texts collide" in f for f in result["findings"])
