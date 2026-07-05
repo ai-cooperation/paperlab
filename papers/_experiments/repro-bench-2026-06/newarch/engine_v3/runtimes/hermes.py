@@ -133,6 +133,7 @@ class HermesCodexRuntime:
                 watch_output_list,
                 baseline_signature=baseline,
                 fresh_outputs=fresh_outputs,
+                progress_outputs=expected_output_list,
                 output_complete_grace_s=self.output_complete_grace_s,
                 output_startup_idle_s=_startup_idle_for_phase(phase, self.output_startup_idle_s),
                 output_partial_idle_s=self.output_partial_idle_s,
@@ -254,11 +255,18 @@ def _subprocess_runner(
     *,
     baseline_signature: dict[str, tuple[int, int, str]] | None = None,
     fresh_outputs: Iterable[str] = (),
+    progress_outputs: Iterable[str] | None = None,
     output_complete_grace_s: float = 60.0,
     output_startup_idle_s: float = 600.0,
     output_partial_idle_s: float = 180.0,
 ) -> HermesRunResult:
     expected = list(expected_outputs)
+    # Completion is judged on `expected` (e.g. review_heal completes only on
+    # the review artifacts); liveness is judged on the broader `progress`
+    # set. Batch job v3_03d8e9b50bfc starvation: large repairs spend minutes
+    # editing manuscript files before the review write, and a watcher blind
+    # to those edits idle-killed every attempt mid-repair.
+    progress = list(progress_outputs) if progress_outputs is not None else expected
     baseline_signature = baseline_signature or {}
     fresh_outputs = set(fresh_outputs)
     if not expected:
@@ -304,12 +312,18 @@ def _subprocess_runner(
                 exit_code = 124
                 break
             existing = _existing_outputs(cwd, expected)
+            existing_progress = _existing_outputs(cwd, progress)
             if _outputs_complete(existing, expected, baseline_signature, fresh_outputs):
                 # Stability window, not a countdown from the FIRST save: agents
                 # edit declared outputs incrementally, so any further change
                 # resets the grace timer. Killing at first-save+grace truncated
-                # a manuscript expansion mid-edit (2026-07-02 run3).
-                signature = _output_signature(existing)
+                # a manuscript expansion mid-edit (2026-07-02 run3). The
+                # signature spans the PROGRESS set: a session still syncing
+                # manuscript surfaces after the review write must not be cut
+                # at review+grace with a now-stale verdict (job v3_0f6a0c83f9cf:
+                # qmd sync landed 61s after the review and the kill left the
+                # hash stale) - let it finish and re-write the review last.
+                signature = _output_signature(existing_progress)
                 if outputs_seen_at is None or signature != complete_signature:
                     complete_signature = signature
                     outputs_seen_at = now
@@ -329,9 +343,9 @@ def _subprocess_runner(
                 # after output_partial_idle_s of silent reading - the
                 # startup grace never applied (round 19, same bug class
                 # as d9417e4b in _outputs_complete).
-                changed = _changed_outputs(existing, baseline_signature)
+                changed = _changed_outputs(existing_progress, baseline_signature)
                 if changed:
-                    signature = _output_signature(existing)
+                    signature = _output_signature(existing_progress)
                     if signature != partial_signature:
                         partial_signature = signature
                         partial_seen_at = now

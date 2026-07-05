@@ -214,6 +214,14 @@ The first required deliverable is always the review record. Overwrite
 quality_review_round1.json and quality_review_log.md during this Hermes run even if no
 manuscript edit is needed. Do not treat manuscript edits alone as completion.
 
+Ordering (binding): the review record must be the LAST files you write. The verdict
+is hash-bound to the manuscript bytes it reviewed, so ANY edit to a manuscript file
+(qmd, sections/*.md, figures, references.bib) AFTER the review record is written makes
+the verdict stale and blocks the phase. Finish every repair and surface sync first,
+then perform the final review pass, then write quality_review_round1.json and
+quality_review_log.md. If you must touch a manuscript file afterwards, re-run the
+final review pass and re-write both review files again as the last step.
+
 Hard requirements for quality_review_round1.json:
 - Include top-level p0_count, delivery, and floor_100 fields for the R gate.
 - floor_100 must be a numeric 0-100 score. If detailed floor findings are needed,
@@ -312,6 +320,10 @@ Hard boundary:
 - First inspect the current artifacts after deterministic structural repairs.
 - Verify whether previously reported P0/P1 items are actually resolved in the current files.
 - Overwrite quality_review_round1.json and quality_review_log.md after any repair.
+- Ordering (binding): the review record must be the LAST files you write. Any edit to
+  a manuscript file (qmd, sections/*.md, figures, references.bib) after the review
+  record makes the hash-bound verdict stale and blocks the phase; if that happens,
+  re-review and re-write both review files again as the final step.
 - You may edit manuscript/source/figure artifacts listed in the allowed output set when
   the blocking review finding is fixable; deterministic structural repairs are already
   handled by the harness before this task.

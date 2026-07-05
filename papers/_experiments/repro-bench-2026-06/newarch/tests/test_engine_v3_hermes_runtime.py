@@ -409,6 +409,11 @@ time.sleep(30)
 
 
 def test_review_heal_watches_review_artifacts_not_manuscript_edits(tmp_path: Path):
+    """Completion still requires the review artifacts: a session that only
+    edits manuscript files cannot complete, is idle-killed once the edits
+    stop, and reports the missing review outputs honestly. (Since the batch
+    starvation fix, manuscript edits DO keep the session alive as progress -
+    the kill is partial-idle after the last edit, not startup-idle.)"""
     (tmp_path / "paper_draft_v0.qmd").write_text("old draft\n", encoding="utf-8")
     (tmp_path / "paper_springer.qmd").write_text("old springer\n", encoding="utf-8")
 
@@ -428,6 +433,7 @@ time.sleep(30)
         hermes_bin=str(hermes_bin),
         timeout_s=10,
         output_startup_idle_s=0.1,
+        output_partial_idle_s=0.1,
     )
 
     started = time.monotonic()
@@ -452,7 +458,63 @@ time.sleep(30)
     ]
     assert result.changed_files == ["paper_springer.qmd"]
     assert time.monotonic() - started < 5
-    assert "terminated after no declared outputs appeared" in result.stdout_tail
+
+
+def test_review_heal_manuscript_progress_extends_session_life(tmp_path: Path):
+    """Batch job v3_03d8e9b50bfc starvation loop: large repairs (weave 35+
+    citations, rebuild claim map) spend many minutes editing manuscript files
+    before the review record is written. The watcher watched ONLY the review
+    files, so every attempt died as 'startup idle' at the review_heal cap
+    with real repair work in flight - six attempts, none reaching the review
+    write. Manuscript edits are observable progress: they must move the run
+    off the startup clock and keep resetting the partial-idle timer. The
+    review artifacts remain the only completion condition."""
+    (tmp_path / "paper_draft_v0.qmd").write_text("old draft\n", encoding="utf-8")
+
+    hermes_bin = tmp_path / "hermes-stub"
+    hermes_bin.write_text(
+        """#!/usr/bin/env python3
+from pathlib import Path
+import time
+time.sleep(0.3)
+Path("paper_draft_v0.qmd").write_text("repair pass 1\\n", encoding="utf-8")
+time.sleep(1.2)
+Path("paper_draft_v0.qmd").write_text("repair pass 2\\n", encoding="utf-8")
+time.sleep(1.2)
+Path("quality_review_round1.json").write_text('{"delivery":"pass"}', encoding="utf-8")
+Path("quality_review_log.md").write_text("fresh log", encoding="utf-8")
+time.sleep(30)
+""",
+        encoding="utf-8",
+    )
+    hermes_bin.chmod(hermes_bin.stat().st_mode | stat.S_IXUSR)
+
+    runtime = HermesCodexRuntime(
+        hermes_bin=str(hermes_bin),
+        timeout_s=20,
+        output_complete_grace_s=0.2,
+        # Without progress observation the session dies here at 0.8s, long
+        # before the review write at ~2.7s.
+        output_startup_idle_s=0.8,
+        output_partial_idle_s=2.0,
+    )
+
+    result = runtime.run_brain(
+        BrainTask(
+            phase="review_heal",
+            prompt="repair then review",
+            expected_outputs=[
+                "quality_review_round1.json",
+                "quality_review_log.md",
+                "paper_draft_v0.qmd",
+            ],
+        ),
+        RuntimeContext(job_id="job-1", run_dir=tmp_path),
+    )
+
+    assert result.status == "ok"
+    assert "quality_review_round1.json" in result.changed_files
+    assert "quality_review_log.md" in result.changed_files
 
 
 def test_review_heal_finishes_when_fresh_review_artifacts_exist(tmp_path: Path):
