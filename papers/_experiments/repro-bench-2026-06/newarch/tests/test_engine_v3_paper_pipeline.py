@@ -226,6 +226,92 @@ def test_render_handler_backfills_paper_springer_from_draft(tmp_path: Path):
     assert "paper_springer.qmd" in result["artifacts"]
 
 
+def _seed_review_heal_run(run_dir: Path, *, delivery: str, body: str) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    qmd = '---\ntitle: "T"\nbibliography: references.bib\n---\n\n# Introduction\n\n' + body
+    (run_dir / "paper_draft_v0.qmd").write_text(qmd, encoding="utf-8")
+    (run_dir / "paper_springer.qmd").write_text(qmd, encoding="utf-8")
+    (run_dir / "references.bib").write_text(
+        "@article{zhang2020,title={A},year={2020}}\n", encoding="utf-8"
+    )
+    (run_dir / "quality_review_round1.json").write_text(
+        json.dumps(
+            {
+                "delivery": delivery,
+                "p0_count": 0 if delivery == "pass" else 1,
+                "floor_100": 84,
+                "findings": [
+                    {
+                        "severity": "P2",
+                        "issue": "prose polish",
+                        "target_content": "The design was proposed by prior work [@zhang2020].",
+                        "replacement_content": "Prior work proposed the design.",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "quality_review_log.md").write_text("## Skill Decision Trace\nok\n", encoding="utf-8")
+
+
+def test_gate_collection_must_not_mutate_a_pass_reviewed_manuscript(tmp_path: Path):
+    """Round 5 on v3_0f6a0c83f9cf: Hermes wove the 35 verified citations into
+    the body and issued a fresh pass review; at gate collection the harness
+    re-applied the review's target/replacement prescriptions to the PASS
+    manuscript and stripped the just-woven @citekeys (all three files share
+    the 21:13:24 mtime). The harness violated the same review-last ordering
+    contract the prompts pin on Hermes: once the verdict is pass, the
+    manuscript is final and harness repairs must not touch it."""
+    run_dir = tmp_path / "run"
+    body = "The design was proposed by prior work [@zhang2020]."
+    _seed_review_heal_run(run_dir, delivery="pass", body=body)
+    before = (run_dir / "paper_draft_v0.qmd").read_text(encoding="utf-8")
+
+    paper_pipeline._collect_gate_inputs(
+        BrainTask(phase="review_heal", task_id="review_heal:brain"),
+        RuntimeContext(job_id="job-1", run_dir=run_dir),
+    )
+
+    after = (run_dir / "paper_draft_v0.qmd").read_text(encoding="utf-8")
+    assert after == before
+    assert "[@zhang2020]" in after
+
+
+def test_gate_collection_still_applies_prescriptions_on_revise_verdicts(tmp_path: Path):
+    run_dir = tmp_path / "run"
+    body = "The design was proposed by prior work [@zhang2020]."
+    _seed_review_heal_run(run_dir, delivery="revise", body=body)
+
+    paper_pipeline._collect_gate_inputs(
+        BrainTask(phase="review_heal", task_id="review_heal:brain"),
+        RuntimeContext(job_id="job-1", run_dir=run_dir),
+    )
+
+    after = (run_dir / "paper_draft_v0.qmd").read_text(encoding="utf-8")
+    assert "Prior work proposed the design." in after
+
+
+def test_pending_findings_computed_after_harness_mutations(tmp_path: Path):
+    """The pending-findings bridge must describe the manuscript state the gate
+    will actually judge: on a revise verdict the harness applies replacements,
+    so the bridge runs after them (round 5: the bridge saw citations present,
+    then the replacement stripped them, and the citation finding vanished
+    from the worklist)."""
+    run_dir = tmp_path / "run"
+    body = "The design was proposed by prior work [@zhang2020]."
+    _seed_review_heal_run(run_dir, delivery="revise", body=body)
+
+    result = paper_pipeline._collect_gate_inputs(
+        BrainTask(phase="review_heal", task_id="review_heal:brain"),
+        RuntimeContext(job_id="job-1", run_dir=run_dir),
+    )
+
+    # The replacement stripped the only citation; the bridge must report it.
+    pending = result["gate_inputs"]["pending_content_findings"]
+    assert any("no inline citations rendered" in f for f in pending)
+
+
 def test_data_harness_backfills_minimal_real_results_and_figures_from_verified_refs(tmp_path: Path):
     run_dir = tmp_path / "run"
     run_dir.mkdir()
@@ -516,10 +602,27 @@ def test_review_heal_applies_structural_repair_and_normalizes_review_schema(tmp_
     review = result["gate_inputs"]["review"]
     assert review["review_loop"]["independent_reviewer"] is True
     assert review["dimensions"]["academic_rigor"]["score"] == 8.6
+    # Review-record schema normalization still runs on a pass verdict (the
+    # record is not the manuscript), but manuscript files must stay untouched:
+    # references.bib is hash-bound, and the pre-round-5 behavior of stuffing
+    # abstract placeholders into a pass-reviewed bib invalidated the verdict.
+    assert "abstract =" not in (run_dir / "references.bib").read_text(encoding="utf-8")
+    assert "deterministic_review_schema_normalization" in (run_dir / "quality_review_log.md").read_text(encoding="utf-8")
+
+    # On a revise verdict the manuscript-side deterministic repairs DO apply.
+    review_data = json.loads((run_dir / "quality_review_round1.json").read_text(encoding="utf-8"))
+    review_data["delivery"] = "revise"
+    review_data["p0_count"] = 1
+    (run_dir / "quality_review_round1.json").write_text(json.dumps(review_data), encoding="utf-8")
+
+    paper_pipeline._collect_gate_inputs(
+        BrainTask(phase="review_heal", task_id="review_heal:brain"),
+        RuntimeContext(job_id="job-1", run_dir=run_dir),
+    )
+
     assert "abstract =" in (run_dir / "references.bib").read_text(encoding="utf-8")
     assert "V3.2 exact-match audit addendum" in (run_dir / "claim_evidence_map.md").read_text(encoding="utf-8")
     assert "link-citations: true" in (run_dir / "paper_springer.qmd").read_text(encoding="utf-8")
-    assert "deterministic_review_schema_normalization" in (run_dir / "quality_review_log.md").read_text(encoding="utf-8")
 
 
 def test_review_heal_normalizes_alternate_dimension_score_schema(tmp_path: Path):

@@ -500,13 +500,27 @@ def _collect_gate_inputs(
         # the run from ever reaching the re-render. Remove it so the reviewer
         # audits manuscript sources; format_repair re-renders from scratch.
         (context.run_dir / "paper_draft_v0.pdf").unlink(missing_ok=True)
-        pending_content = _surface_pending_content_findings(context.run_dir)
-        _apply_review_structural_repairs(context.run_dir)
-        _apply_exact_review_replacements(context.run_dir)
-        _repair_generated_content_quality_v3_2(context.run_dir)
-        _ensure_minimal_claim_evidence_map_v3_2(context.run_dir)
+        # ⚠️ Ordering contract (round 5, v3_0f6a0c83f9cf): once the verdict is
+        # pass, the manuscript is FINAL and the harness must not touch it -
+        # re-applying the review's target/replacement prescriptions to a
+        # pass-reviewed manuscript stripped the just-woven citations and
+        # invalidated the hash-bound verdict, the exact review-last violation
+        # the prompts pin on Hermes. Prescriptions apply only to revise
+        # verdicts (the reviewer asked for those edits; a re-review follows).
+        review_now = _read_json(context.run_dir / "quality_review_round1.json") or {}
+        delivery_now = str(review_now.get("delivery") or "").strip().lower()
+        if delivery_now not in ("pass", "passed", "ok"):
+            _apply_review_structural_repairs(context.run_dir)
+            _apply_exact_review_replacements(context.run_dir)
+            _repair_generated_content_quality_v3_2(context.run_dir)
+            _ensure_minimal_claim_evidence_map_v3_2(context.run_dir)
         _ensure_review_record_v3_2(context.run_dir)
         _normalize_review_record_schema(context.run_dir)
+        # The bridge runs AFTER any harness mutation so the worklist describes
+        # the manuscript state the gate will actually judge (round 5: bridge
+        # ran first, saw citations present, then the replacement stripped them
+        # and the citation finding vanished from the worklist).
+        pending_content = _surface_pending_content_findings(context.run_dir)
         _stamp_review_manuscript_hash(context.run_dir)
     gate_inputs = paperctl._build_dossier(context.run_dir)
     if data_harness is not None:
