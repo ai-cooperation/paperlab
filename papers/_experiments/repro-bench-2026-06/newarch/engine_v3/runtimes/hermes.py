@@ -135,7 +135,12 @@ class HermesCodexRuntime:
                 fresh_outputs=fresh_outputs,
                 progress_outputs=expected_output_list,
                 output_complete_grace_s=self.output_complete_grace_s,
-                output_startup_idle_s=_startup_idle_for_phase(phase, self.output_startup_idle_s),
+                # No per-phase startup cap: review_heal's old 300s cap killed
+                # two consecutive attempts on v3_03d8e9b50bfc at second 300
+                # with codex mid-read of a large run dir (probe confirmed the
+                # provider itself was healthy). Liveness is progress-aware
+                # now; the uniform startup grace is the only clock needed.
+                output_startup_idle_s=self.output_startup_idle_s,
                 output_partial_idle_s=self.output_partial_idle_s,
             )
         else:
@@ -519,12 +524,6 @@ def _watch_outputs(phase: str, expected_outputs: Iterable[str]) -> list[str]:
         return expected
     review_outputs = [rel for rel in expected if rel in {"quality_review_round1.json", "quality_review_log.md"}]
     return review_outputs or expected
-
-
-def _startup_idle_for_phase(phase: str, configured_s: float) -> float:
-    if phase != "review_heal":
-        return configured_s
-    return min(configured_s, 300.0)
 
 
 def _outputs_complete(
