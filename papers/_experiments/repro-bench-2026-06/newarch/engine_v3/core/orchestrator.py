@@ -299,8 +299,13 @@ class EngineV3Orchestrator:
             _trace(dossier, "phase_done", phase=phase.id)
             self.dossier_store.save(dossier)
 
-        if _maybe_require_vip_delivery_review(dossier, self.dossier_store.run_dir):
-            self.dossier_store.save(dossier)
+        # Save unconditionally: the non-VIP path CLEARS a superseded
+        # phase-level checkpoint inside the call, and saving only on True
+        # left the clearing in memory (v3_11c16e4b8735 finished done_pass
+        # with a stale data-phase human_decision_required in the saved
+        # dossier, so the status page kept demanding a human decision).
+        _maybe_require_vip_delivery_review(dossier, self.dossier_store.run_dir)
+        self.dossier_store.save(dossier)
         return dossier
 
     def _run_phase_handler_and_gates(

@@ -149,3 +149,41 @@ def test_vip_delivery_checkpoint_replaces_stale_phase_checkpoint(tmp_path: Path)
     checkpoint = dossier.evidence["human_checkpoint"]
     assert checkpoint["status"] == "human_review_required"
     assert checkpoint["phase"] == "delivery"
+
+
+def test_stale_checkpoint_clearing_is_persisted_for_non_vip_runs(tmp_path: Path):
+    """Job v3_11c16e4b8735 finished done_pass with a superseded data-phase
+    human_decision_required checkpoint still in the SAVED dossier: run()
+    only saved after the VIP check when a delivery checkpoint was ADDED
+    (returned True); the non-VIP path cleared the stale checkpoint in
+    memory and never persisted the clearing, so the status page kept
+    telling a done job it needed a human decision."""
+    from engine_v3.core import DossierStore
+    from engine_v3.core.orchestrator import EngineV3Orchestrator, PhaseSpec
+    from engine_v3.runtimes.mock import MockRuntime
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "research_contract.json").write_text(
+        json.dumps({"topic": "t", "research_question": "q", "level": "standard"}),
+        encoding="utf-8",
+    )
+    store = DossierStore(run_dir)
+    dossier = store.create(job_id="job-1", domain="paper")
+    dossier.evidence["human_checkpoint"] = {
+        "status": "human_decision_required",
+        "phase": "data",
+        "reason": "superseded: data later passed",
+    }
+    store.save(dossier)
+
+    orchestrator = EngineV3Orchestrator(
+        runtime=MockRuntime(),
+        domain_pack=object(),
+        phases=[PhaseSpec(id="phase-0", handler=lambda _task, _context: {})],
+        dossier_store=store,
+    )
+    orchestrator.run(job_id="job-1", resume=True)
+
+    reloaded = store.load()
+    assert "human_checkpoint" not in reloaded.evidence
