@@ -1465,6 +1465,8 @@ def content_validators():
         _validate_caption_claims,
         _validate_title_language,
         _validate_citation_distribution,
+        _validate_citations_rendered,
+        _validate_inline_heading_leakage,
         _validate_text_encoding,
         _operator_findings,
     )
@@ -2290,6 +2292,58 @@ def _validate_title_language(run_dir: Path) -> dict[str, object]:
             "title language does not match manuscript body language "
             "(title CJK ratio %.2f vs body %.2f); translate the title into the manuscript language"
             % (title_cjk, body_cjk)
+        ],
+    }
+
+
+def _validate_inline_heading_leakage(run_dir: Path) -> dict[str, object]:
+    """Markdown headings must start their own line. v3_0f6a0c83f9cf composed
+    section headings onto the tail of paragraph lines ('... conclusion.
+    ## Related Work'), so the rendered PDF showed literal '## X' tokens
+    mid-paragraph and no real section existed after Introduction. Both
+    mechanical gates and a floor-84 Hermes review missed it."""
+    findings: list[str] = []
+    for name in ("paper_draft_v0.qmd", "paper_springer.qmd"):
+        path = run_dir / name
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        body = re.sub(r"(?s)\A---.*?---", "", text, count=1)
+        body = re.sub(r"(?ms)^```.*?^```", "", body)
+        for match in re.finditer(r"(?m)^(?P<prefix>.*\S.*?)\s(?P<heading>#{1,4}\s+[A-Z][^#\n]{2,60})$", body):
+            heading = match.group("heading").strip()
+            findings.append(
+                "inline heading leakage in %s: '%s' is glued to the end of a "
+                "paragraph line; put the heading on its own line" % (name, heading[:60])
+            )
+    return {"valid": not findings, "findings": findings[:6]}
+
+
+def _validate_citations_rendered(run_dir: Path) -> dict[str, object]:
+    """A manuscript with a verified bibliography must actually cite it.
+    v3_0f6a0c83f9cf shipped an empty References section and zero inline
+    citations while 35 two-source-verified entries sat unused: the body
+    named authors in prose without one @citekey, so citeproc rendered
+    nothing. Dump-pattern checks cannot catch total absence."""
+    bib = run_dir / "references.bib"
+    qmd = run_dir / "paper_draft_v0.qmd"
+    if not bib.is_file() or not qmd.is_file():
+        return {"valid": True, "findings": []}
+    bib_keys = set(re.findall(r"@\w+\{([^,\s]+),", bib.read_text(encoding="utf-8", errors="ignore")))
+    if not bib_keys:
+        return {"valid": True, "findings": []}
+    body = re.sub(r"(?s)\A---.*?---", "", qmd.read_text(encoding="utf-8", errors="ignore"), count=1)
+    cited = set(re.findall(r"@([A-Za-z][A-Za-z0-9_:.#$%&+?<>~/-]*)", body)) & bib_keys
+    if cited:
+        return {"valid": True, "findings": [], "cited_count": len(cited)}
+    return {
+        "valid": False,
+        "cited_count": 0,
+        "findings": [
+            "no inline citations rendered: references.bib has %d verified entries "
+            "but the manuscript body cites none of them (@citekey markers absent), "
+            "so the References section renders empty; weave the verified entries "
+            "into the body sections they support" % len(bib_keys)
         ],
     }
 

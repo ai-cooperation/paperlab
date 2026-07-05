@@ -1168,11 +1168,11 @@ def test_delivery_pdf_validation_accepts_resolved_citations_numbering_and_table_
 
 def _clean_long_draft() -> str:
     sentence = (
-        "The SMD pool included k = 8 effects. "
+        "The SMD pool included k = 8 effects [@geng2026; @yan2026]. "
         "The pooled standardised mean difference was -0.4327, which indicates a reduction "
-        "in depressive symptoms favouring exercise. "
+        "in depressive symptoms favouring exercise [@lan2025]. "
         "Heterogeneity was considerable, with I-squared of 95.4, and this is consistent "
-        "with a diverse study pool spanning different exercise modalities. "
+        "with a diverse study pool spanning different exercise modalities [@tu2025]. "
         "The pooled estimate is directionally informative rather than clinically definitive."
     )
     return "\n\n".join([sentence for _ in range(90)])
@@ -1305,6 +1305,97 @@ def test_title_language_consistent_passes(tmp_path: Path):
         encoding="utf-8",
     )
     assert _validate_title_language(tmp_path)["valid"] is True
+
+
+def test_inline_heading_leakage_is_a_content_finding(tmp_path: Path):
+    """v3_0f6a0c83f9cf shipped '## Related Work', '## Methods', '## Results',
+    '## Discussion', '## Limitations', '## Conclusion' as literal text stuck
+    mid-paragraph in the rendered PDF - the composed qmd concatenated section
+    headings onto paragraph lines, so no section after Introduction existed
+    as a real heading. Both mechanical gates and the Hermes review (floor 84,
+    0 findings) missed it; a human caught it on page 3."""
+    from engine_v3.pipelines.paper import _validate_inline_heading_leakage
+
+    (tmp_path / "paper_draft_v0.qmd").write_text(
+        '---\ntitle: "T"\n---\n\n'
+        "# Introduction\n\n"
+        "The evidence blocks stronger conclusions. ## Related Work\n\n"
+        "More prose here that ends a section. ## Methods\n",
+        encoding="utf-8",
+    )
+
+    result = _validate_inline_heading_leakage(tmp_path)
+
+    assert result["valid"] is False
+    joined = " ".join(result["findings"]).lower()
+    assert "related work" in joined or "heading" in joined
+
+
+def test_headings_on_their_own_lines_pass(tmp_path: Path):
+    from engine_v3.pipelines.paper import _validate_inline_heading_leakage
+
+    (tmp_path / "paper_draft_v0.qmd").write_text(
+        '---\ntitle: "T"\n---\n\n'
+        "# Introduction\n\nProse.\n\n"
+        "## Related Work\n\nProse citing C## notation and a## variable.\n\n"
+        "## Methods\n\nProse.\n",
+        encoding="utf-8",
+    )
+
+    assert _validate_inline_heading_leakage(tmp_path)["valid"] is True
+
+
+def test_zero_rendered_citations_is_a_content_finding(tmp_path: Path):
+    """v3_0f6a0c83f9cf shipped an EMPTY References section and zero inline
+    citations while 35 two-source-verified bib entries sat unused - the body
+    named authors in prose without a single @citekey, so citeproc rendered
+    nothing. The citation-distribution validator only guarded against dump
+    patterns, not against total absence."""
+    from engine_v3.pipelines.paper import _validate_citations_rendered
+
+    (tmp_path / "references.bib").write_text(
+        "@article{zhang2020,title={A},year={2020}}\n"
+        "@article{lee2021,title={B},year={2021}}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "paper_draft_v0.qmd").write_text(
+        '---\ntitle: "T"\n---\n\n'
+        "# Introduction\n\nZhang, Zhou, and Jiang proposed a kink design. "
+        "No citation markers appear anywhere in this manuscript.\n",
+        encoding="utf-8",
+    )
+
+    result = _validate_citations_rendered(tmp_path)
+
+    assert result["valid"] is False
+    assert any("citation" in f.lower() for f in result["findings"])
+
+
+def test_cited_manuscript_passes_citations_rendered(tmp_path: Path):
+    from engine_v3.pipelines.paper import _validate_citations_rendered
+
+    (tmp_path / "references.bib").write_text(
+        "@article{zhang2020,title={A},year={2020}}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "paper_draft_v0.qmd").write_text(
+        '---\ntitle: "T"\n---\n\nA kink design was proposed [@zhang2020].\n',
+        encoding="utf-8",
+    )
+
+    assert _validate_citations_rendered(tmp_path)["valid"] is True
+
+
+def test_new_validators_registered_in_content_validators(tmp_path: Path):
+    from engine_v3.pipelines.paper import (
+        content_validators,
+        _validate_citations_rendered,
+        _validate_inline_heading_leakage,
+    )
+
+    registered = content_validators()
+    assert _validate_inline_heading_leakage in registered
+    assert _validate_citations_rendered in registered
 
 
 def test_caption_gate_allows_negated_honest_statements(tmp_path: Path):

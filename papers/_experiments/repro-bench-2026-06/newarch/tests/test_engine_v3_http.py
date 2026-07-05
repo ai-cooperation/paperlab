@@ -106,11 +106,11 @@ def _full_fixture_runtime(golden_dir: Path):
 
 def _clean_long_draft() -> str:
     sentence = (
-        "The SMD pool included k = 8 effects. "
+        "The SMD pool included k = 8 effects [@geng2026; @yan2026]. "
         "The pooled standardised mean difference was -0.4327, which indicates a reduction "
-        "in depressive symptoms favouring exercise. "
+        "in depressive symptoms favouring exercise [@lan2025]. "
         "Heterogeneity was considerable, with I-squared of 95.4, and this is consistent "
-        "with a diverse study pool spanning different exercise modalities. "
+        "with a diverse study pool spanning different exercise modalities [@tu2025]. "
         "The pooled estimate is directionally informative rather than clinically definitive."
     )
     return "\n\n".join([sentence for _ in range(90)])
