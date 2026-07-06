@@ -296,6 +296,69 @@ def test_v3_status_includes_project_page_projection(tmp_path: Path, golden_dir: 
     assert "/artifact/paper_draft_v0.pdf?sha=" in payload["artifacts"]["pdf"]
 
 
+def test_phase_gap_projection_never_dumps_raw_markdown(tmp_path: Path):
+    """User-facing regression (project v3_0deb2abec3d2): the 研究缺口 block on
+    the project page showed the ENTIRE phase3_positioning.md verbatim -
+    '# Research Positioning ## Literature Landscape ... [@bi2023pangu;
+    @lam2023graphcast]' - because _phase_gap returned the whole file as one
+    description. The projection must return either structured gap rows, a
+    sanitized gap-section summary (no heading tokens, no citekeys, bounded
+    length), or an honest empty list. Never raw pipeline markdown."""
+    from engine_v3.routes import _phase_gap
+
+    (tmp_path / "phase3_positioning.md").write_text(
+        "# Research Positioning\n\n"
+        "## Literature Landscape\n\n"
+        "Pangu-Weather and GraphCast establish the baseline "
+        "[@bi2023pangu; @lam2023graphcast]. " + ("More prose. " * 80) + "\n\n"
+        "## Research Gap\n\n"
+        "No study reconciles the contradictory transfer-learning evidence "
+        "across weather foundation models [@lam2023graphcast]. This protocol "
+        "defines the reconciliation benchmark.\n\n"
+        "## Positioning\n\nMore text.\n",
+        encoding="utf-8",
+    )
+
+    gaps = _phase_gap(tmp_path)
+
+    assert len(gaps) == 1
+    desc = gaps[0]["description"]
+    assert "No study reconciles" in desc
+    assert "#" not in desc
+    assert "[@" not in desc
+    assert "Literature Landscape" not in desc
+    assert len(desc) <= 700
+
+
+def test_phase_gap_projection_prefers_structured_table(tmp_path: Path):
+    from engine_v3.routes import _phase_gap
+
+    (tmp_path / "phase3_positioning.md").write_text(
+        "# Positioning\n\n"
+        "| Gap | Description |\n"
+        "|---|---|\n"
+        "| No pooled estimate | Prior reviews stop at narrative synthesis |\n",
+        encoding="utf-8",
+    )
+
+    gaps = _phase_gap(tmp_path)
+
+    assert gaps == [
+        {"gap": "No pooled estimate", "description": "Prior reviews stop at narrative synthesis"}
+    ]
+
+
+def test_phase_gap_projection_returns_empty_when_no_gap_content(tmp_path: Path):
+    from engine_v3.routes import _phase_gap
+
+    (tmp_path / "phase3_positioning.md").write_text(
+        "# Research Positioning\n\n## Literature Landscape\n\nOnly landscape prose here.\n",
+        encoding="utf-8",
+    )
+
+    assert _phase_gap(tmp_path) == []
+
+
 def test_v3_artifact_route_serves_only_indexed_artifacts(tmp_path: Path, golden_dir: Path):
     tc = TestClient(
         http_app.create_app(

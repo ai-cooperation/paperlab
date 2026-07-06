@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import threading
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
@@ -492,11 +493,49 @@ def _artifact_url(job_id: str, artifact_id: str, sha256: str = "") -> str:
 
 
 def _phase_gap(run_dir: Path) -> list[dict[str, str]]:
+    """User-facing projection of the phase-3 research gap.
+
+    Never dump raw pipeline markdown: project v3_0deb2abec3d2's 研究缺口 block
+    showed the whole positioning file verbatim ('# Research Positioning ...
+    [@bi2023pangu; @lam2023graphcast]'). Prefer the structured gap table;
+    else a sanitized gap-section summary; else an honest empty list.
+    """
     path = run_dir / "phase3_positioning.md"
     if not path.is_file():
         return []
     text = path.read_text(encoding="utf-8", errors="ignore").strip()
-    return [{"description": text}] if text else []
+    if not text:
+        return []
+    from packs.paper.gaps import parse_gap_matrix
+
+    structured = parse_gap_matrix(text)
+    if structured:
+        return structured
+    summary = _gap_section_summary(text)
+    return [{"description": summary}] if summary else []
+
+
+_GAP_HEADING_RE = re.compile(r"(?mi)^#{1,4}\s*[^\n]*(?:gap|缺口|空白)[^\n]*$")
+_ANY_HEADING_RE = re.compile(r"(?m)^#{1,4}\s")
+_CITEKEY_RE = re.compile(r"\s*\[@[^\]]*\]|\(@[^)]*\)")
+
+
+def _gap_section_summary(text: str, max_chars: int = 600) -> str:
+    """Extract the prose under a gap-ish heading, stripped of markdown
+    heading tokens and citation keys, bounded in length. Empty string when
+    the document has no gap section (the page then says 尚未判定 instead of
+    guessing)."""
+    match = _GAP_HEADING_RE.search(text)
+    if match is None:
+        return ""
+    tail = text[match.end():]
+    next_heading = _ANY_HEADING_RE.search(tail)
+    section = tail[: next_heading.start()] if next_heading else tail
+    section = _CITEKEY_RE.sub("", section)
+    section = " ".join(section.split())
+    if len(section) > max_chars:
+        section = section[: max_chars - 1].rstrip() + "…"
+    return section
 
 
 def _has_blocking_gate(dossier: Any) -> bool:
