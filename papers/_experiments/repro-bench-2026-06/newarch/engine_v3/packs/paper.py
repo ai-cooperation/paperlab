@@ -10,6 +10,7 @@ from framework import Severity as V2Severity
 from packs.paper import PaperPack as V2PaperPack
 
 from engine_v3 import review_provenance
+from engine_v3.packs import paper_artifacts
 from engine_v3.core import GateResult, GateSeverity, PhaseSpec, RuntimeContext, BrainTask
 
 
