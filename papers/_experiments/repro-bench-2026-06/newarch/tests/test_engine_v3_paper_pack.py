@@ -425,9 +425,11 @@ def test_review_gate_passes_when_no_pending_content_findings():
 
 def test_review_gate_accepts_honest_passed_variants():
     """Round 11: 'passed_after_repair' (and round 5's 'cleared') are honest
-    success phrasings; rejecting them re-blocked a floor-85 p0=0 review."""
+    success phrasings; rejecting them re-blocked a floor-85 p0=0 review.
+    Round 8 on v3_0f6a0c83f9cf added 'pass_after_final_re_review' - the
+    family is any status BEGINNING with 'pass', not just 'passed'."""
     pack = PaperPack()
-    for status in ("passed_after_repair", "cleared"):
+    for status in ("passed_after_repair", "cleared", "pass_after_final_re_review"):
         review = _pass_like_review()
         review["review_loop"]["status"] = status
         report = run_gates(
@@ -436,3 +438,16 @@ def test_review_gate_accepts_honest_passed_variants():
             only={"R"},
         )
         assert report.blocked is False, status
+
+
+def test_review_gate_still_rejects_non_pass_statuses():
+    pack = PaperPack()
+    for status in ("blocked_revise", "revise", "failed", "unreported", ""):
+        review = _pass_like_review()
+        review["review_loop"]["status"] = status
+        report = run_gates(
+            pack,
+            {"review": review, "review_log_present": True, "review_log_text": _DECISION_TRACE_LOG},
+            only={"R"},
+        )
+        assert report.blocked is True, status
