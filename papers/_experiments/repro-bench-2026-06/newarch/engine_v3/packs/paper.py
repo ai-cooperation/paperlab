@@ -113,6 +113,9 @@ class PaperPack:
     def skill_bundle(self) -> list[str]:
         return list(PAPER_SKILL_BUNDLE)
 
+    def operator_owned_files(self) -> list[str]:
+        return list(paper_artifacts.OPERATOR_OWNED_FILES)
+
     def tool_provider(self) -> PaperToolProvider:
         return PaperToolProvider()
 

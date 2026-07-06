@@ -271,6 +271,9 @@ Deterministic blocker worklist:
   manuscript surfaces (paper_draft_v0.qmd, paper_springer.qmd, and the matching
   sections/*.md) before writing the review. Delivery cannot be "pass" while any
   pending finding remains unfixed.
+- operator_findings.md is owned by the human operator: never edit or clear it (any
+  edit you make is reverted). Fix the findings in the manuscript; the operator clears
+  the file after independently verifying your fix.
 
 Hard requirements for review_method (capability decision trace):
 - You own the review decision. Inspect the review capabilities visible in your skill

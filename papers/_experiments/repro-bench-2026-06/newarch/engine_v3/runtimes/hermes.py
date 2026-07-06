@@ -122,6 +122,18 @@ class HermesCodexRuntime:
         quarantined_outputs: dict[str, Path] = {}
         if fresh_outputs:
             quarantined_outputs = _quarantine_existing_outputs(context.run_dir, fresh_outputs, task_id)
+        # Operator-owned files (declared by the domain pack via metadata) are
+        # the human-QA channel: only the operator may clear them. Round 10 on
+        # v3_0f6a0c83f9cf: Hermes rewrote operator_findings.md into comments
+        # declaring its own fix verified, emptying the human worklist. Any
+        # worker edit to these files is reverted after the attempt.
+        operator_owned = [
+            str(rel) for rel in (context.metadata.get("operator_owned_files") or [])
+        ]
+        operator_snapshots: dict[str, Optional[bytes]] = {}
+        for rel in operator_owned:
+            owned_path = context.run_dir / rel
+            operator_snapshots[rel] = owned_path.read_bytes() if owned_path.is_file() else None
 
         if self.runner is None:
             baseline = _output_signature_map(_existing_outputs(context.run_dir, expected_output_list))
@@ -146,6 +158,7 @@ class HermesCodexRuntime:
         else:
             baseline = _output_signature_map(_existing_outputs(context.run_dir, expected_output_list))
             result = self.runner(command, context.run_dir, self.timeout_s)
+        _restore_operator_owned_files(context.run_dir, operator_snapshots)
         combined = "\n".join([result.stdout or "", result.stderr or ""]).strip()
         stdout_tail = _tail(combined)
         provider_failure = _provider_failure(combined)
@@ -495,6 +508,17 @@ def _quarantine_existing_outputs(run_dir: Path, rel_paths: Iterable[str], task_i
         shutil.copy2(source, destination)
         backups[rel] = destination
     return backups
+
+
+def _restore_operator_owned_files(run_dir: Path, snapshots: dict[str, Optional[bytes]]) -> None:
+    for rel, content in snapshots.items():
+        path = run_dir / rel
+        if content is None:
+            path.unlink(missing_ok=True)
+            continue
+        current = path.read_bytes() if path.is_file() else None
+        if current != content:
+            path.write_bytes(content)
 
 
 def _restore_quarantined_outputs(run_dir: Path, backups: dict[str, Path]) -> None:

@@ -460,6 +460,50 @@ time.sleep(30)
     assert time.monotonic() - started < 5
 
 
+def test_operator_owned_files_are_restored_after_worker_edits(tmp_path: Path):
+    """Round 10 on v3_0f6a0c83f9cf, repair attempt 41: Hermes 'cleared' the
+    human-QA worklist itself - it rewrote operator_findings.md into comment
+    lines declaring its own fix verified, and the operator-findings validator
+    saw an empty worklist. The claim happened to be true that time, but the
+    channel exists precisely because worker self-certification cannot be
+    trusted (a64ad5b). Operator-owned files are locked: any worker edit is
+    reverted after the attempt, so only the human operator can clear them."""
+    (tmp_path / "operator_findings.md").write_text(
+        "- P0: rendered References section is empty\n", encoding="utf-8"
+    )
+
+    hermes_bin = tmp_path / "hermes-stub"
+    hermes_bin.write_text(
+        """#!/usr/bin/env python3
+from pathlib import Path
+Path("operator_findings.md").write_text("# Cleared after verification by the worker\\n", encoding="utf-8")
+Path("out.md").write_text("done", encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
+    hermes_bin.chmod(hermes_bin.stat().st_mode | stat.S_IXUSR)
+
+    runtime = HermesCodexRuntime(
+        hermes_bin=str(hermes_bin),
+        timeout_s=10,
+        output_complete_grace_s=0.1,
+    )
+
+    result = runtime.run_brain(
+        BrainTask(phase="review_heal", prompt="repair", expected_outputs=["out.md"]),
+        RuntimeContext(
+            job_id="job-1",
+            run_dir=tmp_path,
+            metadata={"operator_owned_files": ["operator_findings.md"]},
+        ),
+    )
+
+    assert result.status == "ok"
+    assert (tmp_path / "operator_findings.md").read_text(encoding="utf-8") == (
+        "- P0: rendered References section is empty\n"
+    )
+
+
 def test_review_heal_manuscript_progress_extends_session_life(tmp_path: Path):
     """Batch job v3_03d8e9b50bfc starvation loop: large repairs (weave 35+
     citations, rebuild claim map) spend many minutes editing manuscript files

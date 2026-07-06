@@ -54,6 +54,7 @@ class EngineV3Orchestrator:
                 "engine_revision": dossier.evidence["engine_revision"],
                 "skill_bundle": _skill_bundle(self.domain_pack),
                 "runtime_policy": dossier.evidence["runtime_policy"],
+                "operator_owned_files": _operator_owned_files(self.domain_pack),
             },
         )
         self.runtime.prepare(context)
@@ -373,6 +374,16 @@ class EngineV3Orchestrator:
         for rel, path in result.outputs.items():
             dossier.add_artifact(rel, path)
         return result
+
+
+def _operator_owned_files(domain_pack: object) -> list[str]:
+    accessor = getattr(domain_pack, "operator_owned_files", None)
+    if not callable(accessor):
+        return []
+    try:
+        return [str(rel) for rel in (accessor() or [])]
+    except Exception:
+        return []
 
 
 def _skill_bundle(domain_pack: object) -> list[str]:

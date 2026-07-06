@@ -14,3 +14,6 @@ from __future__ import annotations
 REVIEW_FILE = "quality_review_round1.json"
 REVIEW_LOG_FILE = "quality_review_log.md"
 MANUSCRIPT_FILES: tuple[str, ...] = ("paper_draft_v0.qmd",)
+# Human-QA channel: only the operator may write or clear these; the runtime
+# reverts any worker edit (round 10: Hermes self-cleared its own worklist).
+OPERATOR_OWNED_FILES: tuple[str, ...] = ("operator_findings.md",)
