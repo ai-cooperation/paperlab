@@ -440,6 +440,35 @@ def test_review_gate_accepts_honest_passed_variants():
         assert report.blocked is False, status
 
 
+def test_pack_declares_operator_owned_files():
+    """The NameError in operator_owned_files (missing paper_artifacts import)
+    shipped because no test exercised the accessor - the orchestrator reads
+    it via getattr with a swallow-all fallback, so the deploy check was the
+    first thing to call it."""
+    assert PaperPack().operator_owned_files() == ["operator_findings.md"]
+
+
+def test_orchestrator_metadata_carries_operator_owned_files(tmp_path):
+    from engine_v3.core import DossierStore
+    from engine_v3.core.orchestrator import EngineV3Orchestrator, PhaseSpec
+    from engine_v3.runtimes.mock import MockRuntime
+
+    seen = {}
+
+    def handler(_task, context):
+        seen["operator_owned_files"] = list(context.metadata.get("operator_owned_files") or [])
+        return {}
+
+    EngineV3Orchestrator(
+        runtime=MockRuntime(),
+        domain_pack=PaperPack(),
+        phases=[PhaseSpec(id="phase-0", handler=handler)],
+        dossier_store=DossierStore(tmp_path),
+    ).run(job_id="job-1", resume=False)
+
+    assert seen["operator_owned_files"] == ["operator_findings.md"]
+
+
 def test_review_gate_still_rejects_non_pass_statuses():
     pack = PaperPack()
     for status in ("blocked_revise", "revise", "failed", "unreported", ""):
