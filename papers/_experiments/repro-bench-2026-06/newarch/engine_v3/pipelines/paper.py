@@ -1618,6 +1618,35 @@ def _normalize_review_record_schema(run_dir: Path) -> bool:
             value["score"] = round(score / 10.0, 3)
             changed = True
 
+    # Relocation, not fabrication: reviewers repeatedly express the skill
+    # decision as a capability_decision_trace list instead of the flat
+    # selected_skill / selection_reason / capability_class fields (round 6:
+    # a floor-81.4 p0=0 review failed Gate R three times on exactly these
+    # fields while its own trace carried the content). Move the reviewer's
+    # words into the canonical slots; when the trace has no selected
+    # decision there is nothing to relocate and the gate stays closed.
+    method = review.get("review_method")
+    if isinstance(method, dict):
+        trace = method.get("capability_decision_trace")
+        selected = None
+        if isinstance(trace, list):
+            for entry in trace:
+                if isinstance(entry, dict) and str(entry.get("decision") or "").lower() == "selected":
+                    selected = entry
+                    break
+        if selected is not None:
+            skill = str(selected.get("skill") or "").strip()
+            reason = str(selected.get("reason") or "").strip()
+            if skill and not str(method.get("selected_skill") or "").strip():
+                method["selected_skill"] = skill
+                changed = True
+            if reason and not str(method.get("selection_reason") or "").strip():
+                method["selection_reason"] = reason
+                changed = True
+            if skill and not str(method.get("capability_class") or "").strip():
+                method["capability_class"] = "domain_expert_review"
+                changed = True
+
     if not changed:
         return False
     review_path.write_text(json.dumps(review, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")

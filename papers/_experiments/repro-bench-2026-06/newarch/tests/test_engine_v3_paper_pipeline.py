@@ -625,6 +625,92 @@ def test_review_heal_applies_structural_repair_and_normalizes_review_schema(tmp_
     assert "link-citations: true" in (run_dir / "paper_springer.qmd").read_text(encoding="utf-8")
 
 
+def test_review_method_fields_relocated_from_reviewer_decision_trace(tmp_path: Path):
+    """Round 6 on v3_0f6a0c83f9cf: three consecutive Hermes reviews (one at
+    floor 81.4, p0=0, loop/dimensions all valid) failed Gate R on the same
+    two review_method fields - the reviewer wrote its skill decision as a
+    capability_decision_trace list instead of the flat selected_skill /
+    selection_reason / capability_class fields. Relocating the reviewer's own
+    trace content into the canonical slots is schema normalization (the
+    words originate from the reviewer); it must NOT fabricate anything when
+    no selected decision exists in the trace."""
+    from engine_v3.pipelines.paper import _normalize_review_record_schema
+
+    (tmp_path / "quality_review_round1.json").write_text(
+        json.dumps(
+            {
+                "delivery": "pass",
+                "p0_count": 0,
+                "floor_100": 81.4,
+                "review_loop": {
+                    "status": "passed",
+                    "rounds": 1,
+                    "reviewer_model": "gpt-5.5 via openai-codex",
+                    "fixer_model": "gpt-5.5 via openai-codex",
+                    "independent_reviewer": True,
+                    "floor_failed": False,
+                },
+                "dimensions": {"academic_rigor": {"score": 8.0}},
+                "findings": [],
+                "review_method": {
+                    "schema_version": "paperlab.review_method.v3.2",
+                    "decision_owner": "hermes",
+                    "inputs_checked": ["paper_draft_v0.qmd"],
+                    "reviewed_manuscript_sha256": "abc",
+                    "vip_capability_required": True,
+                    "vip_capability_available": True,
+                    "capability_decision_trace": [
+                        {
+                            "decision": "selected",
+                            "skill": "paper-review-and-citation-check",
+                            "reason": "directly matches seven-dimension manuscript review",
+                        },
+                        {"decision": "supporting", "skill": "qmd-writer", "reason": "formatting"},
+                    ],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    _normalize_review_record_schema(tmp_path)
+
+    review = json.loads((tmp_path / "quality_review_round1.json").read_text(encoding="utf-8"))
+    method = review["review_method"]
+    assert method["selected_skill"] == "paper-review-and-citation-check"
+    assert method["selection_reason"] == "directly matches seven-dimension manuscript review"
+    assert method["capability_class"] == "domain_expert_review"
+
+
+def test_review_method_relocation_never_fabricates_without_selected_trace(tmp_path: Path):
+    from engine_v3.pipelines.paper import _normalize_review_record_schema
+
+    (tmp_path / "quality_review_round1.json").write_text(
+        json.dumps(
+            {
+                "delivery": "pass",
+                "p0_count": 0,
+                "floor_100": 81.4,
+                "review_loop": {"status": "passed", "rounds": 1},
+                "dimensions": {"academic_rigor": {"score": 8.0}},
+                "review_method": {
+                    "schema_version": "paperlab.review_method.v3.2",
+                    "decision_owner": "hermes",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    _normalize_review_record_schema(tmp_path)
+
+    review = json.loads((tmp_path / "quality_review_round1.json").read_text(encoding="utf-8"))
+    method = review["review_method"]
+    assert "selected_skill" not in method
+    assert "selection_reason" not in method
+    assert "capability_class" not in method
+
+
 def test_review_heal_normalizes_alternate_dimension_score_schema(tmp_path: Path):
     run_dir = tmp_path / "run"
     run_dir.mkdir()
