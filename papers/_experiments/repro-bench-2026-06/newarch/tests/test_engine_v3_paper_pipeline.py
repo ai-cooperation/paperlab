@@ -625,6 +625,81 @@ def test_review_heal_applies_structural_repair_and_normalizes_review_schema(tmp_
     assert "link-citations: true" in (run_dir / "paper_springer.qmd").read_text(encoding="utf-8")
 
 
+def test_pdf_with_empty_references_section_fails_delivery_validation(tmp_path: Path):
+    """Round 7 on v3_0f6a0c83f9cf delivered a PDF whose References heading had
+    NOTHING under it and whose body rendered zero citations, while
+    references.bib held 35 two-source-verified entries - the woven citations
+    were stripped between the pass review and the render, and every
+    source-level check was blind to the final surface. The delivery PDF is
+    the user-facing ground truth: when the bib is non-empty, the rendered
+    References section must actually contain entries."""
+    from engine_v3.pipelines.paper import _validate_pdf_references_rendered
+
+    (tmp_path / "references.bib").write_text(
+        "\n".join(
+            "@article{ref%d,title={T%d},year={202%d},doi={10.1/r%d}}" % (i, i, i % 10, i)
+            for i in range(35)
+        ),
+        encoding="utf-8",
+    )
+    pdf_text = (
+        "1. Introduction\nProse without any citations.\n"
+        "7. Conclusion\nMore prose.\n"
+        "References\n"  # heading present, nothing under it
+    )
+
+    result = _validate_pdf_references_rendered(pdf_text, tmp_path)
+
+    assert result["valid"] is False
+    assert any("references" in f.lower() for f in result["findings"])
+
+
+def test_pdf_with_rendered_reference_entries_passes(tmp_path: Path):
+    from engine_v3.pipelines.paper import _validate_pdf_references_rendered
+
+    (tmp_path / "references.bib").write_text(
+        "@article{a,title={A},year={2020},doi={10.1/a}}\n"
+        "@article{b,title={B},year={2021},doi={10.1/b}}\n",
+        encoding="utf-8",
+    )
+    pdf_text = (
+        "1. Introduction\nProse citing (Author, 2020).\n"
+        "References\n"
+        "Author, A., 2020. A title. Journal 1, 1-10. doi:10.1/a\n"
+        "Author, B., 2021. B title. Journal 2, 2-20. doi:10.1/b\n"
+    )
+
+    assert _validate_pdf_references_rendered(pdf_text, tmp_path)["valid"] is True
+
+
+def test_pdf_references_check_skips_when_bib_empty(tmp_path: Path):
+    from engine_v3.pipelines.paper import _validate_pdf_references_rendered
+
+    assert _validate_pdf_references_rendered("References\n", tmp_path)["valid"] is True
+
+
+def test_delivery_pdf_validation_includes_references_rendered(tmp_path: Path, monkeypatch):
+    from engine_v3.pipelines import paper as pp
+
+    (tmp_path / "references.bib").write_text(
+        "@article{a,title={A},year={2020},doi={10.1/a}}\n", encoding="utf-8"
+    )
+    pdf = tmp_path / "paper_draft_v0.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n" + b"x" * 2000)
+
+    def fake_run_text(cmd, timeout_s=30):
+        if cmd[0] == "pdfinfo":
+            return "Producer: xdvipdfmx\nCreator: LaTeX via pandoc\n"
+        return "1. Introduction\nProse.\nReferences\n"  # empty references
+
+    monkeypatch.setattr(pp, "_run_text", fake_run_text)
+
+    result = pp._validate_delivery_pdf(pdf, tmp_path)
+
+    assert result["valid"] is False
+    assert any("references" in f.lower() and "render" in f.lower() for f in result["findings"])
+
+
 def test_review_method_fields_relocated_from_reviewer_decision_trace(tmp_path: Path):
     """Round 6 on v3_0f6a0c83f9cf: three consecutive Hermes reviews (one at
     floor 81.4, p0=0, loop/dimensions all valid) failed Gate R on the same

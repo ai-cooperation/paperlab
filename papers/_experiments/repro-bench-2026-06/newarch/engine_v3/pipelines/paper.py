@@ -2138,7 +2138,55 @@ def _validate_delivery_pdf(pdf, run_dir=None) -> dict[str, object]:
     evidence["citation_distribution"] = citation_distribution
     findings.extend(citation_distribution.get("findings") or [])
 
+    # Round 7 (v3_0f6a0c83f9cf): the delivered PDF had an EMPTY References
+    # section while references.bib held 35 verified entries - the woven
+    # citations were stripped somewhere between the pass review and the
+    # render, and every source-level check missed the final surface. The
+    # rendered PDF is the user-facing ground truth; judge it directly.
+    references_rendered = _validate_pdf_references_rendered(text or "", check_dir)
+    evidence["references_rendered"] = references_rendered
+    findings.extend(references_rendered.get("findings") or [])
+
     return {**evidence, "valid": not findings, "findings": findings}
+
+
+def _validate_pdf_references_rendered(pdf_text: str, run_dir: Path) -> dict[str, object]:
+    """When the bibliography is non-empty, the rendered PDF must contain an
+    actually-populated References section (cause-agnostic: it does not matter
+    WHICH internal step lost the citations - an empty rendered bibliography
+    is undeliverable)."""
+    bib = Path(run_dir) / "references.bib"
+    if not bib.is_file():
+        return {"valid": True, "findings": [], "bib_entries": 0}
+    bib_entries = len(re.findall(r"@\w+\{", bib.read_text(encoding="utf-8", errors="ignore")))
+    if bib_entries == 0:
+        return {"valid": True, "findings": [], "bib_entries": 0}
+    heading = re.search(r"(?mi)^\s*(?:references|bibliography)\s*$", pdf_text)
+    if heading is None:
+        return {
+            "valid": False,
+            "bib_entries": bib_entries,
+            "entry_signals": 0,
+            "findings": [
+                "PDF has no References/Bibliography heading while references.bib "
+                "holds %d entries; the bibliography did not render" % bib_entries
+            ],
+        }
+    tail = pdf_text[heading.end():]
+    entry_signals = len(re.findall(r"\b(?:19|20)\d{2}\b|doi[:.]|doi\.org", tail, flags=re.IGNORECASE))
+    required = min(bib_entries, 3)
+    if entry_signals >= required:
+        return {"valid": True, "findings": [], "bib_entries": bib_entries, "entry_signals": entry_signals}
+    return {
+        "valid": False,
+        "bib_entries": bib_entries,
+        "entry_signals": entry_signals,
+        "findings": [
+            "References section renders empty or near-empty (%d entry signals after the "
+            "heading) while references.bib holds %d verified entries; the body citations "
+            "did not survive to the delivered PDF" % (entry_signals, bib_entries)
+        ],
+    }
 
 
 def _validate_pdf_content_quality(text: str) -> dict[str, object]:
