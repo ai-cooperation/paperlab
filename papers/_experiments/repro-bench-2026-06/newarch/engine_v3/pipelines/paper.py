@@ -1494,6 +1494,8 @@ def content_validators():
         _validate_citation_distribution,
         _validate_citations_rendered,
         _validate_inline_heading_leakage,
+        _validate_frontmatter_stub,
+        _validate_bib_author_integrity,
         _validate_text_encoding,
         _operator_findings,
     )
@@ -2398,6 +2400,92 @@ def _validate_title_language(run_dir: Path) -> dict[str, object]:
             % (title_cjk, body_cjk)
         ],
     }
+
+
+_ABSTRACT_STUB_RE = re.compile(
+    r"(?i)\b(?:pending|tbd|to be (?:written|added|completed)|placeholder|coming soon)\b"
+)
+
+
+def _frontmatter_abstract(front: str) -> str | None:
+    """Return the frontmatter abstract text (inline or block scalar), or None
+    when the frontmatter has no abstract key."""
+    lines = front.splitlines()
+    for i, line in enumerate(lines):
+        m = re.match(r"^abstract:\s*(.*)$", line)
+        if m is None:
+            continue
+        inline = m.group(1).strip()
+        if inline and inline not in ("|", ">", "|-", ">-", "|+", ">+"):
+            return inline
+        block: list[str] = []
+        for follow in lines[i + 1:]:
+            if not follow.strip():
+                continue
+            if re.match(r"^\s{2,}\S", follow):
+                block.append(follow.strip())
+            else:
+                break
+        return " ".join(block).strip()
+    return None
+
+
+def _validate_frontmatter_stub(run_dir: Path) -> dict[str, object]:
+    """Fresh E2E job v3_e9e1b75927a6: page 1 rendered TWO Abstract blocks -
+    the frontmatter stub 'Abstract pending.' above the real abstract. The
+    render-gate placeholder list never covered stub abstracts."""
+    path = run_dir / "paper_draft_v0.qmd"
+    if not path.is_file():
+        return {"valid": True, "findings": []}
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    front = re.match(r"(?s)\A---(.*?)---", text)
+    if not front:
+        return {"valid": True, "findings": []}
+    abstract_text = _frontmatter_abstract(front.group(1))
+    if abstract_text is None:
+        return {"valid": True, "findings": []}
+    findings: list[str] = []
+    if (
+        abstract_text == ""
+        or (_ABSTRACT_STUB_RE.search(abstract_text) and len(abstract_text) < 120)
+    ):
+        findings.append(
+            "frontmatter abstract is a placeholder stub (%r); write the real abstract "
+            "into the frontmatter so the title page does not render a stub Abstract "
+            "block above the real one" % abstract_text[:60]
+        )
+    return {"valid": not findings, "findings": findings}
+
+
+def _validate_bib_author_integrity(run_dir: Path) -> dict[str, object]:
+    """CrossRef name-parse wreckage must not reach the rendered References:
+    'Unknown, 2021', 'Maden, .' (empty given name) shipped in E2E job
+    v3_e9e1b75927a6. Full-author-name rule (feedback_paper_pipeline_v2) now
+    mechanically enforced."""
+    bib = run_dir / "references.bib"
+    if not bib.is_file():
+        return {"valid": True, "findings": []}
+    text = bib.read_text(encoding="utf-8", errors="ignore")
+    findings: list[str] = []
+    for match in re.finditer(r"@\w+\{([^,\s]+),(.*?)(?=@\w+\{|\Z)", text, flags=re.DOTALL):
+        key, body = match.group(1), match.group(2)
+        author = re.search(r"author\s*=\s*[{\"](.+?)[}\"]\s*,?\s*\n", body, flags=re.DOTALL)
+        if not author:
+            continue
+        value = " ".join(author.group(1).split())
+        problems = []
+        if re.search(r"(?i)\bunknown\b|\banonymous\b", value):
+            problems.append("author is Unknown/Anonymous")
+        if re.search(r"\w+,\s*\.(?:\s|$|,)", value) or re.search(r"^\s*,|,\s*and\s+and\b", value):
+            problems.append("empty or broken given-name initial")
+        if problems:
+            findings.append(
+                "bib entry %s has a broken author field (%s): fix the author names "
+                "from the source record or drop the entry" % (key, "; ".join(problems))
+            )
+        if len(findings) >= 6:
+            break
+    return {"valid": not findings, "findings": findings}
 
 
 def _validate_inline_heading_leakage(run_dir: Path) -> dict[str, object]:

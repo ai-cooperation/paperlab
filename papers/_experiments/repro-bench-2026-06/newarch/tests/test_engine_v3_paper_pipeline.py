@@ -625,6 +625,83 @@ def test_review_heal_applies_structural_repair_and_normalizes_review_schema(tmp_
     assert "link-citations: true" in (run_dir / "paper_springer.qmd").read_text(encoding="utf-8")
 
 
+def test_frontmatter_abstract_stub_is_a_content_finding(tmp_path: Path):
+    """Fresh E2E job v3_e9e1b75927a6 delivered page 1 with TWO Abstract
+    blocks: the frontmatter stub 'Abstract pending.' (plus drift keywords)
+    rendered above the real abstract section. The Gate D placeholder list
+    ('PLACEHOLDER', 'TODO:', 'TBD', ...) did not cover it."""
+    from engine_v3.pipelines.paper import _validate_frontmatter_stub
+
+    (tmp_path / "paper_draft_v0.qmd").write_text(
+        '---\ntitle: "T"\nabstract: |\n  Abstract pending.\nkeywords:\n  - strategy\n---\n\n'
+        "# Introduction\n\nReal prose.\n",
+        encoding="utf-8",
+    )
+
+    result = _validate_frontmatter_stub(tmp_path)
+
+    assert result["valid"] is False
+    assert any("abstract" in f.lower() for f in result["findings"])
+
+
+def test_real_frontmatter_abstract_passes(tmp_path: Path):
+    from engine_v3.pipelines.paper import _validate_frontmatter_stub
+
+    (tmp_path / "paper_draft_v0.qmd").write_text(
+        '---\ntitle: "T"\nabstract: |\n  Resistance exercise training has been proposed as a '
+        "low-cost adjunct for reducing anxiety symptoms; this manuscript presents a "
+        "DOI-verified evidence map anchored to the Gordon 2017 benchmark.\n---\n\nBody.\n",
+        encoding="utf-8",
+    )
+
+    assert _validate_frontmatter_stub(tmp_path)["valid"] is True
+
+
+def test_broken_bib_author_names_are_a_content_finding(tmp_path: Path):
+    """Same E2E job: References rendered 'Unknown, 2021' (supplemental
+    material as a citable record), 'C Y, A.' and 'Maden, .' (CrossRef
+    name-parse wreckage) - the full-author-name lesson
+    (feedback_paper_pipeline_v2) had no mechanical enforcement."""
+    from engine_v3.pipelines.paper import _validate_bib_author_integrity
+
+    (tmp_path / "references.bib").write_text(
+        "@article{ok2020, author = {Gordon, B.R. and McDowell, C.P.}, title={Fine}, year={2020}}\n"
+        "@misc{supp2021, author = {Unknown}, title={Supplemental material}, year={2021}}\n"
+        "@article{maden2022, author = {Maden, . and Bayramlar, K.}, title={VR}, year={2022}}\n",
+        encoding="utf-8",
+    )
+
+    result = _validate_bib_author_integrity(tmp_path)
+
+    assert result["valid"] is False
+    joined = " ".join(result["findings"]).lower()
+    assert "supp2021" in joined
+    assert "maden2022" in joined
+
+
+def test_clean_bib_authors_pass(tmp_path: Path):
+    from engine_v3.pipelines.paper import _validate_bib_author_integrity
+
+    (tmp_path / "references.bib").write_text(
+        "@article{a, author = {Gordon, B.R. and O'Sullivan, D. and van Dessel, N.}, year={2017}}\n",
+        encoding="utf-8",
+    )
+
+    assert _validate_bib_author_integrity(tmp_path)["valid"] is True
+
+
+def test_new_e2e_validators_registered(tmp_path: Path):
+    from engine_v3.pipelines.paper import (
+        content_validators,
+        _validate_bib_author_integrity,
+        _validate_frontmatter_stub,
+    )
+
+    registered = content_validators()
+    assert _validate_frontmatter_stub in registered
+    assert _validate_bib_author_integrity in registered
+
+
 def test_pdf_with_empty_references_section_fails_delivery_validation(tmp_path: Path):
     """Round 7 on v3_0f6a0c83f9cf delivered a PDF whose References heading had
     NOTHING under it and whose body rendered zero citations, while
