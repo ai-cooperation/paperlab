@@ -214,6 +214,13 @@ The first required deliverable is always the review record. Overwrite
 quality_review_round1.json and quality_review_log.md during this Hermes run even if no
 manuscript edit is needed. Do not treat manuscript edits alone as completion.
 
+Citation markers are load-bearing (binding): [@citekey] tokens in the body are the
+source of the rendered inline citations and the References list. NEVER drop or
+paraphrase them away when editing or rewriting prose - a rewrite that loses them
+delivers a PDF with an empty References section and is blocked by the delivery
+gate. If the manuscript already reads well and cites its bibliography, do NOT
+rewrite it; review it as it stands.
+
 Ordering (binding): the review record must be the LAST files you write. The verdict
 is hash-bound to the manuscript bytes it reviewed, so ANY edit to a manuscript file
 (qmd, sections/*.md, figures, references.bib) AFTER the review record is written makes
@@ -320,6 +327,9 @@ Hard boundary:
 - First inspect the current artifacts after deterministic structural repairs.
 - Verify whether previously reported P0/P1 items are actually resolved in the current files.
 - Overwrite quality_review_round1.json and quality_review_log.md after any repair.
+- Citation markers are load-bearing (binding): never drop [@citekey] tokens when
+  editing prose; a rewrite that loses them renders an empty References section
+  and is blocked by the delivery gate.
 - Ordering (binding): the review record must be the LAST files you write. Any edit to
   a manuscript file (qmd, sections/*.md, figures, references.bib) after the review
   record makes the hash-bound verdict stale and blocks the phase; if that happens,
