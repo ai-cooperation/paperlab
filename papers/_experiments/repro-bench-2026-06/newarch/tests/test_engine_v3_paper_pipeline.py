@@ -632,7 +632,14 @@ def test_frontmatter_abstract_stub_is_a_content_finding(tmp_path: Path):
     ('PLACEHOLDER', 'TODO:', 'TBD', ...) did not cover it."""
     from engine_v3.pipelines.paper import _validate_frontmatter_stub
 
+    # The stub lived in paper_springer.qmd (the surface that renders the
+    # PDF) while paper_draft_v0.qmd had no abstract key at all - the
+    # validator must scan every manuscript surface.
     (tmp_path / "paper_draft_v0.qmd").write_text(
+        '---\ntitle: "T"\n---\n\n# Introduction\n\nReal prose.\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "paper_springer.qmd").write_text(
         '---\ntitle: "T"\nabstract: |\n  Abstract pending.\nkeywords:\n  - strategy\n---\n\n'
         "# Introduction\n\nReal prose.\n",
         encoding="utf-8",
@@ -688,6 +695,32 @@ def test_clean_bib_authors_pass(tmp_path: Path):
     )
 
     assert _validate_bib_author_integrity(tmp_path)["valid"] is True
+
+
+def test_pdf_rendered_author_initials_dropped_is_a_finding(tmp_path: Path):
+    """E2E job v3_e9e1b75927a6: references.bib held intact unicode names
+    ('Maden, Çağtay', 'Yalçın, İlknur') but the rendered References showed
+    'Maden, .' and 'Yalçın, .' - the render chain dropped non-ASCII given
+    names when abbreviating. Source-level checks are blind to this; judge
+    the rendered PDF text."""
+    from engine_v3.pipelines.paper import _validate_pdf_references_rendered
+
+    (tmp_path / "references.bib").write_text(
+        "@article{a, author={Maden, Çağtay}, year={2022}}\n"
+        "@article{b, author={Gordon, B.R.}, year={2017}}\n",
+        encoding="utf-8",
+    )
+    pdf_text = (
+        "References\n"
+        "Gordon, B.R., 2017. Fine entry. Journal 1. doi:10.1/a\n"
+        "Maden, ., Bayramlar, K., 2022. Broken entry. Journal 2. doi:10.1/b\n"
+        "Yalçın, ., Ergün, A., 2025. Another. Journal 3. doi:10.1/c\n"
+    )
+
+    result = _validate_pdf_references_rendered(pdf_text, tmp_path)
+
+    assert result["valid"] is False
+    assert any("initial" in f.lower() or "author" in f.lower() for f in result["findings"])
 
 
 def test_new_e2e_validators_registered(tmp_path: Path):

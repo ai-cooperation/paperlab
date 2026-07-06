@@ -2189,19 +2189,34 @@ def _validate_pdf_references_rendered(pdf_text: str, run_dir: Path) -> dict[str,
         }
     tail = pdf_text[heading.end():]
     entry_signals = len(re.findall(r"\b(?:19|20)\d{2}\b|doi[:.]|doi\.org", tail, flags=re.IGNORECASE))
+    findings: list[str] = []
     required = min(bib_entries, 3)
-    if entry_signals >= required:
-        return {"valid": True, "findings": [], "bib_entries": bib_entries, "entry_signals": entry_signals}
-    return {
-        "valid": False,
-        "bib_entries": bib_entries,
-        "entry_signals": entry_signals,
-        "findings": [
+    if entry_signals < required:
+        findings.append(
             "References section renders empty or near-empty (%d entry signals after the "
             "heading) while references.bib holds %d verified entries; the body citations "
             "did not survive to the delivered PDF" % (entry_signals, bib_entries)
-        ],
-    }
+        )
+    # E2E job v3_e9e1b75927a6: the bib held intact unicode names ('Maden,
+    # Çağtay') but the rendered References showed 'Maden, .' - the render
+    # chain dropped non-ASCII given names when abbreviating. Only the
+    # rendered text can show this.
+    dropped = sorted(set(re.findall(r"([A-Za-zÀ-ÿĀ-ž']+),\s+\.(?:,|\s)", tail)))
+    if dropped:
+        findings.append(
+            "rendered References dropped author given-name initials for: %s "
+            "(likely non-ASCII given names mangled during rendering); protect the "
+            "initials in references.bib (e.g. brace the accented letters) so the "
+            "rendered names are complete" % ", ".join(dropped[:5])
+        )
+    if findings:
+        return {
+            "valid": False,
+            "bib_entries": bib_entries,
+            "entry_signals": entry_signals,
+            "findings": findings,
+        }
+    return {"valid": True, "findings": [], "bib_entries": bib_entries, "entry_signals": entry_signals}
 
 
 def _validate_pdf_content_quality(text: str) -> dict[str, object]:
@@ -2434,26 +2449,27 @@ def _validate_frontmatter_stub(run_dir: Path) -> dict[str, object]:
     """Fresh E2E job v3_e9e1b75927a6: page 1 rendered TWO Abstract blocks -
     the frontmatter stub 'Abstract pending.' above the real abstract. The
     render-gate placeholder list never covered stub abstracts."""
-    path = run_dir / "paper_draft_v0.qmd"
-    if not path.is_file():
-        return {"valid": True, "findings": []}
-    text = path.read_text(encoding="utf-8", errors="ignore")
-    front = re.match(r"(?s)\A---(.*?)---", text)
-    if not front:
-        return {"valid": True, "findings": []}
-    abstract_text = _frontmatter_abstract(front.group(1))
-    if abstract_text is None:
-        return {"valid": True, "findings": []}
     findings: list[str] = []
-    if (
-        abstract_text == ""
-        or (_ABSTRACT_STUB_RE.search(abstract_text) and len(abstract_text) < 120)
-    ):
-        findings.append(
-            "frontmatter abstract is a placeholder stub (%r); write the real abstract "
-            "into the frontmatter so the title page does not render a stub Abstract "
-            "block above the real one" % abstract_text[:60]
-        )
+    for name in ("paper_draft_v0.qmd", "paper_springer.qmd"):
+        path = run_dir / name
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        front = re.match(r"(?s)\A---(.*?)---", text)
+        if not front:
+            continue
+        abstract_text = _frontmatter_abstract(front.group(1))
+        if abstract_text is None:
+            continue
+        if (
+            abstract_text == ""
+            or (_ABSTRACT_STUB_RE.search(abstract_text) and len(abstract_text) < 120)
+        ):
+            findings.append(
+                "frontmatter abstract in %s is a placeholder stub (%r); write the real "
+                "abstract into the frontmatter so the title page does not render a stub "
+                "Abstract block above the real one" % (name, abstract_text[:60])
+            )
     return {"valid": not findings, "findings": findings}
 
 
