@@ -12,6 +12,7 @@ from typing import Any, Callable
 from batch_validate_v3 import JobValidation, decide_batch_gate, validate_jobs
 from engine_v3.core import DossierStore
 from engine_v3.core.orchestrator import EngineV3Orchestrator
+from engine_v3.job_lock import acquire_job_lock, release_job_lock
 from engine_v3.packs.paper import PaperPack
 from engine_v3.pipelines.paper import full_paper_pipeline
 from engine_v3.runtime_config import (
@@ -81,9 +82,29 @@ def revalidate_jobs(
 ) -> list[RevalidationRow]:
     jobs_dir = jobs_dir.expanduser()
     runner = run_one or _run_one_orchestrator
+    lock_dir = jobs_dir / "_locks_v3"
     rows: list[RevalidationRow] = []
     for job_id in job_ids:
         print("REVALIDATE_START\t%s" % job_id, flush=True)
+        # Single-owner guarantee: never run a job another live process already
+        # holds. e9e1's polluted state (2026-07-07) came from a probe process
+        # and a queue process both revalidating the same job and interleaving
+        # phase writes. Shares the HTTP layer's _locks_v3 PID lock.
+        handle = acquire_job_lock(lock_dir, job_id)
+        if handle is None:
+            outcome = RunOutcome(
+                job_id=job_id,
+                status="locked",
+                phases={},
+                seconds=0.0,
+                has_pdf=False,
+                error="skipped: job is locked by another live process (concurrent run refused)",
+            )
+            validation = validate(jobs_dir, job_ids=[job_id], min_floor=min_floor)[0]
+            row = RevalidationRow(run=outcome, validation=validation)
+            rows.append(row)
+            print("REVALIDATE_RESULT\t%s" % json.dumps(_row_dict(row), ensure_ascii=False), flush=True)
+            continue
         try:
             if run_one is None:
                 preflight = validate(jobs_dir, job_ids=[job_id], min_floor=min_floor)[0]
@@ -102,6 +123,8 @@ def revalidate_jobs(
                 has_pdf=False,
                 error="%s: %s\n%s" % (type(exc).__name__, exc, traceback.format_exc(limit=5)),
             )
+        finally:
+            release_job_lock(handle)
         validation = validate(jobs_dir, job_ids=[job_id], min_floor=min_floor)[0]
         row = RevalidationRow(run=outcome, validation=validation)
         rows.append(row)
