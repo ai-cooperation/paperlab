@@ -625,6 +625,83 @@ def test_review_heal_applies_structural_repair_and_normalizes_review_schema(tmp_
     assert "link-citations: true" in (run_dir / "paper_springer.qmd").read_text(encoding="utf-8")
 
 
+def test_springer_abstract_resyncs_from_draft_when_draft_is_clean(tmp_path: Path):
+    """P0 gate breakout (2026-07-07): three retro-rerun jobs (ESG/Transfer/
+    DTP3) reached the VIP station — one already done_pass on the public site —
+    with a 'Abstract pending.' stub in paper_springer.qmd (the render surface)
+    while paper_draft_v0.qmd had been cleaned. _ensure_paper_springer_source
+    returned early on 'file exists and non-empty', so a pre-V3.2 springer with
+    a stale stub was NEVER resynced from the cleaned draft. When the draft's
+    frontmatter abstract is real/empty but springer still carries a stub, the
+    springer abstract must be resynced from the draft."""
+    from engine_v3.pipelines.paper import _ensure_paper_springer_source_v3_2
+
+    (tmp_path / "paper_draft_v0.qmd").write_text(
+        '---\ntitle: "T"\nabstract: |\n  A real substantive abstract that describes '
+        "the study design and its evidence-map contribution in full.\nbibliography: references.bib\n---\n\n"
+        "# Introduction\n\nBody.\n",
+        encoding="utf-8",
+    )
+    # Pre-V3.2 springer: has render flags AND a stale stub abstract.
+    (tmp_path / "paper_springer.qmd").write_text(
+        '---\ntitle: "T"\nlink-citations: true\nnumber-sections: true\n'
+        "abstract: |\n  Abstract pending.\nkeywords:\n  - impact\n---\n\n"
+        "# Introduction\n\nBody.\n",
+        encoding="utf-8",
+    )
+
+    _ensure_paper_springer_source_v3_2(tmp_path)
+
+    springer = (tmp_path / "paper_springer.qmd").read_text(encoding="utf-8")
+    assert "Abstract pending." not in springer
+    assert "A real substantive abstract" in springer
+    # render flags preserved
+    assert "link-citations: true" in springer
+    assert "number-sections: true" in springer
+
+
+def test_springer_stub_dropped_when_draft_has_no_abstract(tmp_path: Path):
+    """The actual ESG/Transfer/DTP3 shape (2026-07-07): the draft was cleaned
+    by REMOVING the abstract key entirely (not rewriting it), so a copy-only
+    resync silently did nothing and the springer stub survived to the render.
+    When the draft has no frontmatter abstract, the springer stub must be
+    dropped, not left in place."""
+    from engine_v3.pipelines.paper import _ensure_paper_springer_source_v3_2, _validate_frontmatter_stub
+
+    (tmp_path / "paper_draft_v0.qmd").write_text(
+        '---\ntitle: "T"\nbibliography: references.bib\n---\n\n# Introduction\n\nBody.\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "paper_springer.qmd").write_text(
+        '---\ntitle: "T"\nlink-citations: true\nnumber-sections: true\n'
+        "abstract: |\n  Abstract pending.\nkeywords:\n  - impact\n---\n\n# Introduction\n\nBody.\n",
+        encoding="utf-8",
+    )
+
+    _ensure_paper_springer_source_v3_2(tmp_path)
+
+    springer = (tmp_path / "paper_springer.qmd").read_text(encoding="utf-8")
+    assert "Abstract pending." not in springer
+    assert "link-citations: true" in springer  # render flags preserved
+    assert _validate_frontmatter_stub(tmp_path)["valid"] is True
+
+
+def test_springer_resync_leaves_a_clean_springer_untouched(tmp_path: Path):
+    from engine_v3.pipelines.paper import _ensure_paper_springer_source_v3_2
+
+    (tmp_path / "paper_draft_v0.qmd").write_text(
+        '---\ntitle: "T"\nabstract: |\n  Draft abstract.\n---\n\nBody.\n', encoding="utf-8"
+    )
+    good = ('---\ntitle: "T"\nlink-citations: true\nnumber-sections: true\n'
+            "abstract: |\n  A perfectly good springer abstract already here.\n---\n\nBody.\n")
+    (tmp_path / "paper_springer.qmd").write_text(good, encoding="utf-8")
+
+    _ensure_paper_springer_source_v3_2(tmp_path)
+
+    # a non-stub springer abstract is NOT clobbered by the draft's
+    assert "A perfectly good springer abstract" in (tmp_path / "paper_springer.qmd").read_text(encoding="utf-8")
+
+
 def test_frontmatter_abstract_stub_is_a_content_finding(tmp_path: Path):
     """Fresh E2E job v3_e9e1b75927a6 delivered page 1 with TWO Abstract
     blocks: the frontmatter stub 'Abstract pending.' (plus drift keywords)

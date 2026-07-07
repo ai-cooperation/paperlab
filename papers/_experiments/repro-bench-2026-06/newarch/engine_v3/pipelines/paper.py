@@ -915,9 +915,15 @@ This V3.2 manuscript draft is generated from verified run artifacts. It summariz
 
 def _ensure_paper_springer_source_v3_2(run_dir: Path) -> bool:
     target = run_dir / "paper_springer.qmd"
-    if target.is_file() and target.read_text(encoding="utf-8", errors="ignore").strip():
-        return False
     draft = run_dir / "paper_draft_v0.qmd"
+    if target.is_file() and target.read_text(encoding="utf-8", errors="ignore").strip():
+        # ⚠️ P0 gate breakout (2026-07-07): an existing springer is NOT trusted
+        # blindly. Retro-rerun jobs carried a pre-V3.2 springer with a stale
+        # 'Abstract pending.' stub in the RENDER surface while the draft was
+        # cleaned; the early return here never resynced it, so three jobs
+        # reached the VIP station (one done_pass on the public site) with a
+        # double-Abstract PDF. Resync the abstract from a clean draft.
+        return _resync_springer_abstract_from_draft(run_dir)
     if not draft.is_file():
         return False
     text = draft.read_text(encoding="utf-8", errors="ignore")
@@ -927,6 +933,83 @@ def _ensure_paper_springer_source_v3_2(run_dir: Path) -> bool:
         text = _insert_qmd_yaml_flag(text, "number-sections: true")
     target.write_text(text, encoding="utf-8")
     return True
+
+
+def _resync_springer_abstract_from_draft(run_dir: Path) -> bool:
+    """When paper_springer.qmd's frontmatter abstract is a stub but the draft's
+    is real/clean, copy the draft abstract into springer (preserving springer's
+    own render flags). Returns True if it changed springer."""
+    springer_path = run_dir / "paper_springer.qmd"
+    draft_path = run_dir / "paper_draft_v0.qmd"
+    if not springer_path.is_file() or not draft_path.is_file():
+        return False
+    springer = springer_path.read_text(encoding="utf-8", errors="ignore")
+    draft = draft_path.read_text(encoding="utf-8", errors="ignore")
+    s_front = re.match(r"(?s)\A---(.*?)---", springer)
+    d_front = re.match(r"(?s)\A---(.*?)---", draft)
+    if not s_front or not d_front:
+        return False
+    s_abstract = _frontmatter_abstract(s_front.group(1)) or ""
+    d_abstract = _frontmatter_abstract(d_front.group(1))
+    s_is_stub = bool(_ABSTRACT_STUB_RE.search(s_abstract) and len(s_abstract) < 120)
+    if not s_is_stub:
+        return False
+    # The draft was cleaned in one of two ways: (a) the abstract key was
+    # replaced with a real abstract, or (b) the abstract key was removed
+    # entirely (draft has NO frontmatter abstract). The render-surface springer
+    # must match either way: copy a real draft abstract in, or drop the stub
+    # abstract when the draft has none. Never leave a stub in the render
+    # surface. (2026-07-07: ESG/Transfer/DTP3 draft abstracts were removed,
+    # not rewritten, so a copy-only resync silently did nothing.)
+    if d_abstract and not _ABSTRACT_STUB_RE.search(d_abstract):
+        new_front = _replace_frontmatter_abstract(s_front.group(1), d_abstract)
+    else:
+        new_front = _remove_frontmatter_abstract(s_front.group(1))
+    if new_front == s_front.group(1):
+        return False
+    updated = "---" + new_front + "---" + springer[s_front.end():]
+    springer_path.write_text(updated, encoding="utf-8")
+    return True
+
+
+def _remove_frontmatter_abstract(front: str) -> str:
+    """Drop the abstract block (inline or block scalar) from a frontmatter
+    string entirely."""
+    lines = front.splitlines(keepends=True)
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        if re.match(r"^abstract:\s*", lines[i]):
+            i += 1
+            while i < len(lines) and (not lines[i].strip() or re.match(r"^\s{2,}\S", lines[i])):
+                i += 1
+            continue
+        out.append(lines[i])
+        i += 1
+    return "".join(out)
+
+
+def _replace_frontmatter_abstract(front: str, new_abstract: str) -> str:
+    """Replace the abstract block (inline or block scalar) in a frontmatter
+    string with a block-scalar abstract carrying new_abstract."""
+    lines = front.splitlines(keepends=True)
+    out: list[str] = []
+    i = 0
+    replaced = False
+    while i < len(lines):
+        line = lines[i]
+        if re.match(r"^abstract:\s*", line) and not replaced:
+            out.append("abstract: |\n")
+            out.append("  " + new_abstract.strip() + "\n")
+            replaced = True
+            i += 1
+            # skip the old abstract's continuation (block-scalar indented lines)
+            while i < len(lines) and (not lines[i].strip() or re.match(r"^\s{2,}\S", lines[i])):
+                i += 1
+            continue
+        out.append(line)
+        i += 1
+    return "".join(out)
 
 
 def _insert_qmd_yaml_flag(text: str, flag: str) -> str:
