@@ -49,3 +49,31 @@ def test_normalize_frontmatter_removes_flattened_metadata_from_abstract_and_keyw
     assert "- transfer learning" in keywords_block
     assert "- format:" not in keywords_block
     assert "top=25mm" not in keywords_block
+
+
+def test_extract_abstract_handles_unnumbered_heading_attribute():
+    """Root cause of the 2026-07-07 double-Abstract breakout: the writer emits
+    '# Abstract {.unnumbered}', but _extract_abstract's regex required the
+    heading text to be followed directly by a newline, so the attribute block
+    made it MISS the section. It then fell back to injecting 'Abstract
+    pending.' into the frontmatter while leaving the real body Abstract in
+    place -> two Abstracts in the rendered PDF (DTP3/ESG/e9e1 all carried
+    '# Abstract {.unnumbered}')."""
+    body = (
+        "# Abstract {.unnumbered}\n\n"
+        "This is the real abstract text describing the study.\n\n"
+        "# Introduction\n\nBody prose.\n"
+    )
+    abstract, new_body, _kw = render_springer._extract_abstract("", body)
+    assert "real abstract text" in abstract
+    assert "Abstract pending" not in abstract
+    # the body Abstract section must be REMOVED so it does not render twice
+    assert "# Abstract" not in new_body
+    assert "# Introduction" in new_body
+
+
+def test_extract_abstract_still_handles_plain_heading():
+    body = "## Abstract\n\nPlain-heading abstract.\n\n## Methods\n\nx\n"
+    abstract, new_body, _kw = render_springer._extract_abstract("", body)
+    assert "Plain-heading abstract" in abstract
+    assert "Abstract" not in new_body.split("Methods")[0]
