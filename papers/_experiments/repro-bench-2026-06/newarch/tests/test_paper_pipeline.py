@@ -11,10 +11,10 @@ from packs.paper import pipeline
 pytestmark = pytest.mark.unit
 
 
-def test_pipeline_has_seven_phases_in_order():
+def test_pipeline_has_eight_phases_in_order():
     names = [p.name for p in pipeline.build_paper_phases()]
     assert names == ["data", "gap", "structure", "claim_evidence",
-                     "write", "render_gates", "review_heal"]
+                     "write", "render_gates", "review_heal", "format_repair"]
 
 
 def test_phases_checkpoint_real_artifacts():
