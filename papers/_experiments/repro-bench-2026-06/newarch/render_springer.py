@@ -57,12 +57,17 @@ def _extract_abstract(fm: str, body: str) -> tuple[str, str, str]:
     the revision loop rewrites `# Abstract` as `## Abstract`) or the old
     frontmatter. Also captures a trailing `**Keywords:** ...` line the writer
     put inside the section. Returns (abstract, body_without_section, keywords_line)."""
-    # The heading may carry a Pandoc attribute block, e.g. '# Abstract
-    # {.unnumbered}'. Without allowing it, the section was MISSED, the
-    # frontmatter got an 'Abstract pending.' stub injected, and the body
-    # Abstract rendered a second time (2026-07-07 double-Abstract breakout).
+    # The abstract marker varies with how the writer emitted it (all seen in
+    # production, all the same double-Abstract breakout when missed):
+    #   '# Abstract', '## Abstract', '# Abstract {.unnumbered}' (Pandoc attr),
+    #   or a bold '**Abstract**' line (0deb). Match any of them; the section
+    #   ends at the next heading OR the next bold marker line. Missing it
+    #   injected an 'Abstract pending.' stub AND left the real body Abstract
+    #   in place, rendering two Abstracts.
     am = re.search(
-        r"(?ms)^#{1,3}\s*Abstract\s*(?:\{[^}\n]*\})?\s*\n+(.*?)(?=\n#{1,3}\s)", body
+        r"(?ms)^(?:#{1,3}\s*Abstract\s*(?:\{[^}\n]*\})?|\*\*\s*Abstract\s*\*\*)\s*\n+"
+        r"(.*?)(?=\n#{1,3}\s|\n\*\*\s*(?!Keywords)[A-Z])",
+        body,
     )
     if am:
         text = am.group(1)

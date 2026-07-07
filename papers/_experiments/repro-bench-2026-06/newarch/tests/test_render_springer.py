@@ -77,3 +77,25 @@ def test_extract_abstract_still_handles_plain_heading():
     abstract, new_body, _kw = render_springer._extract_abstract("", body)
     assert "Plain-heading abstract" in abstract
     assert "Abstract" not in new_body.split("Methods")[0]
+
+
+def test_extract_abstract_handles_bold_abstract_marker():
+    """0deb (Transfer Learning) wrote the abstract as a bold '**Abstract**'
+    line, not a '# Abstract' heading. _extract_abstract only matched '#'
+    headings, so it missed the section, injected the 'Abstract pending.'
+    stub into the frontmatter, and left the bold Abstract block in the body
+    -> double Abstract. The abstract itself was complete and correct; only
+    the marker style differed (same class as the {.unnumbered} variant)."""
+    body = (
+        "**Abstract**\n\n"
+        "Data-driven weather foundation models have achieved strong skill, yet "
+        "their transferability to rare events remains unresolved.\n\n"
+        "**Keywords:** extreme weather; transfer learning\n\n"
+        "# Introduction\n\nBody prose.\n"
+    )
+    abstract, new_body, kw = render_springer._extract_abstract("", body)
+    assert "weather foundation models" in abstract
+    assert "Abstract pending" not in abstract
+    assert "**Abstract**" not in new_body
+    assert "# Introduction" in new_body
+    assert "extreme weather" in kw
