@@ -625,6 +625,41 @@ def test_review_heal_applies_structural_repair_and_normalizes_review_schema(tmp_
     assert "link-citations: true" in (run_dir / "paper_springer.qmd").read_text(encoding="utf-8")
 
 
+def test_rendered_pdf_double_abstract_stub_fails_delivery(tmp_path: Path):
+    """The deepest layer of the 2026-07-07 stub breakout: even after the
+    springer SOURCE was resynced clean, the DELIVERED PDF was a stale render
+    (format_repair resumed via preflight gate-recheck, never re-rendered), so
+    page 1 still showed 'Abstract pending.' above the real abstract. Source
+    gates cannot catch a stale render; the delivery gate must judge the
+    rendered PDF text directly."""
+    from engine_v3.pipelines.paper import _validate_pdf_rendered_no_stub
+
+    stale_pdf_text = (
+        "DTP3 Immunization Coverage and Under-Five Mortality\n\n"
+        "Abstract\n\nAbstract pending.\nKeywords: immunization, coverage\n\n"
+        "Abstract\n\nUnder-five mortality has declined substantially, yet child "
+        "survival remains uneven across countries...\n"
+    )
+
+    result = _validate_pdf_rendered_no_stub(stale_pdf_text)
+
+    assert result["valid"] is False
+    assert any("abstract" in f.lower() for f in result["findings"])
+
+
+def test_rendered_pdf_single_clean_abstract_passes(tmp_path: Path):
+    from engine_v3.pipelines.paper import _validate_pdf_rendered_no_stub
+
+    clean = (
+        "Taiwan ESG Disclosure Reform\n\n"
+        "Abstract\n\nMandatory ESG disclosure reforms are intended to improve "
+        "corporate transparency, but their value depends on whether firms improve "
+        "the substance of reporting...\nKeywords: mandatory ESG disclosure\n"
+    )
+
+    assert _validate_pdf_rendered_no_stub(clean)["valid"] is True
+
+
 def test_springer_abstract_resyncs_from_draft_when_draft_is_clean(tmp_path: Path):
     """P0 gate breakout (2026-07-07): three retro-rerun jobs (ESG/Transfer/
     DTP3) reached the VIP station — one already done_pass on the public site —

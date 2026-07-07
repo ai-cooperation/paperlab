@@ -2252,11 +2252,41 @@ def _validate_delivery_pdf(pdf, run_dir=None) -> dict[str, object]:
     # citations were stripped somewhere between the pass review and the
     # render, and every source-level check missed the final surface. The
     # rendered PDF is the user-facing ground truth; judge it directly.
+    rendered_no_stub = _validate_pdf_rendered_no_stub(text or "")
+    evidence["rendered_no_stub"] = rendered_no_stub
+    findings.extend(rendered_no_stub.get("findings") or [])
+
     references_rendered = _validate_pdf_references_rendered(text or "", check_dir)
     evidence["references_rendered"] = references_rendered
     findings.extend(references_rendered.get("findings") or [])
 
     return {**evidence, "valid": not findings, "findings": findings}
+
+
+def _validate_pdf_rendered_no_stub(pdf_text: str) -> dict[str, object]:
+    """The rendered PDF is the user's actual surface. Judge it directly for the
+    stub-abstract breakout (2026-07-07): a stale render kept 'Abstract pending.'
+    on page 1 even after the source was cleaned, because format_repair resumed
+    via preflight gate-recheck and never re-rendered. Cause-agnostic: whatever
+    left a stub in the delivered PDF, block it."""
+    text = pdf_text or ""
+    head = text[:4000]  # page 1 region
+    findings: list[str] = []
+    if re.search(r"(?i)abstract\s+pending|pending\.\s*$", head, flags=re.MULTILINE) or "Abstract pending" in head:
+        findings.append(
+            "rendered PDF page 1 contains a placeholder 'Abstract pending.' stub; "
+            "the delivered render is stale or the render surface still carries a "
+            "stub abstract - re-render from the cleaned source"
+        )
+    # A double 'Abstract' heading on page 1 is the double-Abstract symptom even
+    # if the stub text was reworded.
+    abstract_headers = len(re.findall(r"(?mi)^\s*Abstract\s*$", head))
+    if abstract_headers >= 2 and not findings:
+        findings.append(
+            "rendered PDF page 1 shows %d 'Abstract' headings (double-Abstract); "
+            "the frontmatter stub abstract rendered above the real one" % abstract_headers
+        )
+    return {"valid": not findings, "findings": findings, "abstract_headers": abstract_headers}
 
 
 def _validate_pdf_references_rendered(pdf_text: str, run_dir: Path) -> dict[str, object]:
