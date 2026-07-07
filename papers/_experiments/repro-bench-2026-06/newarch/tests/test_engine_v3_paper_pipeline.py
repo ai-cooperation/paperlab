@@ -896,6 +896,59 @@ def test_review_method_relocation_never_fabricates_without_selected_trace(tmp_pa
     assert "capability_class" not in method
 
 
+def test_normalizer_relocates_per_dimension_score_0_10_key(tmp_path: Path):
+    """Fresh E2E clean rerun of v3_e9e1b75927a6: Hermes wrote each dimension
+    as {"score_0_10": 8.1, "status": ..., "rationale": ...} instead of the
+    canonical {"score": 8.1}. The gate read no numeric score -> 'dimension
+    score is not numeric' x7 and floor dropped to 76 on an otherwise-clean
+    review (all dims 8+, review_method complete). Same class as 0f6a round 6
+    (capability_decision_trace): a reasonable non-canonical field name that
+    the schema normalizer must relocate, not fabricate."""
+    from engine_v3.pipelines.paper import _normalize_review_record_schema
+
+    (tmp_path / "quality_review_round1.json").write_text(
+        json.dumps({
+            "delivery": "pass",
+            "p0_count": 0,
+            "floor_100": 76,
+            "review_loop": {"status": "passed", "rounds": 1, "reviewer_model": "r",
+                            "fixer_model": "f", "independent_reviewer": True, "floor_failed": False},
+            "dimensions": {
+                "academic_rigor": {"score_0_10": 8.1, "status": "pass", "rationale": "ok"},
+                "citation_accuracy": {"score_0_10": 9.3, "status": "pass", "rationale": "ok"},
+            },
+            "findings": [],
+        }),
+        encoding="utf-8",
+    )
+
+    _normalize_review_record_schema(tmp_path)
+
+    review = json.loads((tmp_path / "quality_review_round1.json").read_text(encoding="utf-8"))
+    dims = review["dimensions"]
+    assert dims["academic_rigor"]["score"] == 8.1
+    assert dims["citation_accuracy"]["score"] == 9.3
+
+
+def test_normalizer_does_not_overwrite_an_existing_canonical_score(tmp_path: Path):
+    from engine_v3.pipelines.paper import _normalize_review_record_schema
+
+    (tmp_path / "quality_review_round1.json").write_text(
+        json.dumps({
+            "delivery": "pass", "p0_count": 0, "floor_100": 82,
+            "review_loop": {"status": "passed", "rounds": 1},
+            "dimensions": {"academic_rigor": {"score": 8.0, "score_0_10": 3.0}},
+        }),
+        encoding="utf-8",
+    )
+
+    _normalize_review_record_schema(tmp_path)
+
+    review = json.loads((tmp_path / "quality_review_round1.json").read_text(encoding="utf-8"))
+    # canonical score wins; the alias must not clobber it
+    assert review["dimensions"]["academic_rigor"]["score"] == 8.0
+
+
 def test_review_heal_normalizes_alternate_dimension_score_schema(tmp_path: Path):
     run_dir = tmp_path / "run"
     run_dir.mkdir()

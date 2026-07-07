@@ -1626,6 +1626,17 @@ def _normalize_review_record_schema(run_dir: Path) -> bool:
     for value in dimensions.values():
         if not isinstance(value, dict):
             continue
+        # Relocate a reasonable non-canonical per-dimension score key into the
+        # canonical "score" (E2E job v3_e9e1b75927a6: Hermes wrote
+        # {"score_0_10": 8.1} and the gate read no numeric score -> floor 76
+        # on an otherwise-clean review). Never clobber an existing score.
+        if _numeric_review_value(value.get("score")) is None:
+            for alias in ("score_0_10", "score_0_to_10", "score_out_of_10"):
+                aliased = _numeric_review_value(value.get(alias))
+                if aliased is not None:
+                    value["score"] = aliased
+                    changed = True
+                    break
         score = _numeric_review_value(value.get("score"))
         if score is None or score <= 10:
             continue
