@@ -446,6 +446,7 @@ def _project_status(dossier: Any, run_dir: Path) -> dict[str, Any]:
         "a_gap": _phase_gap(run_dir),
         "viability": dossier.evidence.get("viability"),
         "human_checkpoint": dossier.evidence.get("human_checkpoint"),
+        "lane_downgrade": _lane_downgrade(run_dir),
         "summary": {
             "floor_100": review.get("floor_100"),
             "delivery": delivery,
@@ -490,6 +491,16 @@ def _artifact_url(job_id: str, artifact_id: str, sha256: str = "") -> str:
     encoded = "/".join(quote(part, safe="") for part in artifact_id.split("/"))
     cache_buster = ("?sha=" + quote(sha256[:16], safe="")) if sha256 else ""
     return f"/v3/jobs/{job_id}/artifact/{encoded}{cache_buster}"
+
+
+def _lane_downgrade(run_dir: Path):
+    """D1 (V3_2_SPEC.md Decisions): surface the explicit lane-downgrade event
+    (meta-analysis -> narrative evidence map when no poolable effects) so the
+    status page can state it. Returns the structured {from,to,reason,...}
+    fact from real_results.json, or None when the run kept its lane."""
+    rr = _read_json(run_dir / "real_experiments" / "real_results.json")
+    downgrade = rr.get("lane_downgrade") if isinstance(rr, dict) else None
+    return downgrade if isinstance(downgrade, dict) and downgrade else None
 
 
 def _phase_gap(run_dir: Path) -> list[dict[str, str]]:

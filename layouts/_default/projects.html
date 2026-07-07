@@ -37,8 +37,8 @@ const PJ = (() => {
   const $ = (id) => document.getElementById(id);
   const show = (id, on) => $(id).classList.toggle('hidden', !on);
   const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const BADGE = { ready:'bg-gray-100 text-gray-600', submitted:'bg-blue-100 text-blue-700', running:'bg-amber-100 text-amber-700', done:'bg-green-100 text-green-700', blocked:'bg-red-100 text-red-700', error:'bg-red-100 text-red-700' };
-  const LABEL = { ready:'已存草稿（未送出）', submitted:'已送出', running:'執行中', done:'完成', blocked:'卡住', error:'錯誤' };
+  const BADGE = { ready:'bg-gray-100 text-gray-600', submitted:'bg-blue-100 text-blue-700', running:'bg-amber-100 text-amber-700', human_review_required:'bg-amber-100 text-amber-800', done:'bg-green-100 text-green-700', blocked:'bg-red-100 text-red-700', error:'bg-red-100 text-red-700' };
+  const LABEL = { ready:'已存草稿（未送出）', submitted:'已送出', running:'執行中', human_review_required:'等待人工核准', done:'完成', blocked:'卡住', error:'錯誤' };
 
   async function load() {
     try {
@@ -52,8 +52,13 @@ const PJ = (() => {
         const st = p.status || 'ready';
         const badge = BADGE[st] || BADGE.ready;
         const statusLink = p.pipeline_status_url ? `<a href="/project/?status=${encodeURIComponent(p.pipeline_status_url)}" class="text-secondary underline">查即時進度</a>` : '';
+        const isV3 = /\/v3\/jobs\/[^/]+\/status\/?$/.test(String(p.pipeline_status_url || ''));
         const hasPaperRoute = /\/(v2\/jobs|jobs)\/[^/]+\/status\/?$/.test(String(p.pipeline_status_url || ''));
-        const paperLink = (st === 'done' && hasPaperRoute) ? `<a href="${esc(p.pipeline_status_url).replace(/\/status\/?$/, '/paper')}" target="_blank" rel="noreferrer" class="text-green-700 font-bold underline">下載論文 PDF</a>` : '';
+        const paperLink = (st === 'done' && isV3)
+          ? `<a href="/project/?status=${encodeURIComponent(p.pipeline_status_url)}" class="text-green-700 font-bold underline">下載論文 PDF</a>`
+          : (st === 'done' && hasPaperRoute)
+            ? `<a href="${esc(p.pipeline_status_url).replace(/\/status\/?$/, '/paper')}" target="_blank" rel="noreferrer" class="text-green-700 font-bold underline">下載論文 PDF</a>`
+            : '';
         return `<div class="bg-white border border-gray-200 rounded-xl p-5">
           <div class="flex items-start justify-between gap-3 mb-2">
             <h3 class="font-bold text-primary flex-1 leading-snug">${esc(p.topic || p.id)}</h3>

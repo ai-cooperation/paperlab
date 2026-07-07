@@ -296,6 +296,59 @@ def test_v3_status_includes_project_page_projection(tmp_path: Path, golden_dir: 
     assert "/artifact/paper_draft_v0.pdf?sha=" in payload["artifacts"]["pdf"]
 
 
+def test_project_status_projection_surfaces_lane_downgrade(tmp_path: Path):
+    """D1 (V3_2_SPEC.md Decisions): a meta-analysis contract that downgrades
+    to a narrative/evidence-map deliverable is an EXPLICIT event - stated in
+    the manuscript AND on the status page. The v3 projection did not carry
+    lane_downgrade at all, so the project page could not show it. Surface the
+    structured downgrade fact (from/to/reason) from real_results.json."""
+    from engine_v3.core import DossierStore
+    from engine_v3.routes import _project_status
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "research_contract.input.json").write_text(
+        '{"topic":"T","research_question":"Q","level":"master"}', encoding="utf-8"
+    )
+    (run_dir / "real_experiments").mkdir()
+    (run_dir / "real_experiments" / "real_results.json").write_text(
+        '{"lane_downgrade": {"from": "meta-analysis", '
+        '"to": "narrative_evidence_map_review", '
+        '"decided_by": "data_phase_evidence_floor", '
+        '"reason": "no extractable poolable effects"}}',
+        encoding="utf-8",
+    )
+    store = DossierStore(run_dir)
+    dossier = store.create(job_id="v3_dg", domain="paper")
+    for ph in ("data", "gap", "structure", "claim_evidence", "write", "render_gates", "review_heal", "format_repair"):
+        dossier.mark_phase(ph, "done")
+    store.save(dossier)
+
+    proj = _project_status(dossier, run_dir)
+
+    dg = proj["lane_downgrade"]
+    assert dg["from"] == "meta-analysis"
+    assert dg["to"] == "narrative_evidence_map_review"
+    assert "poolable" in dg["reason"]
+
+
+def test_project_status_no_downgrade_reports_none(tmp_path: Path):
+    from engine_v3.core import DossierStore
+    from engine_v3.routes import _project_status
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "research_contract.input.json").write_text('{"topic":"T"}', encoding="utf-8")
+    store = DossierStore(run_dir)
+    dossier = store.create(job_id="v3_nd", domain="paper")
+    store.save(dossier)
+
+    proj = _project_status(dossier, run_dir)
+
+    assert "lane_downgrade" in proj
+    assert proj["lane_downgrade"] is None
+
+
 def test_phase_gap_projection_never_dumps_raw_markdown(tmp_path: Path):
     """User-facing regression (project v3_0deb2abec3d2): the 研究缺口 block on
     the project page showed the ENTIRE phase3_positioning.md verbatim -
