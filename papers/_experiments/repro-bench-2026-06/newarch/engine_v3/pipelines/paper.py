@@ -1592,11 +1592,32 @@ def _apply_review_structural_repairs(run_dir: Path) -> bool:
 MOJIBAKE_MARKERS = ("\u00e2\u20ac", "\u00c3\u00a9", "\u00c3\u00a8", "\u00ef\u00bf\u00bd")
 
 
+def _section_source_relpaths(run_dir: Path) -> list[str]:
+    """Ordered section sources for an ADR-001 NEW-ARCHITECTURE run (paper_meta.json
+    present). Empty for a legacy run — the section-source surface is an ADR-001
+    concept; a legacy run's authored source of truth is the qmd, and its flat
+    sections/*.md may be stale, so gates must NOT treat them as authoritative
+    (ADR-001 §V2-C). This keeps the gate migration a no-op for in-flight legacy
+    jobs while pointing new-arch gates at the healer's real edit target."""
+    meta, _findings = engine_assembly.load_paper_meta(run_dir)
+    if not isinstance(meta, dict):
+        return []
+    rels = [str(meta.get("abstract_ref") or "")]
+    rels += [str(r) for r in meta.get("section_order") or []]
+    return [r for r in rels if r]
+
+
 def _validate_text_encoding(run_dir: Path) -> dict[str, object]:
     """UTF-8 mojibake in manuscript or bibliography (round 16 residue:
-    'schoolsâ€"a' from a double-encoded em-dash in a bib title)."""
+    'schoolsâ€"a' from a double-encoded em-dash in a bib title).
+
+    ADR-001 §V2-C: scan SOURCES (sections/*.md) AND the generated qmd — mojibake
+    enters at authoring (a source string) and at assembly/normalization. Scanning
+    only one surface loses the other class."""
     findings: list[str] = []
-    for rel in ("paper_draft_v0.qmd", "paper_springer.qmd", "references.bib"):
+    targets = ["paper_draft_v0.qmd", "paper_springer.qmd", "references.bib"]
+    targets += _section_source_relpaths(run_dir)
+    for rel in targets:
         path = run_dir / rel
         if not path.is_file():
             continue
@@ -2569,7 +2590,13 @@ def _validate_citation_distribution(run_dir: Path) -> dict[str, object]:
     """No citation-dump sections. The dead-refs gate requires every bib entry
     cited IN CONTEXT; round 14 the writer invented an '8. Bibliographic Scope
     Note' section dumping ~40 citations in one paragraph to game the gate -
-    a structure that does not exist in academic writing."""
+    a structure that does not exist in academic writing.
+
+    ADR-001 §V2-C: this gate KEEPs reading the GENERATED qmd, READ-ONLY. A
+    30+30-citation dump spanning a section boundary is a POST-JOIN property
+    invisible in any single sections/*.md; reading per-section sources would lose
+    it. Correct because the gate never WRITES — the healer's edit target stays the
+    source, and ensure_assembled re-derives the qmd before this gate runs."""
     path = run_dir / "paper_draft_v0.qmd"
     if not path.is_file():
         return {"valid": True, "findings": []}
@@ -2604,29 +2631,57 @@ def _validate_title_language(run_dir: Path) -> dict[str, object]:
     """The manuscript title must be in the manuscript's language. The title is
     copied from the b-side contract topic, which may be in the grill
     conversation's language (2026-07-02: Chinese title on an all-English
-    manuscript)."""
-    path = run_dir / "paper_draft_v0.qmd"
-    if not path.is_file():
-        return {"valid": True, "findings": []}
-    text = path.read_text(encoding="utf-8", errors="ignore")
-    title_match = re.search(r'(?m)^title:\s*"?([^"\n]+)"?', text)
-    if not title_match:
-        return {"valid": True, "findings": []}
-    title = title_match.group(1)
-    body = re.sub(r"(?s)\A---.*?---", "", text, count=1)
+    manuscript).
+
+    ADR-001 §V2-C: on a new-architecture run the title's source of truth is
+    paper_meta.json (not the generated qmd frontmatter). Read it there AND assert
+    the RENDERED springer frontmatter title equals it — render_springer._old_title
+    (render_springer.py:48-52) silently falls back to contract.topic when its regex
+    misses, so validating only the source lets a fallback title reach the PDF."""
+    findings: list[str] = []
+    meta, _ = engine_assembly.load_paper_meta(run_dir)
+    if isinstance(meta, dict):
+        title = str(meta.get("title") or "")
+        # render-surface mismatch: the springer frontmatter title must equal the
+        # meta title, or _old_title dropped a fallback topic into the delivered PDF.
+        springer = run_dir / "paper_springer.qmd"
+        if springer.is_file():
+            s_text = springer.read_text(encoding="utf-8", errors="ignore")
+            s_front = re.match(r"(?s)\A---(.*?)---", s_text)
+            s_match = re.search(r'(?m)^title:\s*"?([^"\n]+?)"?\s*$', s_front.group(1)) if s_front else None
+            rendered = s_match.group(1).strip() if s_match else ""
+            if rendered and title and rendered.replace("'", '"') != title.replace("'", '"'):
+                findings.append(
+                    "rendered springer title %r does not match paper_meta.json title %r "
+                    "(render_springer._old_title fallback); the delivered PDF carries the wrong title"
+                    % (rendered[:60], title[:60])
+                )
+        body_source = " ".join(
+            (run_dir / rel).read_text(encoding="utf-8", errors="ignore")
+            for rel in _section_source_relpaths(run_dir)
+            if (run_dir / rel).is_file()
+        )
+    else:
+        path = run_dir / "paper_draft_v0.qmd"
+        if not path.is_file():
+            return {"valid": True, "findings": []}
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        title_match = re.search(r'(?m)^title:\s*"?([^"\n]+)"?', text)
+        if not title_match:
+            return {"valid": True, "findings": []}
+        title = title_match.group(1)
+        body_source = re.sub(r"(?s)\A---.*?---", "", text, count=1)
+
     title_cjk = _cjk_ratio(title)
-    body_cjk = _cjk_ratio(body)
+    body_cjk = _cjk_ratio(body_source)
     mismatch = (title_cjk >= 0.5 and body_cjk < 0.1) or (title_cjk < 0.1 and body_cjk >= 0.5)
-    if not mismatch:
-        return {"valid": True, "findings": []}
-    return {
-        "valid": False,
-        "findings": [
+    if mismatch:
+        findings.append(
             "title language does not match manuscript body language "
             "(title CJK ratio %.2f vs body %.2f); translate the title into the manuscript language"
             % (title_cjk, body_cjk)
-        ],
-    }
+        )
+    return {"valid": not findings, "findings": findings}
 
 
 _ABSTRACT_STUB_RE = re.compile(
@@ -2722,8 +2777,12 @@ def _validate_inline_heading_leakage(run_dir: Path) -> dict[str, object]:
     ## Related Work'), so the rendered PDF showed literal '## X' tokens
     mid-paragraph and no real section existed after Introduction. Both
     mechanical gates and a floor-84 Hermes review missed it."""
+    # ADR-001 §V2-C: scan the SECTION SOURCES and the generated qmd (superset). A
+    # glued heading enters from prose (a source the healer edits), but the assembler
+    # joins/markers could also introduce one on the generated surface — cover both.
     findings: list[str] = []
-    for name in ("paper_draft_v0.qmd", "paper_springer.qmd"):
+    targets = ["paper_draft_v0.qmd", "paper_springer.qmd"] + _section_source_relpaths(run_dir)
+    for name in targets:
         path = run_dir / name
         if not path.is_file():
             continue
@@ -2752,14 +2811,29 @@ def _validate_citations_rendered(run_dir: Path) -> dict[str, object]:
     citations while 35 two-source-verified entries sat unused: the body
     named authors in prose without one @citekey, so citeproc rendered
     nothing. Dump-pattern checks cannot catch total absence."""
+    # ADR-001 §V2-C: on a NEW-ARCHITECTURE run (paper_meta.json present) the healer
+    # edits sections/*.md and citation presence (@citekey) is per-section-visible, so
+    # read the SOURCES — gate and fix on the same surface. A legacy run keeps reading
+    # the generated qmd (its flat section files may be stale/thin while the qmd is the
+    # authored source of truth).
     bib = run_dir / "references.bib"
-    qmd = run_dir / "paper_draft_v0.qmd"
-    if not bib.is_file() or not qmd.is_file():
+    if not bib.is_file():
         return {"valid": True, "findings": []}
     bib_keys = set(re.findall(r"@\w+\{([^,\s]+),", bib.read_text(encoding="utf-8", errors="ignore")))
     if not bib_keys:
         return {"valid": True, "findings": []}
-    body = re.sub(r"(?s)\A---.*?---", "", qmd.read_text(encoding="utf-8", errors="ignore"), count=1)
+    section_rels = _section_source_relpaths(run_dir)  # non-empty only on new-arch runs
+    if section_rels:
+        body = " ".join(
+            (run_dir / rel).read_text(encoding="utf-8", errors="ignore")
+            for rel in section_rels
+            if (run_dir / rel).is_file()
+        )
+    else:
+        qmd = run_dir / "paper_draft_v0.qmd"
+        if not qmd.is_file():
+            return {"valid": True, "findings": []}
+        body = re.sub(r"(?s)\A---.*?---", "", qmd.read_text(encoding="utf-8", errors="ignore"), count=1)
     cited = set(re.findall(r"@([A-Za-z][A-Za-z0-9_:.#$%&+?<>~/-]*)", body)) & bib_keys
     if cited:
         return {"valid": True, "findings": [], "cited_count": len(cited)}

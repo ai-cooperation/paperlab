@@ -7,6 +7,7 @@ infinite-heal-loop class) is back.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -219,3 +220,112 @@ def test_batch_reset_still_fires_on_gate_logic_failure_with_fresh_sources(tmp_pa
     assert rvb._prepare_acceptance_repair_resume(jobs_dir, job_id, validation)
     dossier = json.loads((jobs_dir / job_id / "run" / "dossier.v3.json").read_text())
     assert dossier["phases"]["format_repair"] == "blocked"
+
+
+# --- §8b: gate MOVE-vs-KEEP-READONLY dispositions (ADR-001 §V2-C) --------------
+
+import json as _json
+from engine_v3.pipelines.paper import (
+    _section_source_relpaths,
+    _validate_citation_distribution,
+    _validate_citations_rendered,
+    _validate_inline_heading_leakage,
+    _validate_text_encoding,
+    _validate_title_language,
+)
+
+
+def _cite_a_section(run: Path) -> None:
+    """Give the new-arch run a real [@key] citation + matching bib so the MOVE'd
+    citations_rendered gate is satisfied on the source surface."""
+    (run / "references.bib").write_text("@article{k1, author={A B}, title={T}, year={2024}, journal={J}}\n", encoding="utf-8")
+    p = run / "sections" / "part1.md"
+    p.write_text(p.read_text(encoding="utf-8") + "\n\nEvidence supports this [@k1].", encoding="utf-8")
+
+
+def test_section_source_relpaths_empty_on_legacy(tmp_path: Path) -> None:
+    (tmp_path / "sections").mkdir()
+    (tmp_path / "sections" / "introduction.md").write_text("legacy flat section", encoding="utf-8")
+    assert _section_source_relpaths(tmp_path) == []  # no paper_meta.json -> legacy -> empty
+
+
+def test_section_source_relpaths_from_meta_on_new_arch(tmp_path: Path) -> None:
+    run = make_run(tmp_path)
+    rels = _section_source_relpaths(run)
+    assert rels[0] == "sections/00_abstract.md"
+    assert "sections/part1.md" in rels
+
+
+def test_citations_rendered_moves_to_sections_on_new_arch(tmp_path: Path) -> None:
+    run = make_run(tmp_path)
+    from engine_v3.assembly import assemble_paper
+    # sections have NO citation yet -> gate must FLAG (reading sources, per §V2-C)
+    (run / "references.bib").write_text("@article{k1, author={A B}, year={2024}}\n", encoding="utf-8")
+    assemble_paper(run)
+    assert _validate_citations_rendered(run)["valid"] is False
+    # add a citation to a SOURCE section -> gate clears (fix + gate same surface)
+    _cite_a_section(run)
+    assemble_paper(run)
+    assert _validate_citations_rendered(run)["valid"] is True
+
+
+def test_citation_distribution_keeps_reading_generated_qmd(tmp_path: Path) -> None:
+    """Cross-boundary dump is a POST-JOIN property: the gate must read the generated
+    qmd (KEEP-readonly), not per-section sources."""
+    run = make_run(tmp_path)
+    from engine_v3.assembly import assemble_paper
+    _cite_a_section(run)
+    assemble_paper(run)
+    assert _validate_citation_distribution(run)["valid"] is True
+    # a citation dump spanning the assembled body is caught on the generated surface
+    dump = "\n\n" + " ".join("[@k%d]" % i for i in range(40)) + "\n"
+    (run / "paper_draft_v0.qmd").write_text(
+        (run / "paper_draft_v0.qmd").read_text(encoding="utf-8") + dump, encoding="utf-8"
+    )
+    assert _validate_citation_distribution(run)["valid"] is False
+
+
+def test_title_language_asserts_rendered_matches_meta(tmp_path: Path) -> None:
+    """New-arch title source of truth is paper_meta.json; the rendered springer
+    title must equal it (guards render_springer._old_title fallback)."""
+    run = make_run(tmp_path)
+    from engine_v3.assembly import assemble_paper, ir_render_values
+    import render_springer
+    _cite_a_section(run)
+    assemble_paper(run)
+    render_springer.normalize_frontmatter(run, {}, ir_values=ir_render_values(run))
+    assert _validate_title_language(run)["valid"] is True
+    # simulate the _old_title fallback: springer frontmatter carries a WRONG title
+    sp = run / "paper_springer.qmd"
+    txt = sp.read_text(encoding="utf-8")
+    txt = re.sub(r'(?m)^title:\s*".*?"', 'title: "Totally Different Fallback Topic"', txt, count=1)
+    sp.write_text(txt, encoding="utf-8")
+    result = _validate_title_language(run)
+    assert result["valid"] is False
+    assert "does not match" in " ".join(result["findings"])
+
+
+def test_text_encoding_scans_section_sources_on_new_arch(tmp_path: Path) -> None:
+    run = make_run(tmp_path)
+    from engine_v3.assembly import assemble_paper
+    _cite_a_section(run)
+    assemble_paper(run)
+    assert _validate_text_encoding(run)["valid"] is True
+    # mojibake introduced into a SOURCE section is caught (scan covers sources)
+    (run / "sections" / "part2.md").write_text("Body with broken UTF-8 â€ dash here.", encoding="utf-8")
+    result = _validate_text_encoding(run)
+    assert result["valid"] is False
+    assert any("part2" in f for f in result["findings"])
+
+
+def test_inline_heading_leak_scans_sources_but_ignores_source_map(tmp_path: Path) -> None:
+    run = make_run(tmp_path)
+    from engine_v3.assembly import assemble_paper
+    _cite_a_section(run)
+    assemble_paper(run)
+    # assembler output (with <!-- SOURCE --> markers) must NOT false-flag
+    assert _validate_inline_heading_leakage(run)["valid"] is True
+    # a genuine glued heading in a SOURCE section IS caught
+    (run / "sections" / "part2.md").write_text("Prose ends abruptly. ## Sneaky Heading", encoding="utf-8")
+    result = _validate_inline_heading_leakage(run)
+    assert result["valid"] is False
