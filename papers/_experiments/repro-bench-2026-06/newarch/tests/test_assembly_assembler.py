@@ -145,6 +145,22 @@ def test_ensure_assembled_noop_on_legacy_run(tmp_path: Path) -> None:
     assert "old" in (tmp_path / "paper_draft_v0.qmd").read_text(encoding="utf-8")
 
 
+def test_trailing_keywords_stripped_from_abstract(tmp_path: Path) -> None:
+    """VIP visual audit 2026-07-09: two migrated jobs rendered a `**Keywords:** ...`
+    dump INSIDE the abstract block (the writer appended it; frontmatter already
+    carries keywords). Mechanical gates passed it (not a stub, valid text); the page-1
+    visual caught it. _clean_prose must cut a trailing Keywords label without eating a
+    mid-sentence 'keyword:' in prose."""
+    from engine_v3.assembly.assembler import _clean_prose
+
+    stripped = _clean_prose(ABSTRACT_TEXT + " **Keywords:** exercise; anxiety; RCT")
+    assert "Keywords" not in stripped
+    assert "rapid surveillance" in stripped  # body preserved
+    # false-positive guard: a mid-prose 'keyword:' must NOT truncate the abstract
+    prose = "We treat the primary keyword: robustness as central and expand on it here."
+    assert "expand on it here" in _clean_prose(prose)
+
+
 def test_writer_heading_in_abstract_file_is_stripped(tmp_path: Path) -> None:
     run = make_run(tmp_path)
     (run / "sections" / "00_abstract.md").write_text(

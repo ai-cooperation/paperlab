@@ -90,10 +90,21 @@ def load_ir(run_dir: Path | str) -> tuple[PaperDraftIR | None, list[str]]:
 
 
 def _clean_prose(text: str) -> str:
-    """Strip a heading the writer may have left in the abstract file (the assembler
-    owns the heading) and collapse whitespace."""
+    """Normalize abstract prose: strip a leading Abstract heading (the assembler owns
+    it) and a trailing `**Keywords:** ...` run the writer appended (the frontmatter
+    carries keywords; leaving it in the abstract renders a keyword dump inside the
+    abstract block — VIP visual audit 2026-07-09 caught this on two migrated jobs).
+    Then collapse whitespace."""
     text = re.sub(r"(?m)^#{1,4}\s*Abstract\s*(?:\{[^}\n]*\})?\s*$", "", text)
     text = re.sub(r"(?m)^\*\*\s*Abstract\s*\*\*\s*$", "", text)
+    # Cut a trailing Keywords label + its run to EOF. Only when it reads as a LABEL,
+    # not prose: a **bold** Keywords marker (anywhere), or a Keywords: at line start.
+    # DOTALL so the run to EOF spans lines; the LABEL anchors (bold markers / line
+    # start) keep a mid-sentence "the keyword: X" from swallowing the abstract.
+    # `**Keywords:**` (colon inside the bold) or `**Keywords**:` or a plain
+    # `Keywords:` at line start — all a trailing label, cut to EOF.
+    text = re.sub(r"(?is)\*\*\s*keywords?\s*[:：]?\s*\*\*\s*[:：]?\s*.*\Z", "", text)
+    text = re.sub(r"(?ims)^\s*keywords?\s*[:：].*\Z", "", text)
     return " ".join(text.split())
 
 
