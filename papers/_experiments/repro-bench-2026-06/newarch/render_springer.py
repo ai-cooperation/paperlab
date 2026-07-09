@@ -267,17 +267,49 @@ def _strip_trailing_references(body: str) -> str:
     return re.sub(r"(?ms)\n#\s*References\s*\n*\Z", "\n", body)
 
 
+def _strip_assembled_abstract_block(body: str, abstract_rel: str) -> str:
+    """ADR-001 path: the assembler wrapped the abstract in its OWN source-map
+    markers, so the springer derivation cuts that exact block — no heading-variant
+    regex (the class that produced the double-Abstract treadmill)."""
+    if not abstract_rel:
+        return body
+    pattern = r"(?s)<!--\s*SOURCE:\s*%s\s*-->.*?<!--\s*END SOURCE:\s*%s\s*-->\n?" % (
+        re.escape(abstract_rel),
+        re.escape(abstract_rel),
+    )
+    return re.sub(pattern, "", body)
+
+
 def normalize_frontmatter(run_dir: Path, contract: dict[str, Any], src_name: str = "paper_draft_v0.qmd",
-                          out_name: str = "paper_springer.qmd") -> Path:
+                          out_name: str = "paper_springer.qmd",
+                          ir_values: dict[str, Any] | None = None) -> Path:
     """Write a journal-normalised COPY (out_name) of the canonical qmd. The canonical
     paper_draft_v0.qmd is left untouched so the consistency / claim-evidence / prose
-    gates keep operating on the model's original output."""
+    gates keep operating on the model's original output.
+
+    ir_values (ADR-001 new-architecture runs): title/abstract/keywords come from the
+    validated IR (paper_meta.json + sections/00_abstract.md) — never re-extracted
+    from the qmd by regex — and the body abstract block is removed via the
+    assembler's exact source-map markers. Legacy runs (ir_values=None) keep the
+    extraction path unchanged until live validation retires it."""
     qmd = run_dir / src_name
     text = qmd.read_text(encoding="utf-8")
     fm, body = _split_frontmatter(text)
-    title = _old_title(fm, contract)
-    abstract, body, body_kw = _extract_abstract(fm, body)
-    keywords = _extract_keywords(fm, contract, body_kw)
+    if ir_values is not None:
+        title = str(ir_values.get("title") or "").strip() or _old_title(fm, contract)
+        abstract = str(ir_values.get("abstract") or "").strip()
+        if not abstract:
+            # Fail loudly: the assembler fail-closes on a missing abstract, so an
+            # empty value here is a broken contract, never a stub-injection point.
+            raise ValueError("ir_values.abstract is empty; assembler contract violated")
+        body = _strip_assembled_abstract_block(body, str(ir_values.get("abstract_ref") or ""))
+        keywords = [str(k) for k in (ir_values.get("keywords") or []) if _valid_keyword(str(k))]
+        if len(keywords) < 3:
+            keywords = _extract_keywords(fm, contract, "")
+    else:
+        title = _old_title(fm, contract)
+        abstract, body, body_kw = _extract_abstract(fm, body)
+        keywords = _extract_keywords(fm, contract, body_kw)
     body = _strip_trailing_references(body)
     body = _isolate_generated(body)
     body = _strip_crossref_prefixes(body)
@@ -373,6 +405,19 @@ def ensure_assets(run_dir: Path) -> None:
         shutil.copy2(csl_src, run_dir / "scientometrics.csl")
 
 
+def _ir_values(run_dir: Path) -> dict[str, Any] | None:
+    """Structural render values from the ADR-001 IR when this is a new-architecture
+    run (paper_meta.json present + valid). None -> legacy extraction path. Lazy
+    import + broad guard: a broken meta must degrade to the legacy path, never crash
+    a render (the assembly gates surface the block report separately)."""
+    try:
+        from engine_v3.assembly import ir_render_values
+
+        return ir_render_values(run_dir)
+    except Exception:  # noqa: BLE001 - render must not die on assembly import/meta issues
+        return None
+
+
 def render(run_dir: Path, contract: dict[str, Any] | None = None, timeout_s: int = 420) -> bool:
     """Normalise + render paper_draft_v0.qmd to a real elsarticle PDF. Returns True on
     a valid PDF, False otherwise (caller may fall back to reportlab)."""
@@ -394,7 +439,7 @@ def render(run_dir: Path, contract: dict[str, Any] | None = None, timeout_s: int
     work_name = "paper_springer.qmd"
     work_pdf = run_dir / "paper_springer.pdf"
     try:
-        normalize_frontmatter(run_dir, contract, out_name=work_name)
+        normalize_frontmatter(run_dir, contract, out_name=work_name, ir_values=_ir_values(run_dir))
         sanitize_bib(run_dir)
         ensure_assets(run_dir)
     except Exception as exc:  # normalisation must never hard-crash the pipeline
