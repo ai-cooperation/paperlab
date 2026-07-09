@@ -428,7 +428,12 @@ def _gate_delivery(dossier: Any) -> GateResult:
     # ship, even if the PDF renders (2026-07-02 audit: verdicts written against
     # manuscripts rewritten after review).
     freshness_ok = isinstance(freshness, dict) and bool(freshness.get("fresh"))
-    ok = present and validation_ok and freshness_ok
+    # ADR-001 §V4-B: the delivered PDF must provably match its render sources
+    # (render_manifest hash). Empty/absent findings = fresh or legacy run — the
+    # conjunct never blocks an in-flight old-contract job.
+    delivery_freshness = evidence.get("delivery_freshness") if isinstance(evidence, dict) else None
+    delivery_fresh_ok = not delivery_freshness
+    ok = present and validation_ok and freshness_ok and delivery_fresh_ok
     findings = []
     if not present:
         findings.append("delivery PDF missing from artifact index")
@@ -442,6 +447,8 @@ def _gate_delivery(dossier: Any) -> GateResult:
             findings.extend(str(f) for f in freshness.get("findings") or [])
         else:
             findings.append("review freshness evidence missing; verdict is unbound")
+    if not delivery_fresh_ok:
+        findings.extend(str(f) for f in delivery_freshness or [])
     return GateResult(
         gate_id="Z",
         passed=ok,
@@ -452,6 +459,7 @@ def _gate_delivery(dossier: Any) -> GateResult:
             "present": present,
             "validation": validation or {},
             "review_freshness": freshness or {},
+            "delivery_freshness": list(delivery_freshness or []),
         },
     )
 

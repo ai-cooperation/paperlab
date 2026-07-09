@@ -220,7 +220,7 @@ def _validate_review(run_dir: Path, *, min_floor: float) -> tuple[bool, float | 
         run_dir,
         review_file=paper_artifacts.REVIEW_FILE,
         review_log_file=paper_artifacts.REVIEW_LOG_FILE,
-        manuscript_files=paper_artifacts.MANUSCRIPT_FILES,
+        manuscript_files=paper_artifacts.review_manuscript_files(run_dir),
     ))
     if loop.get("independent_reviewer") is not True:
         findings.append("review_loop.independent_reviewer must be boolean true")

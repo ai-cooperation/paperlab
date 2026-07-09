@@ -145,3 +145,8 @@ class PhaseSpec:
     repair_expected_outputs: List[str] = field(default_factory=list)
     max_repair_attempts: int = 0
     review_rounds: int = 0
+    # Freshness probe (ADR-001 §V4-C): when set, a resume must NOT skip this phase
+    # while the probe reports the delivered artifact stale against its sources.
+    # A callable keeps the engine core domain-neutral (no artifact-name strings
+    # here); the domain pipeline supplies the predicate.
+    staleness_probe: Optional[Callable[[Path], bool]] = None

@@ -107,6 +107,11 @@ def revalidate_jobs(
             continue
         try:
             if run_one is None:
+                # ADR-001 (§V4-C batch surface): the preflight validators judge the
+                # generated qmd — re-derive it from current sources FIRST so a healed
+                # source is never judged through a stale derived artifact. No-op on
+                # legacy runs.
+                _ensure_assembled_preflight(jobs_dir, job_id)
                 preflight = validate(jobs_dir, job_ids=[job_id], min_floor=min_floor)[0]
                 _prepare_acceptance_repair_resume(jobs_dir, job_id, preflight)
                 _prepare_review_provenance_resume(jobs_dir, job_id)
@@ -132,10 +137,34 @@ def revalidate_jobs(
     return rows
 
 
-def _prepare_acceptance_repair_resume(jobs_dir: Path, job_id: str, validation: JobValidation) -> bool:
-    if validation.passed:
+def _ensure_assembled_preflight(jobs_dir: Path, job_id: str) -> None:
+    from engine_v3.assembly import ensure_assembled
+
+    try:
+        ensure_assembled(jobs_dir / job_id / "run")
+    except Exception:  # noqa: BLE001 - preflight must never kill the batch loop
+        pass
+
+
+def _delivery_stale(run_dir: Path) -> bool:
+    from engine_v3.assembly import is_delivery_stale
+
+    try:
+        return is_delivery_stale(run_dir)
+    except Exception:  # noqa: BLE001 - staleness probe must never kill the batch loop
         return False
-    if not _delivery_repairable_acceptance_failure(validation):
+
+
+def _prepare_acceptance_repair_resume(jobs_dir: Path, job_id: str, validation: JobValidation) -> bool:
+    # ADR-001 §V4-A: the reset fires on (the existing failure-driven trigger) OR
+    # source staleness — ADDED, never substituted. "Gate logic changed, sources
+    # unchanged, old PDF must re-validate" (the existing regression test) still
+    # resets; a passed-but-stale delivery now ALSO resets so the orchestrator
+    # re-renders instead of skipping a done format_repair.
+    stale = _delivery_stale(jobs_dir / job_id / "run")
+    if validation.passed and not stale:
+        return False
+    if not stale and not _delivery_repairable_acceptance_failure(validation):
         return False
     dossier_path = jobs_dir / job_id / "run" / "dossier.v3.json"
     try:
@@ -341,7 +370,7 @@ def _prepare_review_provenance_resume(jobs_dir: Path, job_id: str) -> bool:
         run_dir,
         review_file=paper_artifacts.REVIEW_FILE,
         review_log_file=paper_artifacts.REVIEW_LOG_FILE,
-        manuscript_files=paper_artifacts.MANUSCRIPT_FILES,
+        manuscript_files=paper_artifacts.review_manuscript_files(run_dir),
     )
     if not findings:
         return False

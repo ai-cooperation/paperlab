@@ -10,6 +10,7 @@ from typing import Any, Mapping
 import format_repair
 import paperctl
 
+from engine_v3 import assembly as engine_assembly
 from engine_v3 import review_provenance
 from engine_v3.packs import paper_artifacts
 from engine_v3.core import BrainTask, PhaseSpec, RuntimeContext
@@ -113,6 +114,11 @@ GAP_OUTPUTS = ["phase3_positioning.md"]
 STRUCTURE_OUTPUTS = ["phase4_structure.md"]
 CLAIM_EVIDENCE_OUTPUTS = ["claim_evidence_map.md"]
 WRITE_OUTPUTS = [
+    # ADR-001: the model authors structural values + prose SOURCES; the harness
+    # assembles paper_draft_v0.qmd deterministically (it stays declared so the
+    # missing-output loop routes back to the model when assembly fails closed).
+    "paper_meta.json",
+    "sections/00_abstract.md",
     "sections/introduction.md",
     "sections/related_work.md",
     "sections/methods.md",
@@ -122,6 +128,28 @@ WRITE_OUTPUTS = [
     "sections/conclusion.md",
     "paper_draft_v0.qmd",
 ]
+
+PAPER_META_CONTRACT_PROMPT = """
+paper_meta.json contract (STRICT — unknown keys are rejected, no prose inside):
+{
+  "schema_version": "paper_meta.v1",
+  "layout": "paper",
+  "title": "<manuscript title>",
+  "authors": [{"name": "Cooperation.TW", "email": "paperlab@cooperation.tw"}],
+  "abstract_ref": "sections/00_abstract.md",
+  "bibliography": "references.bib",
+  "section_order": ["sections/introduction.md", "sections/related_work.md",
+                    "sections/methods.md", "sections/results.md",
+                    "sections/discussion.md", "sections/limitations.md",
+                    "sections/conclusion.md"],
+  "keywords": ["<3-6 keywords>"]
+}
+- Write the abstract PROSE (>= 40 words, no heading line, never a placeholder) to
+  sections/00_abstract.md. Abstract prose must NEVER be placed in paper_meta.json.
+- Do NOT hand-write paper_draft_v0.qmd or paper_springer.qmd: the harness assembles
+  them deterministically from paper_meta.json + sections/*.md and OVERWRITES any
+  hand-written copy on every phase.
+"""
 
 GAP_PHASE_PROMPT = """Write the required research positioning artifact.
 
@@ -171,15 +199,16 @@ WRITE_REPAIR_PROMPT = """Repair the write phase missing manuscript outputs.
 
 You are continuing an existing run directory. Inspect phase3_positioning.md,
 phase4_structure.md, research_contract.json, references.bib, doi_audit.json,
-real_experiments/real_results.json, figures/, and any partial sections.
+real_experiments/real_results.json, figures/, assembly_block_report.json (if
+present — it names exactly what blocked assembly), and any partial sections.
 
 Hard requirements:
-- Write every declared section file under sections/.
-- Compose paper_draft_v0.qmd from those sections.
+- Write every declared section file under sections/ (including
+  sections/00_abstract.md) and paper_meta.json.
 - Use real citation keys from references.bib and real figure paths from figures/.
 - Keep the paper aligned with phase4_structure.md and real_results.json.
 - Do not stop after explaining the blocker; produce the missing files.
-"""
+""" + PAPER_META_CONTRACT_PROMPT
 
 CLAIM_EVIDENCE_REPAIR_PROMPT = """Repair Gate B claim-evidence failures.
 
@@ -426,7 +455,12 @@ def full_paper_pipeline() -> list[PhaseSpec]:
         PhaseSpec(
             id="write",
             handler=_collect_gate_inputs,
-            prompt="Draft isolated sections and compose paper_draft_v0.qmd.",
+            prompt=(
+                "Draft isolated section sources under sections/ (including "
+                "sections/00_abstract.md) and write paper_meta.json; the harness "
+                "assembles paper_draft_v0.qmd deterministically from them.\n"
+                + PAPER_META_CONTRACT_PROMPT
+            ),
             expected_outputs=list(WRITE_OUTPUTS),
             repair_prompt=WRITE_REPAIR_PROMPT,
             repair_expected_outputs=list(WRITE_OUTPUTS),
@@ -466,6 +500,9 @@ def full_paper_pipeline() -> list[PhaseSpec]:
             id="format_repair",
             handler=_format_repair_handler,
             gate_ids=["Z"],
+            # ADR-001 §V4-C: a done format_repair must not be skipped on resume
+            # while the delivered PDF is stale against its render sources.
+            staleness_probe=engine_assembly.is_delivery_stale,
         ),
     ]
 
@@ -487,6 +524,13 @@ def _collect_gate_inputs(
     else:
         load_or_build_canonical_data(context.run_dir, write=True, schema_version="v3.2")
         substeps = []
+    # ADR-001 §V4-C: every qmd-reading phase re-derives the generated draft from
+    # the current sources FIRST (write-if-changed; legacy runs no-op), so a healer
+    # edit to sections/*.md is always visible to the gates — the infinite-heal-loop
+    # hole both v3 reviewers converged on.
+    assembly_state = None
+    if _task.phase in ("write", "claim_evidence", "render_gates", "review_heal"):
+        assembly_state = engine_assembly.ensure_assembled(context.run_dir)
     if _task.phase == "gap":
         _ensure_phase3_positioning_v3_2(context.run_dir)
     if _task.phase == "structure":
@@ -538,6 +582,12 @@ def _collect_gate_inputs(
     gate_inputs = paperctl._build_dossier(context.run_dir)
     if data_harness is not None:
         gate_inputs["data_completeness"] = data_harness["completeness"]
+    if assembly_state is not None:
+        gate_inputs["assembly"] = {
+            "ok": assembly_state.ok,
+            "changed": assembly_state.changed,
+            "findings": list(assembly_state.blocked_findings),
+        }
     review_path = context.run_dir / "quality_review_round1.json"
     if review_path.is_file():
         try:
@@ -554,7 +604,9 @@ def _collect_gate_inputs(
     )
     gate_inputs["review_log_present"] = bool(review_log_text.strip())
     gate_inputs["review_log_text"] = review_log_text[:40000]
-    gate_inputs["manuscript_sha256"] = review_provenance.manuscript_sha256(context.run_dir, paper_artifacts.MANUSCRIPT_FILES)
+    gate_inputs["manuscript_sha256"] = review_provenance.manuscript_sha256(
+        context.run_dir, paper_artifacts.review_manuscript_files(context.run_dir)
+    )
     if _task.phase == "review_heal":
         gate_inputs["pending_content_findings"] = pending_content
     artifacts = {
@@ -727,6 +779,12 @@ def _ensure_write_outputs_v3_2(run_dir: Path) -> bool:
     files. Missing or thin sections stay missing so the orchestrator's
     missing-output repair loop routes the work back to Hermes.
     """
+    # ADR-001 path: when the model authored paper_meta.json, assembly IS the write
+    # composer — deterministic, fail-closed, single-Abstract by construction. The
+    # legacy composer below stays for old-contract runs until live validation
+    # retires it (plan 8a/8b).
+    if (run_dir / engine_assembly.PAPER_META_FILE).is_file():
+        return engine_assembly.assemble_paper(run_dir).changed
     qmd_path = run_dir / "paper_draft_v0.qmd"
     if qmd_path.is_file():
         return False
@@ -1569,6 +1627,17 @@ def _operator_findings(run_dir: Path) -> dict[str, object]:
     return {"valid": not lines, "findings": ["operator finding: %s" % l for l in lines]}
 
 
+def _validate_assembly_block(run_dir: Path) -> dict[str, object]:
+    """ADR-001: a failed deterministic assembly leaves a machine-readable block
+    report (sources missing/thin/stub). Delivery must not proceed while the
+    sources cannot assemble — the findings route the model to the exact file."""
+    report = _read_json(run_dir / engine_assembly.BLOCK_REPORT_FILE)
+    if not report:
+        return {"valid": True, "findings": []}
+    raw = report.get("findings") or ["assembly blocked without findings"]
+    return {"valid": False, "findings": ["assembly blocked: %s" % f for f in raw][:6]}
+
+
 def content_validators():
     return (
         _validate_render_log_overflow,
@@ -1580,6 +1649,7 @@ def content_validators():
         _validate_frontmatter_stub,
         _validate_bib_author_integrity,
         _validate_text_encoding,
+        _validate_assembly_block,
         _operator_findings,
     )
 
@@ -1630,7 +1700,8 @@ def _stamp_review_manuscript_hash(run_dir: Path) -> bool:
     if not isinstance(method, dict) or not method:
         return False
     existing_stamp = str(method.get("reviewed_manuscript_sha256") or "").strip()
-    current = review_provenance.manuscript_sha256(run_dir, paper_artifacts.MANUSCRIPT_FILES)
+    stamp_files = paper_artifacts.review_manuscript_files(run_dir)
+    current = review_provenance.manuscript_sha256(run_dir, stamp_files)
     if existing_stamp:
         if existing_stamp == current:
             return False
@@ -1643,7 +1714,7 @@ def _stamp_review_manuscript_hash(run_dir: Path) -> bool:
             review_mtime = review_path.stat().st_mtime
             source_mtimes = [
                 (run_dir / rel).stat().st_mtime
-                for rel in paper_artifacts.MANUSCRIPT_FILES
+                for rel in stamp_files
                 if (run_dir / rel).is_file()
             ]
         except OSError:
@@ -2084,12 +2155,19 @@ def _format_repair_handler(
     pdf = context.run_dir / "paper_draft_v0.pdf"
     pdf.unlink(missing_ok=True)
 
+    # ADR-001: re-derive the generated draft from current sources before any render
+    # work (write-if-changed; legacy runs no-op). The stamp below binds to SOURCES on
+    # new-architecture runs, so this re-derivation can never invalidate a verdict.
+    engine_assembly.ensure_assembled(context.run_dir)
+
     # Review-freshness protocol: this phase's own transforms (springer source,
     # boilerplate strip, number formatting, render fixes) are deterministic and
     # unit-tested, so they may advance the reviewed-manuscript stamp — but only
     # when nothing else touched the manuscript between the review and this phase.
     # Any other post-review mutation leaves a stale stamp and Gate Z fails closed.
-    pre_format_sha = review_provenance.manuscript_sha256(context.run_dir, paper_artifacts.MANUSCRIPT_FILES)
+    pre_format_sha = review_provenance.manuscript_sha256(
+        context.run_dir, paper_artifacts.review_manuscript_files(context.run_dir)
+    )
 
     # No content padding here (no readability addendum, no filler tables): if the
     # manuscript cannot pass D/Z on its own content, the job must fail those gates,
@@ -2097,10 +2175,19 @@ def _format_repair_handler(
     _ensure_paper_springer_source_v3_2(context.run_dir)
     _repair_generated_content_quality_v3_2(context.run_dir)
     repair_result = format_repair.verify_and_repair(context.run_dir, contract)
-    post_format_sha = review_provenance.manuscript_sha256(context.run_dir, paper_artifacts.MANUSCRIPT_FILES)
+    post_format_sha = review_provenance.manuscript_sha256(
+        context.run_dir, paper_artifacts.review_manuscript_files(context.run_dir)
+    )
     review_fresh = _reconcile_review_freshness_after_format_repair(
         context.run_dir, pre_format_sha=pre_format_sha, post_format_sha=post_format_sha
     )
+
+    # ADR-001 §V4-B: record the render-source state the delivered PDF came from —
+    # AFTER verify_and_repair, so render-time source normalization (sanitize_bib) is
+    # already in the hashed bytes. Gate Z blocks on any later source drift.
+    if pdf.is_file():
+        engine_assembly.write_render_manifest(context.run_dir)
+    delivery_freshness = engine_assembly.freshness_findings(context.run_dir)
 
     validation = _validate_delivery_pdf(pdf, context.run_dir)
     artifacts = {"paper_draft_v0.pdf": pdf} if pdf.is_file() else {}
@@ -2108,6 +2195,7 @@ def _format_repair_handler(
         "gate_inputs": {
             "delivery_pdf_validation": validation,
             "review_freshness": review_fresh,
+            "delivery_freshness": delivery_freshness,
             "manuscript_sha256": post_format_sha,
         },
         "artifacts": artifacts,

@@ -60,8 +60,16 @@ class EngineV3Orchestrator:
         self.runtime.prepare(context)
         for phase in self.phases:
             if resume and dossier.phases.get(phase.id) == "done":
-                _trace(dossier, "phase_skip_done", phase=phase.id)
-                continue
+                # ADR-001 §V4-C: a done delivery phase must not be skipped while its
+                # freshness probe says the delivered artifact lags the sources —
+                # phase_skip_done was the stale-render escape hatch (sources healed,
+                # PDF never re-rendered, delivery shipped stale).
+                probe = phase.staleness_probe
+                if probe is not None and probe(context.run_dir):
+                    _trace(dossier, "phase_rerun_stale_delivery", phase=phase.id)
+                else:
+                    _trace(dossier, "phase_skip_done", phase=phase.id)
+                    continue
             if _can_resume_preflight_recheck(dossier, phase, context.run_dir):
                 _trace(
                     dossier,
