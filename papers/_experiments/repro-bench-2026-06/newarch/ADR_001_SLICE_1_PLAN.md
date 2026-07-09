@@ -12,6 +12,65 @@ NOT engine code — env picks up /opt/anaconda3 not .venv).
 
 ---
 
+## §V4. Final corrections from the v3 confirmation review (codex + agy converged; supersedes §V3 where they conflict) — IMPLEMENTATION BASELINE
+
+v3 confirmation verdicts: V3-A CLOSED by both. V3-B STILL-OPEN (same missing input
+found by both). V3-C NEW-HOLE (same root found by both + this engineer independently).
+Both reviewers unprompted: step 1 (IR+schema) safe to start immediately.
+
+### V4-A (= V3-A, closed) — no change. Batch reset = existing failure trigger OR staleness.
+
+### V4-B — render source set, final enumeration
+- ADD `research_contract.json` to RENDER_SOURCE_FILES: it drives table-template
+  selection (tables.py:259 contribution_type, tables.py:373 figspec_for data_source)
+  and title/journal/keywords fallback (render_springer.py:278/290/384-391).
+- `renderer_fingerprint` must be CONTENT-DERIVED (hash of render_springer.py +
+  tables.py + number_format.py + format_repair.py + assets/scientometrics.csl +
+  assets/_extensions/**), not a manually bumped stamp (codex: manual stamps rot).
+  Same for `assembler_fingerprint` (hash of engine_v3/assembly/*.py).
+- figures: hash ALL files under figures/ (over-inclusive is safe for staleness —
+  worst case an unused-figure change forces one extra re-render; never a missed stale).
+- Quarto/xelatex binary drift: explicitly OUT of source-hash scope (documented
+  reproducibility limit).
+
+### V4-C — review-freshness stamp binds to SOURCES; two hash sets; explicit handler wiring
+- **Root fix (agy's, better than skip-on-pass):** the review-freshness stamp
+  (`reviewed_manuscript_sha256`) binds to what the reviewer/healer actually edits —
+  `paper_meta.json` + abstract + ordered sections — NOT the derived qmd. New
+  `paper_artifacts.review_manuscript_files(run_dir)`: returns the source set when
+  `paper_meta.json` exists, else legacy `MANUSCRIPT_FILES` (qmd) for in-flight jobs.
+  All 5 stamp call sites (paper.py:557, 1633, 1646, 2092, 2100) switch to it. Then
+  `ensure_assembled` rewriting the derived qmd can NEVER invalidate a verdict — the
+  qmd is out of the stamp set. Dissolves the mtime trap at paper.py:1651 structurally.
+- **Two hash sets:** `ASSEMBLY_SOURCE_FILES` (paper_meta.json + abstract + section_order;
+  triggers re-assemble) ⊂ `RENDER_SOURCE_FILES` (adds references.bib +
+  research_contract.json + real_results.json + figures/* + fingerprints; feeds
+  is_delivery_stale + the Z freshness conjunct). A figure-only change re-renders but
+  does not re-assemble.
+- **ensure_assembled is write-if-changed:** assemble in memory, compare bytes, write
+  only on difference → idempotent, mtime-stable, needs no extra trigger manifest.
+  No-op on legacy runs (no paper_meta.json) — old path stays live through validation
+  (C4 preserved).
+- **Explicit wiring (codex):** format_repair uses `_format_repair_handler`
+  (paper.py:466/2075), NOT `_collect_gate_inputs` — ensure_assembled must be wired
+  into BOTH handlers explicitly.
+- **Orchestrator stays domain-neutral:** instead of a `manifest_source` string,
+  PhaseSpec gains `staleness_probe: Callable[[Path], bool] | None = None`; the paper
+  pipeline sets it to `manifest.is_delivery_stale` on format_repair. Zero paper
+  strings in engine core (litmus preserved).
+
+### V4 transition rules (keep prod safe)
+- New-architecture behavior activates ONLY when `paper_meta.json` exists in the run.
+  Legacy runs keep the existing composer/resync path untouched until 8a/8b (which land
+  only after live validation).
+- Z-gate freshness conjunct returns no findings for legacy runs (not applicable) —
+  it must never block an in-flight legacy job.
+- Section filenames stay FLAT (sections/introduction.md …) — `section_order` in
+  paper_meta.json is the ordering source of truth; renaming to NN_ prefixes is
+  cosmetic churn, skipped.
+
+---
+
 ## §V3. Dual-review corrections (codex + agy on v2; 3 more gaps closed; supersede §V2)
 
 codex + agy independently reviewed v2. Both: NOT ready. They converged on the SAME
