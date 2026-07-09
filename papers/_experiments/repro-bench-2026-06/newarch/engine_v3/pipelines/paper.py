@@ -2730,6 +2730,13 @@ def _validate_inline_heading_leakage(run_dir: Path) -> dict[str, object]:
         text = path.read_text(encoding="utf-8", errors="ignore")
         body = re.sub(r"(?s)\A---.*?---", "", text, count=1)
         body = re.sub(r"(?ms)^```.*?^```", "", body)
+        # Strip HTML comments (the assembler's source-map markers
+        # `<!-- SOURCE: ... -->` sit on the line ABOVE each heading). The leak
+        # regex's `\s` spans the newline, so an un-stripped marker line reads as a
+        # "paragraph" the heading is glued to — a false leak on every section that
+        # burned the review-heal budget to a block (ADR-001 live run 2026-07-09).
+        # Comments are assembler-owned structure, never prose: remove them first.
+        body = re.sub(r"(?s)<!--.*?-->", "", body)
         for match in re.finditer(r"(?m)^(?P<prefix>.*\S.*?)\s(?P<heading>#{1,4}\s+[A-Z][^#\n]{2,60})$", body):
             heading = match.group("heading").strip()
             findings.append(

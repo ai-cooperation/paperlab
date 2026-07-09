@@ -1884,6 +1884,42 @@ def test_headings_on_their_own_lines_pass(tmp_path: Path):
     assert _validate_inline_heading_leakage(tmp_path)["valid"] is True
 
 
+def test_assembler_source_map_comments_are_not_leaks(tmp_path: Path):
+    """ADR-001 live run 2026-07-09: the deterministic assembler wraps each block in
+    `<!-- SOURCE: sections/x.md -->` markers on the line ABOVE the heading. The leak
+    regex's `\\s` spans the newline, so an un-stripped comment line reads as a
+    paragraph the heading is glued to — a FALSE leak on every section that burned the
+    review-heal budget to a block. Assembler output must pass cleanly."""
+    from engine_v3.pipelines.paper import _validate_inline_heading_leakage
+    from engine_v3.assembly import assemble_paper
+    from test_assembly_assembler import make_run
+
+    run = make_run(tmp_path)
+    assert assemble_paper(run).ok
+    result = _validate_inline_heading_leakage(run)
+    assert result["valid"] is True, result["findings"]
+
+
+def test_real_leak_still_caught_with_comments_present(tmp_path: Path):
+    """Stripping comments must not blind the gate: a genuine glued heading sitting
+    next to source-map comments is still a leak."""
+    from engine_v3.pipelines.paper import _validate_inline_heading_leakage
+
+    (tmp_path / "paper_draft_v0.qmd").write_text(
+        '---\ntitle: "T"\n---\n\n'
+        "<!-- SOURCE: sections/introduction.md -->\n"
+        "# Introduction\n\nProse.\n"
+        "<!-- END SOURCE: sections/introduction.md -->\n\n"
+        "<!-- SOURCE: sections/methods.md -->\n"
+        "Prose that ends a section badly. ## Methods\n"
+        "<!-- END SOURCE: sections/methods.md -->\n",
+        encoding="utf-8",
+    )
+    result = _validate_inline_heading_leakage(tmp_path)
+    assert result["valid"] is False
+    assert "methods" in " ".join(result["findings"]).lower()
+
+
 def test_zero_rendered_citations_is_a_content_finding(tmp_path: Path):
     """v3_0f6a0c83f9cf shipped an EMPTY References section and zero inline
     citations while 35 two-source-verified bib entries sat unused - the body
