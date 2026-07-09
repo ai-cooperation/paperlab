@@ -2483,7 +2483,7 @@ CAPTION_EFFECT_CLAIM_TOKENS = (
 
 
 def _validate_render_log_overflow(run_dir: Path) -> dict[str, object]:
-    """Consume the renderer's own Overfull \hbox report (ground truth) instead
+    r"""Consume the renderer's own Overfull \hbox report (ground truth) instead
     of trusting declared tbl-colwidths. Anything wider than
     OVERFULL_HBOX_VISIBLE_PT is a visible overlap; sub-threshold warnings are
     ordinary TeX noise."""

@@ -62,7 +62,11 @@ def test_generated_banner_and_source_maps(tmp_path: Path) -> None:
     run = make_run(tmp_path)
     assemble_paper(run)
     draft = (run / "paper_draft_v0.qmd").read_text(encoding="utf-8")
-    assert draft.startswith(GENERATED_BANNER)
+    # ecosystem contract: frontmatter anchors at byte 0 (`\A---`); the banner
+    # sits right AFTER it (leading-comment variant broke the springer derivation
+    # live on 2026-07-09 — pandoc merged the leaked frontmatter as stray YAML)
+    assert draft.startswith("---\n")
+    assert ("---\n\n" + GENERATED_BANNER) in draft
     assert "<!-- SOURCE: sections/00_abstract.md -->" in draft
     assert "<!-- END SOURCE: sections/00_abstract.md -->" in draft
     assert "<!-- SOURCE: sections/part1.md -->" in draft

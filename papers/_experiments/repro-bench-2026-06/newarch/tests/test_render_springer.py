@@ -99,3 +99,25 @@ def test_extract_abstract_handles_bold_abstract_marker():
     assert "**Abstract**" not in new_body
     assert "# Introduction" in new_body
     assert "extreme weather" in kw
+
+
+def test_sanitize_bib_collapses_double_escaped_ampersand(tmp_path):
+    """Live-proof 2026-07-09: a historic `\\\\&` (or `\\&amp;` -> entity pass) in the
+    bib compiled as linebreak + bare alignment tab and crashed xelatex. sanitize
+    must converge every variant to exactly one `\\&`, idempotently."""
+    bib = tmp_path / "references.bib"
+    bib.write_text(
+        "@article{a, journal = {J of Exercise Science \\\\& Fitness}}\n"
+        "@article{b, journal = {Health \\&amp; Place}}\n"
+        "@article{c, journal = {Cell & Tissue}}\n"
+        "@article{d, journal = {Already \\& Fine}}\n",
+        encoding="utf-8",
+    )
+    render_springer.sanitize_bib(tmp_path)
+    once = bib.read_text(encoding="utf-8")
+    assert "Exercise Science \\& Fitness" in once and "\\\\&" not in once
+    assert "Health \\& Place" in once
+    assert "Cell \\& Tissue" in once
+    assert "Already \\& Fine" in once
+    render_springer.sanitize_bib(tmp_path)
+    assert bib.read_text(encoding="utf-8") == once  # idempotent

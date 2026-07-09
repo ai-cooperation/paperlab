@@ -105,9 +105,13 @@ def compose_draft(ir: PaperDraftIR) -> str:
         "  - name: %s\n%s" % (a.name, ("    email: %s\n" % a.email) if a.email else "")
         for a in ir.authors
     )
+    # ⚠️ The banner comes AFTER the frontmatter block: the whole ecosystem
+    # (render_springer._split_frontmatter, resync/gate regexes, floor scoring)
+    # anchors frontmatter at byte 0 (`\A---`). A leading comment broke that
+    # anchor, leaked the draft frontmatter into the springer BODY, pandoc merged
+    # the stray YAML block, the elsevier cite-style was lost and bibtex switched
+    # to elsarticle-num — live proof 2026-07-09. Keep `---` as the first bytes.
     parts = [
-        GENERATED_BANNER,
-        "",
         "---",
         'title: "%s"' % ir.title.replace('"', "'"),
         "author:",
@@ -119,6 +123,8 @@ def compose_draft(ir: PaperDraftIR) -> str:
         "number-sections: true",
         "link-citations: true",
         "---",
+        "",
+        GENERATED_BANNER,
         "",
         source_open(ir.abstract_ref),
         "## Abstract",

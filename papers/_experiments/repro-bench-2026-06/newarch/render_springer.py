@@ -393,6 +393,12 @@ def sanitize_bib(run_dir: Path) -> None:
     # Escape any remaining bare ampersand (xelatex alignment-tab trap) without
     # double-escaping an already-escaped \&.
     t = re.sub(r"(?<!\\)&", r"\\&", t)
+    # Collapse double-escapes to exactly one backslash: `\&amp;` becomes `\\&` via
+    # the entity pass above, and historic runs carry `\\&` outright — both compile
+    # as linebreak + BARE alignment tab and crash xelatex (live proof 2026-07-09,
+    # golden bib line 109; the exact trap the ADR-001 v2 review predicted). A
+    # backslash run before & is never legitimate in a bib field. Idempotent.
+    t = re.sub(r"\\{2,}&", r"\\&", t)
     bib.write_text(t, encoding="utf-8")
 
 
