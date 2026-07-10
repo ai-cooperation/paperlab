@@ -67,3 +67,36 @@ def test_stale_blocked_job_not_selected(tmp_path: Path) -> None:
     old = time.time() - RECENT_WINDOW_S - 3600
     os.utime(dossier, (old, old))
     assert select_retry_candidates(tmp_path) == []
+
+
+def test_quota_outage_detected_from_delegation_blockers(tmp_path: Path) -> None:
+    """HTTP 429 must not burn the bounded retry budget (2026-07-10: quota ran out
+    mid-campaign; each 18s failed attempt said nothing about the job itself)."""
+    from auto_retry_v3 import _quota_outage
+
+    run = tmp_path / "v3_q" / "run"
+    run.mkdir(parents=True)
+    (run / "dossier.v3.json").write_text(json.dumps({
+        "phases": {"review_heal": "error"},
+        "delegations": [
+            {"task_id": "review_heal:brain", "status": "ok", "blockers": []},
+            {"task_id": "review_heal:brain", "status": "error",
+             "blockers": ["API call failed after 3 retries: HTTP 429: The usage limit has been reached"]},
+        ],
+    }), encoding="utf-8")
+    assert _quota_outage(tmp_path, "v3_q") is True
+
+
+def test_non_quota_failure_not_treated_as_outage(tmp_path: Path) -> None:
+    from auto_retry_v3 import _quota_outage
+
+    run = tmp_path / "v3_r" / "run"
+    run.mkdir(parents=True)
+    (run / "dossier.v3.json").write_text(json.dumps({
+        "phases": {"review_heal": "blocked"},
+        "delegations": [
+            {"task_id": "review_heal:brain", "status": "blocked",
+             "blockers": ["review gate failed: floor below threshold"]},
+        ],
+    }), encoding="utf-8")
+    assert _quota_outage(tmp_path, "v3_r") is False

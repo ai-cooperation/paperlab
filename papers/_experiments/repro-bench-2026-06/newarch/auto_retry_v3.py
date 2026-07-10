@@ -106,6 +106,19 @@ def main() -> int:
             status = rows[0].run.status if rows else "no-result"
         except Exception as exc:  # noqa: BLE001 - one job must not kill the sweep
             status = "exception: %s" % str(exc)[:120]
+        if _quota_outage(args.jobs_dir, job_id):
+            # 2026-07-10: the model quota ran out mid-campaign (HTTP 429) and the
+            # uplift attempts failed in ~18s each. A 429 says nothing about the JOB —
+            # do NOT burn its bounded retry budget on an infrastructure outage, and
+            # stop the sweep (every subsequent job would 429 too). The timer will
+            # simply try again next window; once quota returns, retries resume with
+            # full budgets.
+            job_runner.notify_admin(
+                "Auto-retry paused: model quota exhausted (HTTP 429) while retrying %s. "
+                "No retry budgets consumed; will retry automatically when quota returns." % job_id
+            )
+            print("AUTO_RETRY quota-outage, sweep paused", flush=True)
+            return 0
         ledger = record_attempt(args.jobs_dir, job_id, status)
         exhausted = ledger["attempts"] >= MAX_ATTEMPTS and status not in ("done", "human_review_required")
         job_runner.notify_admin(
@@ -120,6 +133,20 @@ def main() -> int:
         )
         print("AUTO_RETRY done %s -> %s" % (job_id, status), flush=True)
     return 0
+
+
+def _quota_outage(jobs_dir: Path, job_id: str) -> bool:
+    """Did this attempt die on a model-quota error (HTTP 429 / usage limit)? Read
+    the run's own delegation blockers — the producing system's ground truth."""
+    dossier = _read_json(jobs_dir / job_id / "run" / "dossier.v3.json") or {}
+    for delegation in reversed(dossier.get("delegations") or []):
+        for blocker in delegation.get("blockers") or []:
+            text = str(blocker).lower()
+            if "429" in text or "usage limit" in text or "rate limit" in text:
+                return True
+        if delegation.get("blockers"):
+            return False  # most recent failed delegation had non-quota blockers
+    return False
 
 
 if __name__ == "__main__":
