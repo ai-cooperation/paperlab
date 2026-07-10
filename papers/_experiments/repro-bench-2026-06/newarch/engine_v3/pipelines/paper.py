@@ -1707,6 +1707,40 @@ def _validate_assembly_block(run_dir: Path) -> dict[str, object]:
     return {"valid": False, "findings": ["assembly blocked: %s" % f for f in raw][:6]}
 
 
+def _validate_figure_ref_targets(run_dir: Path) -> dict[str, object]:
+    """Every @fig-/@tbl- crossref in the assembled draft must have a TARGET: a
+    {#fig-x} label in the draft, a GENERATED block id, or an id the deterministic
+    injector (tables.figspec_for) will create at render. A dangling ref renders as
+    a literal '?@fig-x' in the delivered PDF and was only caught by the DELIVERY
+    gate — where the healer has no repair route (fresh E2E v3_9e68543a8540 blocked
+    on '?@fig-effects'; aebc70's crossref class adjacent). Checking at SOURCE level
+    puts it on the review_heal worklist so the healer fixes the section."""
+    qmd = run_dir / "paper_draft_v0.qmd"
+    if not qmd.is_file():
+        return {"valid": True, "findings": []}
+    text = qmd.read_text(encoding="utf-8", errors="ignore")
+    refs = set(re.findall(r"@((?:fig|tbl)-[A-Za-z0-9_-]+)", text))
+    known = set(re.findall(r"\{#((?:fig|tbl)-[A-Za-z0-9_-]+)", text))
+    known |= set(re.findall(r"GENERATED:((?:fig|tbl)-[A-Za-z0-9_-]+)", text))
+    try:  # ids the render-time injector creates deterministically
+        import tables as _tables
+
+        contract = _read_json(run_dir / "research_contract.json") or _read_json(
+            run_dir / "research_contract.input.json"
+        )
+        for fig_id, _fname, _cap in _tables.figspec_for(contract, run_dir=run_dir):
+            known.add(str(fig_id).lstrip("#"))
+    except Exception:  # noqa: BLE001 - figspec unavailability must not crash the gate
+        pass
+    findings = [
+        "crossref @%s has no target figure/table (renders as literal '?@%s' in the "
+        "PDF): fix the id to an existing figure/table or remove the reference from "
+        "the section source" % (d, d)
+        for d in sorted(refs - known)
+    ]
+    return {"valid": not findings, "findings": findings[:6]}
+
+
 def content_validators():
     return (
         _validate_render_log_overflow,
@@ -1718,6 +1752,7 @@ def content_validators():
         _validate_frontmatter_stub,
         _validate_bib_author_integrity,
         _validate_bib_metadata_consistency,
+        _validate_figure_ref_targets,
         _validate_text_encoding,
         _validate_assembly_block,
         _operator_findings,

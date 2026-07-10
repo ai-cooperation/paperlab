@@ -105,3 +105,34 @@ def test_structural_repair_noop_when_no_abstract(tmp_path: Path) -> None:
     bib = tmp_path / "references.bib"
     bib.write_text("@article{k1,\n  author = {A, B},\n  year = {2024}\n}\n", encoding="utf-8")
     assert review_structural_repair._strip_bib_abstract_fields(bib) is False
+
+
+# --- dangling crossref gate (fresh E2E v3_9e68543a8540: '?@fig-effects') -------
+
+from engine_v3.pipelines.paper import _validate_figure_ref_targets
+
+
+def test_dangling_fig_ref_flagged(tmp_path: Path) -> None:
+    (tmp_path / "paper_draft_v0.qmd").write_text(
+        "---\ntitle: t\n---\n\nSee @fig-effects for details.\n\n"
+        "![cap](figures/a.png){#fig-forest}\n",
+        encoding="utf-8",
+    )
+    r = _validate_figure_ref_targets(tmp_path)
+    assert not r["valid"]
+    assert any("fig-effects" in f for f in r["findings"])
+
+
+def test_labeled_and_generated_refs_not_flagged(tmp_path: Path) -> None:
+    (tmp_path / "paper_draft_v0.qmd").write_text(
+        "---\ntitle: t\n---\n\nSee @fig-forest and @tbl-studies.\n\n"
+        "![cap](figures/a.png){#fig-forest}\n\n"
+        "<!-- GENERATED:tbl-studies source=real_results sha256=abc -->\n|a|\n<!-- /GENERATED:tbl-studies -->\n",
+        encoding="utf-8",
+    )
+    r = _validate_figure_ref_targets(tmp_path)
+    assert r["valid"], r["findings"]
+
+
+def test_figure_ref_gate_registered() -> None:
+    assert "_validate_figure_ref_targets" in {v.__name__ for v in content_validators()}
