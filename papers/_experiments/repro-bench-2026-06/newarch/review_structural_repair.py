@@ -7,10 +7,6 @@ import time
 from pathlib import Path
 
 
-ABSTRACT_PLACEHOLDER = (
-    "Abstract unavailable in local verified metadata. This field is an explicit "
-    "metadata-coverage placeholder, not a generated summary."
-)
 REQUIRED_CLAIM_AUDIT_COLUMNS = [
     "Claim",
     "Evidence",
@@ -27,7 +23,7 @@ def repair_run(run_dir: Path) -> dict[str, object]:
     run_dir = Path(run_dir)
     changed: list[str] = []
     _backup_existing(run_dir)
-    if _ensure_bib_abstract_fields(run_dir / "references.bib"):
+    if _strip_bib_abstract_fields(run_dir / "references.bib"):
         changed.append("references.bib")
     if _append_claim_evidence_audit(run_dir / "claim_evidence_map.md"):
         changed.append("claim_evidence_map.md")
@@ -53,7 +49,15 @@ def _backup_existing(run_dir: Path) -> None:
         shutil.copy2(source, target)
 
 
-def _ensure_bib_abstract_fields(path: Path) -> bool:
+def _strip_bib_abstract_fields(path: Path) -> bool:
+    """Remove `abstract = {...}` from every bib entry.
+
+    The BibTeX abstract field is NEVER rendered (the References list prints
+    author/title/year/journal/doi only), so a placeholder abstract is a useless
+    field that an adversarial reviewer correctly reads as fabricated metadata
+    (2026-07-10 quality audit: all 40-41 entries in every delivered paper carried
+    an "Abstract unavailable ... placeholder" string, flagged across 3 papers).
+    The fix is at the SOURCE: bib entries carry no abstract field at all."""
     if not path.is_file():
         return False
     text = path.read_text(encoding="utf-8", errors="ignore")
@@ -65,16 +69,39 @@ def _ensure_bib_abstract_fields(path: Path) -> bool:
     cursor = 0
     for start, end, entry in entries:
         repaired.append(text[cursor:start])
-        if re.search(r"(?im)^\s*abstract\s*=", entry):
-            repaired.append(entry)
-        else:
-            repaired.append(_insert_abstract_field(entry))
+        stripped = _remove_abstract_field(entry)
+        if stripped != entry:
             changed = True
+        repaired.append(stripped)
         cursor = end
     repaired.append(text[cursor:])
     if changed:
         path.write_text("".join(repaired), encoding="utf-8")
     return changed
+
+
+def _remove_abstract_field(entry: str) -> str:
+    """Drop a brace-balanced `abstract = {...}` field (and its trailing comma/newline)
+    from one bib entry, leaving the rest intact."""
+    m = re.search(r"(?im)^[ \t]*abstract[ \t]*=[ \t]*\{", entry)
+    if not m:
+        return entry
+    open_brace = entry.index("{", m.start())
+    depth = 0
+    for i in range(open_brace, len(entry)):
+        if entry[i] == "{":
+            depth += 1
+        elif entry[i] == "}":
+            depth -= 1
+            if depth == 0:
+                field_end = i + 1
+                # swallow a trailing comma + following whitespace/newline
+                tail = re.match(r"[ \t]*,?[ \t]*\n?", entry[field_end:])
+                field_end += tail.end() if tail else 0
+                # also drop the leading whitespace before the field
+                field_start = m.start()
+                return entry[:field_start] + entry[field_end:]
+    return entry
 
 
 def _split_bib_entries(text: str) -> list[tuple[int, int, str]]:
@@ -93,16 +120,6 @@ def _split_bib_entries(text: str) -> list[tuple[int, int, str]]:
                     entries.append((start, end, text[start:end]))
                     break
     return entries
-
-
-def _insert_abstract_field(entry: str) -> str:
-    close = entry.rfind("}")
-    if close < 0:
-        return entry
-    prefix = entry[:close].rstrip()
-    suffix = entry[close:]
-    comma = "" if prefix.endswith(",") else ","
-    return f"{prefix}{comma}\n  abstract = {{{ABSTRACT_PLACEHOLDER}}}\n{suffix}"
 
 
 def _append_claim_evidence_audit(path: Path) -> bool:

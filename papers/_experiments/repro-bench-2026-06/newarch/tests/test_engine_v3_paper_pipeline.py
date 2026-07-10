@@ -552,8 +552,15 @@ def test_review_heal_removes_flagged_out_of_domain_citation_then_requires_rerevi
 def test_review_heal_applies_structural_repair_and_normalizes_review_schema(tmp_path: Path):
     run_dir = tmp_path / "run"
     run_dir.mkdir()
+    # bib keys must match the citations the clean draft actually contains
+    # (_clean_long_draft cites geng2026/yan2026/lan2025/tu2025), else the
+    # citations-rendered gate correctly flags a dead-citation manuscript.
     (run_dir / "references.bib").write_text(
-        "@article{Bi_2023,\n  title={Pangu Weather},\n  year={2023}\n}\n",
+        "@article{Bi_2023,\n  title={Pangu Weather},\n  author={Bi, Kaifeng},\n  year={2023}\n}\n"
+        "@article{geng2026,\n  title={A},\n  author={Geng, L.},\n  year={2026}\n}\n"
+        "@article{yan2026,\n  title={B},\n  author={Yan, M.},\n  year={2026}\n}\n"
+        "@article{lan2025,\n  title={C},\n  author={Lan, P.},\n  year={2025}\n}\n"
+        "@article{tu2025,\n  title={D},\n  author={Tu, Q.},\n  year={2025}\n}\n",
         encoding="utf-8",
     )
     (run_dir / "claim_evidence_map.md").write_text(
@@ -620,7 +627,9 @@ def test_review_heal_applies_structural_repair_and_normalizes_review_schema(tmp_
         RuntimeContext(job_id="job-1", run_dir=run_dir),
     )
 
-    assert "abstract =" in (run_dir / "references.bib").read_text(encoding="utf-8")
+    # ADR-001 2026-07-10 quality fix: structural repair STRIPS bib abstract fields
+    # (they never render and read as fabricated metadata), it no longer adds them.
+    assert "abstract =" not in (run_dir / "references.bib").read_text(encoding="utf-8")
     assert "V3.2 exact-match audit addendum" in (run_dir / "claim_evidence_map.md").read_text(encoding="utf-8")
     assert "link-citations: true" in (run_dir / "paper_springer.qmd").read_text(encoding="utf-8")
 

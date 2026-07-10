@@ -364,7 +364,9 @@ V3.2 boundary:
 REVIEW_HEAL_REPAIR_PROMPT = """Run bounded final re-review after deterministic structural repairs.
 
 The harness has already applied mechanical V3.2 repairs before this repair attempt:
-- references.bib abstract-field coverage is normalized with explicit unavailable placeholders when needed.
+- references.bib has no abstract fields (they never render and read as fabricated
+  metadata); every author must be a real named author, never a placeholder like
+  "Study authors", "coauthors", or "et al" — fix from the real record or drop the entry.
 - claim_evidence_map.md includes the V3.2 exact-match audit addendum when prior rows can be mapped.
 - paper_draft_v0.qmd and paper_springer.qmd include citation/link frontmatter for blue clickable citations.
 - exact reviewer replacement fixes may already have been applied when the previous review gave target/replacement text.
@@ -1683,6 +1685,7 @@ def content_validators():
         _validate_inline_heading_leakage,
         _validate_frontmatter_stub,
         _validate_bib_author_integrity,
+        _validate_bib_metadata_consistency,
         _validate_text_encoding,
         _validate_assembly_block,
         _operator_findings,
@@ -2759,7 +2762,14 @@ def _validate_bib_author_integrity(run_dir: Path) -> dict[str, object]:
     """CrossRef name-parse wreckage must not reach the rendered References:
     'Unknown, 2021', 'Maden, .' (empty given name) shipped in E2E job
     v3_e9e1b75927a6. Full-author-name rule (feedback_paper_pipeline_v2) now
-    mechanically enforced."""
+    mechanically enforced.
+
+    2026-07-10 quality audit extended this: placeholder authors ('Study authors',
+    'coauthors', 'and others', 'et al' as the whole field) leaked into 0deb's
+    delivered References — the reader saw 'authors, S., 2026c' anonymous cites, and
+    the DOI-audit still reported real_rate=1.0 because it only checks DOI existence,
+    not author-metadata quality. A placeholder author is a hard blocker: fix it from
+    the real record or drop the entry — never ship an anonymous reference."""
     bib = run_dir / "references.bib"
     if not bib.is_file():
         return {"valid": True, "findings": []}
@@ -2767,19 +2777,72 @@ def _validate_bib_author_integrity(run_dir: Path) -> dict[str, object]:
     findings: list[str] = []
     for match in re.finditer(r"@\w+\{([^,\s]+),(.*?)(?=@\w+\{|\Z)", text, flags=re.DOTALL):
         key, body = match.group(1), match.group(2)
-        author = re.search(r"author\s*=\s*[{\"](.+?)[}\"]\s*,?\s*\n", body, flags=re.DOTALL)
+        # brace-balanced author value, robust to single-line and multiline layouts
+        author = re.search(r"author\s*=\s*\{", body)
         if not author:
             continue
-        value = " ".join(author.group(1).split())
+        depth, ai = 0, body.index("{", author.start())
+        end = None
+        for i in range(ai, len(body)):
+            if body[i] == "{":
+                depth += 1
+            elif body[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        if end is None:
+            continue
+        value = " ".join(body[ai + 1:end].split())
+        low = value.lower()
+        # NB: `and others` is STANDARD BibTeX for et al. (renders "et al.") — a
+        # legitimate entry like "Lam, Remi and ... and others" must NOT be flagged.
+        # Only a placeholder that IS the whole field, or a fake continuation like
+        # "coauthors"/"et al" used AS a name, is a defect.
+        names = [p.strip() for p in re.split(r"\band\b", low) if p.strip() and p.strip() != "others"]
         problems = []
-        if re.search(r"(?i)\bunknown\b|\banonymous\b", value):
+        if "unknown" in low or "anonymous" in low:
             problems.append("author is Unknown/Anonymous")
+        if "study authors" in low:
+            problems.append("placeholder author 'Study authors'")
+        elif not names:
+            problems.append("author field has no real name (only a placeholder)")
+        if any(re.fullmatch(r"co-?authors|et\.?\s*al\.?", n) for n in names):
+            problems.append("placeholder author fragment (coauthors/et al used as a name)")
         if re.search(r"\w+,\s*\.(?:\s|$|,)", value) or re.search(r"^\s*,|,\s*and\s+and\b", value):
             problems.append("empty or broken given-name initial")
         if problems:
             findings.append(
-                "bib entry %s has a broken author field (%s): fix the author names "
-                "from the source record or drop the entry" % (key, "; ".join(problems))
+                "bib entry %s has a broken/placeholder author field (%s): fix the "
+                "author names from the source record or drop the entry" % (key, "; ".join(problems))
+            )
+        if len(findings) >= 6:
+            break
+    return {"valid": not findings, "findings": findings}
+
+
+def _validate_bib_metadata_consistency(run_dir: Path) -> dict[str, object]:
+    """Bib metadata quality the DOI-existence audit does NOT check (2026-07-10
+    quality audit): a DOI resolves to a real paper, but the bib still carries a
+    leaked ABSTRACT PLACEHOLDER — a field that never renders and reads as
+    fabricated metadata (every one of 3 delivered papers shipped 40-41 such
+    entries). Fail-closed: remove the placeholder abstract at source.
+
+    NB: a DOI-year vs pub-year mismatch is deliberately NOT gated — online-first
+    publication legitimately differs by a year (golden_paper's liang2026 carries a
+    2025 DOI with year 2026), so flagging it fail-closed false-positived on a
+    known-good paper. Author/placeholder defects are unambiguous; year drift is not."""
+    bib = run_dir / "references.bib"
+    if not bib.is_file():
+        return {"valid": True, "findings": []}
+    text = bib.read_text(encoding="utf-8", errors="ignore")
+    findings: list[str] = []
+    for match in re.finditer(r"@\w+\{([^,\s]+),(.*?)(?=@\w+\{|\Z)", text, flags=re.DOTALL):
+        key, body = match.group(1), match.group(2)
+        if re.search(r"(?i)abstract\s*=\s*\{[^}]*\b(unavailable|placeholder|not (?:a )?(?:generated|exposed))\b", body):
+            findings.append(
+                "bib entry %s carries a placeholder abstract field: the abstract field "
+                "is never rendered and reads as fabricated metadata — remove it" % key
             )
         if len(findings) >= 6:
             break

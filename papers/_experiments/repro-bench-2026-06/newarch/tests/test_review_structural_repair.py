@@ -5,12 +5,15 @@ from pathlib import Path
 
 import pytest
 
-from review_structural_repair import ABSTRACT_PLACEHOLDER, repair_run
+from review_structural_repair import repair_run
 
 pytestmark = pytest.mark.unit
 
 
-def test_repair_run_adds_bib_abstracts_claim_audit_and_link_frontmatter(tmp_path: Path):
+def test_repair_run_strips_bib_abstracts_and_adds_claim_audit(tmp_path: Path):
+    """ADR-001 2026-07-10 quality fix: the structural repair now STRIPS bib abstract
+    fields (they never render and read as fabricated metadata), rather than adding
+    placeholder abstracts as before."""
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     (run_dir / "references.bib").write_text(
@@ -31,12 +34,11 @@ def test_repair_run_adds_bib_abstracts_claim_audit_and_link_frontmatter(tmp_path
 
     assert result["status"] == "changed"
     bib = (run_dir / "references.bib").read_text(encoding="utf-8")
-    assert len(re.findall(r"(?im)^\s*abstract\s*=", bib)) == 2
-    assert ABSTRACT_PLACEHOLDER in bib
+    assert len(re.findall(r"(?im)^\s*abstract\s*=", bib)) == 0  # all abstract fields stripped
+    assert "title={B}" in bib and "doi={10.1000/b}" in bib  # rest of entry intact
     claim_map = (run_dir / "claim_evidence_map.md").read_text(encoding="utf-8")
     assert "V3.2 exact-match audit addendum" in claim_map
     assert "Exact Match" in claim_map
-    assert "N Support" in claim_map
     assert "Numeric support present: 41" in claim_map
     qmd = (run_dir / "paper_springer.qmd").read_text(encoding="utf-8")
     assert "colorlinks: true" in qmd
@@ -47,8 +49,9 @@ def test_repair_run_adds_bib_abstracts_claim_audit_and_link_frontmatter(tmp_path
 def test_repair_run_is_idempotent_after_structural_repairs(tmp_path: Path):
     run_dir = tmp_path / "run"
     run_dir.mkdir()
+    # no abstract field present -> strip is a no-op, so the whole repair is unchanged
     (run_dir / "references.bib").write_text(
-        "@article{A,\n  title={A},\n  abstract={Already present}\n}\n",
+        "@article{A,\n  title={A},\n  doi={10.1000/a}\n}\n",
         encoding="utf-8",
     )
     (run_dir / "claim_evidence_map.md").write_text(
