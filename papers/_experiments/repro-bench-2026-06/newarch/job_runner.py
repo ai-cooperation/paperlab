@@ -731,10 +731,27 @@ def notify_completion(contract: dict[str, Any], output: dict[str, Any]) -> dict[
         return {"status": "skipped", "reason": "notify_email not provided"}
     smtp_host = os.environ.get("SMTP_HOST", "").strip()
     if not smtp_host:
+        # ⚠️ 沉默失敗=設計缺陷 (2026-07-10): SMTP was never configured on ac-2012,
+        # so every completion notice silently returned not_configured while the
+        # submission flow PROMISED the user an email — the first fresh E2E user
+        # asked "我沒收到信件". Fall back to the Telegram admin channel (which IS
+        # configured and is the operator's documented alert path) so a terminal
+        # state always produces a real notification somewhere visible.
+        tg = notify_admin(
+            "Paper Lab job %s: %s\nJob: %s\nnotify_email (SMTP unconfigured, TG fallback): %s\nBlockers: %s"
+            % (
+                output.get("status"),
+                str(contract.get("topic") or "")[:80],
+                contract.get("job_id"),
+                email,
+                ", ".join(output.get("blockers", [])) if output.get("blockers") else "none",
+            )
+        )
         return {
-            "status": "not_configured",
+            "status": "telegram_fallback",
             "email": email,
-            "todo": "Set SMTP_HOST/SMTP_PORT/SMTP_USERNAME/SMTP_PASSWORD/SMTP_FROM on ac-2012, or poll /jobs/{job_id}/status.",
+            "telegram": tg,
+            "todo": "Set SMTP_HOST/SMTP_PORT/SMTP_USERNAME/SMTP_PASSWORD/SMTP_FROM on ac-2012 for real email delivery.",
         }
     msg = EmailMessage()
     sender = os.environ.get("SMTP_FROM", os.environ.get("SMTP_USERNAME", "paper-a@localhost"))

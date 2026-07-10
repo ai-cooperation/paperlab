@@ -282,3 +282,27 @@ class JobRunnerTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_notify_completion_falls_back_to_telegram_when_smtp_unset(monkeypatch):
+    """2026-07-10: SMTP was never configured; every completion notice silently
+    returned not_configured while the submission promised the user an email
+    (fresh E2E user: '我沒收到信件'). With SMTP unset the notice must go out via
+    the configured Telegram admin channel instead of vanishing."""
+    import job_runner
+
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+    sent = {}
+
+    def fake_admin(message):
+        sent["message"] = message
+        return {"status": "sent"}
+
+    monkeypatch.setattr(job_runner, "notify_admin", fake_admin)
+    result = job_runner.notify_completion(
+        {"notify_email": "user@example.com", "job_id": "v3_x", "topic": "T"},
+        {"status": "done_pass", "blockers": []},
+    )
+    assert result["status"] == "telegram_fallback"
+    assert result["telegram"]["status"] == "sent"
+    assert "done_pass" in sent["message"] and "user@example.com" in sent["message"]
