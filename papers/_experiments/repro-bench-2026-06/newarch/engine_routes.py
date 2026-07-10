@@ -91,6 +91,34 @@ def _phase3_gaps(run_dir: Path) -> list[dict[str, str]]:
     return _gaps.parse_gap_matrix(md.read_text(encoding="utf-8", errors="ignore"))
 
 
+def _dataset_key_result(rr: dict[str, Any]) -> dict[str, Any]:
+    """Dataset lane: surface the PRIMARY model HONESTLY (including a null) — never
+    cherry-pick a significant descriptive model over the rigorous primary specification.
+    Picks the model the analysis flags primary (id/family containing 'primary', else a
+    fixed-effects/within spec, else the most-adjusted). is_significant reported as-is, so
+    a non-significant primary result (e.g. attenuated TWFE) shows as not significant."""
+    try:
+        import dataset_lane.schema as _ds_schema
+        primary = _ds_schema.primary_model(rr)        # reads the DECLARATION, not a string guess
+    except Exception:  # noqa: BLE001 - report card must never crash the status endpoint
+        primary = {}
+    if not primary:
+        return {}
+    est = primary.get("estimate")
+    if est is None:
+        est = primary.get("beta")
+    lo, hi, p = primary.get("ci_low"), primary.get("ci_high"), primary.get("p_value")
+    is_sig: Any = None
+    if isinstance(p, (int, float)):
+        is_sig = p < 0.05
+    elif isinstance(lo, (int, float)) and isinstance(hi, (int, float)):
+        is_sig = not (lo <= 0 <= hi)
+    return {"lane": "dataset", "model": primary.get("id") or primary.get("family"),
+            "outcome": primary.get("outcome"), "exposure": primary.get("exposure"),
+            "estimate": est, "ci_low": lo, "ci_high": hi, "p_value": p,
+            "is_significant": is_sig}
+
+
 def _key_result(rr: dict[str, Any]) -> dict[str, Any]:
     """The ACTUAL finding (parsed real_results) for the result card + the pooled-effects
     count. GENERAL across synthesis scales: pick the PRIMARY pooled scale the SAME way the
@@ -103,7 +131,7 @@ def _key_result(rr: dict[str, Any]) -> dict[str, Any]:
     prisma = meta.get("prisma") or {}
     scales = {s: v for s, v in pooled.items() if isinstance(v, dict) and v.get("pooled_effect") is not None}
     if not scales:
-        return {}
+        return _dataset_key_result(rr)      # dataset lane: surface the PRIMARY model honestly
     primary = max(scales, key=lambda s: (scales[s].get("k") or 0, s))   # most effects; deterministic tie-break
     p = scales[primary]
     scale = (p.get("scale") or primary)
@@ -170,6 +198,11 @@ def project_status(dossier_data: dict[str, Any], run_dir: Path) -> dict[str, Any
         "artifacts": {"has_pdf": pdf.is_file()},   # bool flag — no server path leak; page derives /paper
         "error": ext.get("run_error"),
         "data_warning": rr_warn,                    # set only when real_results exists but is unreadable
+        "degraded": dossier_data.get("degraded") or None,  # phases that fell back (codex limit -> big-pickle)
+        "research_value": dossier_data.get("research_value") or None,  # Gate E: a-side value confirmation
+        # analysis-design issues the review surfaced but could NOT auto-fix (need a re-run /
+        # spec change) — shown on the page so the user sees them, not silently dropped.
+        "analysis_findings": dossier_data.get("analysis_findings") or None,
         "updated_at": status.get("finished_at") or status.get("started_at"),
     }
 

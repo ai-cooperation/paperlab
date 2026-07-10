@@ -102,23 +102,29 @@ _COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 
 
 def _prose_only(draft_text: str) -> str:
-    """Strip HTML comments + YAML frontmatter so audits/extractors see PROSE only
-    (fixture/editor comments and frontmatter are not author claims)."""
+    """Strip HTML comments, YAML frontmatter, FIGURE EMBEDS (their captions carry CI
+    levels like '95%' that are not author claims) and Quarto/LaTeX ATTRIBUTE blocks
+    (tbl-colwidths='[34,...]' are layout, not claims) so audits/extractors see PROSE only."""
     text = draft_text or ""
     if text.startswith("---"):
         parts = text.split("---", 2)
         if len(parts) == 3:
             text = parts[2]
+    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", " ", text)   # figure embeds (+ their captions)
+    text = re.sub(r"\{[^{}]*\}", " ", text)             # Quarto/LaTeX attribute blocks
     return _COMMENT_RE.sub(" ", text)
 
 
 # ───────────────────────────── Gate A: contract/refs ────────────────────────
 def gate_refs(dossier: dict[str, Any]) -> GateResult:
-    """A (BLOCK): refs>=35 AND doi_real_rate>=0.80. Fail-closed if evidence absent."""
+    """A (BLOCK): refs>=35 AND doi_real_rate>=0.80. FAIL-CLOSED: a missing/malformed DOI
+    audit (rate is None) does NOT pass — both lanes now write doi_real_rate, so an absent
+    rate means the audit broke and the refs are unverified, which must block, not slip
+    through on the count alone."""
     refs = (dossier.get("evidence") or {}).get("references") or {}
     n = int(refs.get("bib_count") or 0)
     rate = refs.get("doi_real_rate")
-    ok = n >= REFS_FLOOR and (rate is None or rate >= DOI_REAL_RATE_FLOOR)
+    ok = n >= REFS_FLOOR and isinstance(rate, (int, float)) and rate >= DOI_REAL_RATE_FLOOR
     return GateResult(
         gate="A", severity=Severity.BLOCK, passed=ok, p0=not ok,
         details=f"bib_count={n} (floor {REFS_FLOOR}), doi_real_rate={rate} (floor {DOI_REAL_RATE_FLOOR})",
@@ -129,28 +135,76 @@ def gate_refs(dossier: dict[str, Any]) -> GateResult:
 # Independent claim extractor (anti-gaming, §3.7): pull quantitative claims straight
 # from the prose so an UNLISTED claim the agent forgot cannot slip past the matrix.
 _UNIVERSAL_QUANTIFIERS = (
-    "always", "every", "all ", "all.", "all,", "none", "never", "any ",
-    "regardless of", "in all cases", "universally", "without exception",
+    # bare "all "/"any " dropped — too benign ("all these mechanisms", "any paper")
+    "always", "every ", "never ", "in all cases", "universally", "without exception",
+    "regardless of",
 )
 _STRONG_CAUSAL = (
-    "prove", "proves", "proven", "cause", "causes", "caused", "causal",
+    "prove", "proves", "proven", "causes", "caused",
     "guarantee", "guarantees", "ensures that", "demonstrates that",
+)
+# A causal verb inside a DISCLAIMER ("not a causal estimate", "association, not causation",
+# "should not be read as causal") is honest hedging, NOT an overclaim — do not flag it.
+_CAUSAL_DISCLAIMER = re.compile(
+    r"\b(not|no|cannot|can't|rather than|neither|without|do(?:es)? not|is not|are not|"
+    r"should not|need not|association,? not|not prove|not a causal|not as)\b")
+_DEMONSTRATES_FEASIBILITY_SUMMARY = re.compile(
+    r"\bdemonstrates that\b.{0,120}\b("
+    r"feasible|heterogeneous|can be applied|modelable|not modelable|is possible|are possible"
+    r")\b")
+# "cause(s)" is also a common NOUN ("causes of death", "across causes, ages and regions",
+# "leading causes of mortality") — epidemiology prose, NOT a causal claim. A noun is signalled
+# by a preceding preposition/article/adjective, or by "causes of"/"causes," enumeration. A
+# VERB ("X causes Y") has none of these, so it still flags.
+_CAUSE_NOUN = re.compile(
+    r"\b(?:of|across|among|between|by|through|for|from|with|on|leading|major|common|"
+    r"underlying|main|principal|specific|multiple|various|other|the|its|all|both)\s+causes?\b"
+    r"|\bcauses?\s+(?:of\b|[,;]|and\b|or\b)")
+_GUARANTEE_DOMAIN_TERM = re.compile(
+    r"\b(contract|epc|esco|energy saving|savings|payment|profit sharing|risk allocation|"
+    r"guarantee level|m&v|measurement and verification|procurement)\b.{0,120}\bguarantees?\b"
+    r"|\bguarantees?\b.{0,120}\b(contract|epc|esco|energy saving|savings|payment|"
+    r"profit sharing|risk allocation|guarantee level|m&v|measurement and verification|procurement)\b"
 )
 _OVERREACH_SCOPE = (
     "state-of-the-art", "state of the art", "outperform", "outperforms",
     "outperforming", "first-line", "every public leaderboard", "all prior work",
     "best-in-class", "unprecedented",
 )
-_NUMBER_RE = re.compile(r"(?<![\w.])([≥≤<>]?\s*\d{1,7}(?:,\d{3})*(?:\.\d{1,4})?\s*[%×]?)(?![\w.])")
+_QUANTIFIER_DISCLAIMER = re.compile(
+    r"\b(not|no|cannot|can't|do(?:es)? not|is not|are not|without|rather than|"
+    r"question(?:s|ing)? whether|whether|if|not all|not every)\b"
+)
+_PROTOCOL_SCOPE = re.compile(
+    r"\b(protocol|benchmark|evaluation|design|analysis plan|study protocol)\b.{0,80}"
+    r"\b(requires?|uses?|applies?|covers?|includes?|compares?|evaluates?)\b"
+)
+_OVERREACH_DISCLAIMER = re.compile(
+    r"\b(not|no|cannot|can't|do(?:es)? not|is not|are not|without|rather than|"
+    r"question(?:s|ing)? whether|whether|uncertain|not claim|does not claim|should not be read)\b"
+)
+_FIRST_LINE_BACKGROUND = re.compile(
+    r"\b(recommended as a first-line|access to first-line|first-line insomnia care)\b"
+)
+_NUMBER_RE = re.compile(
+    r"(?<![\w.])([≥≤<>]?\s*\d{1,7}(?:,\d{3})*(?:\.\d{1,6})?"
+    r"(?:[eE][+-]?\d+)?\s*[%×]?)(?![\w.])"
+)
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z(])")
 
 
 def _to_number(token: str) -> float | None:
     cleaned = re.sub(r"[≥≤<>%×,\s]", "", token)
     try:
-        return float(cleaned)
+        value = float(cleaned)
     except ValueError:
         return None
+    # Calendar years in prose are citation/context, not result magnitudes. Treating
+    # "July 2021" as a numeric claim creates false Gate B blockers for case-study
+    # descriptions that do not assert a measured effect.
+    if re.fullmatch(r"\d{4}", cleaned) and 1900 <= value <= 2099:
+        return None
+    return value
 
 
 def extract_claims(draft_text: str) -> list[dict[str, Any]]:
@@ -173,7 +227,21 @@ def extract_claims(draft_text: str) -> list[dict[str, Any]]:
                    if n is not None and n not in (0.0, 1.0)]
         quantifier = next((q.strip() for q in _UNIVERSAL_QUANTIFIERS if q in low), None)
         causal = next((v for v in _STRONG_CAUSAL if re.search(rf"\b{re.escape(v)}\b", low)), None)
+        if causal and _CAUSAL_DISCLAIMER.search(low):
+            causal = None                       # the sentence DISCLAIMS causality — honest hedging
+        if causal == "demonstrates that" and _DEMONSTRATES_FEASIBILITY_SUMMARY.search(low):
+            causal = None                       # feasibility/literature summaries are not causal claims
+        if causal in ("causes", "cause") and not re.search(r"\bcauses?\b", _CAUSE_NOUN.sub(" ", low)):
+            causal = None                       # every "cause(s)" was a NOUN ("causes of death")
+        if causal in ("guarantee", "guarantees") and _GUARANTEE_DOMAIN_TERM.search(low):
+            causal = None                       # EPC/ESCO contract guarantees are domain terms, not causal verbs
         overreach = next((s for s in _OVERREACH_SCOPE if s in low), None)
+        if quantifier and (_QUANTIFIER_DISCLAIMER.search(low) or _PROTOCOL_SCOPE.search(low)):
+            quantifier = None
+        if overreach and _OVERREACH_DISCLAIMER.search(low):
+            overreach = None
+        if overreach == "first-line" and _FIRST_LINE_BACKGROUND.search(low):
+            overreach = None
         if numbers or quantifier or causal or overreach:
             claims.append({
                 "text": sent[:240],
@@ -226,6 +294,27 @@ def gate_claim_evidence(dossier: dict[str, Any]) -> GateResult:
                           details="no draft_text to extract claims from (fail-closed)",
                           evidence={"reason": "missing_draft"})
 
+    # Dataset lane: numbers are checked PRECISELY by number_trace (each must trace to
+    # real_results). Gate B here owns the QUALITATIVE ceiling — no non-disclaimed causal
+    # verb, universal quantifier, or scope overreach (associational evidence cannot support
+    # them). The extractor is negation-aware, so honest hedging ("not a causal estimate")
+    # does not flag. Matrix-vs-number checking (the meta path) would false-block here
+    # because the brain's matrix never lists every prose number.
+    if str((dossier.get("real_results") or {}).get("lane") or "") == "dataset_agent_analysis":
+        # claim<=evidence for NUMBERS is the deterministic hard gate — owned by number_trace
+        # (every number must trace to real_results). QUALITATIVE overclaim (causal language,
+        # universals) is INHERENTLY SEMANTIC: a keyword scan cannot reliably tell the verb
+        # "X causes Y" from the noun "causes of death", so it is NOT a mechanical hard gate
+        # here — it is a WARN that RECORDS candidate sentences for the review brain (which
+        # judges them in context). Mechanizing semantics with a keyword regex is whack-a-mole.
+        overs = [c["text"] for c in extract_claims(draft)
+                 if c.get("causal") or c.get("quantifier") or c.get("overreach")]
+        return GateResult(
+            gate="B", severity=Severity.WARN, passed=not overs, p0=False,
+            details=("no candidate qualitative overclaim (numbers gated by number_trace)" if not overs
+                     else f"{len(overs)} candidate overclaim sentence(s) flagged for review (advisory)"),
+            evidence={"candidate_overclaims": overs[:10]})
+
     matrix_rows = dossier.get("claim_evidence") or []
     matrix_text = _matrix_text(matrix_rows)
     matrix_numbers = {n for n in (_to_number(m.group(1))
@@ -251,7 +340,7 @@ def gate_claim_evidence(dossier: dict[str, Any]) -> GateResult:
             reasons.append(f"universal quantifier '{c['quantifier']}' exceeds evidence")
         if c["causal"]:
             reasons.append(f"strong causal verb '{c['causal']}' exceeds evidence")
-        if c["overreach"]:
+        if c["overreach"] and c["overreach"] not in matrix_text:
             reasons.append(f"scope overreach '{c['overreach']}' not in evidence")
         if reasons:
             flagged.append({"claim": c["text"], "reasons": reasons})
@@ -372,6 +461,21 @@ def gate_value(dossier: dict[str, Any]) -> GateResult:
     Fail-closed semantics for a WARN gate = ``passed=False`` (the steering signal
     fires) WITHOUT ``p0`` (it cannot block the deliverable).
     """
+    # Dataset lane: research value rests on POWER + a primary spec, not on poolable-k (a
+    # meta concept). A well-powered null is valuable; an under-powered one cannot conclude.
+    rr = dossier.get("real_results") or {}
+    if str(rr.get("lane") or "") == "dataset_agent_analysis":
+        try:
+            import dataset_lane.schema as _ds
+            rv = _ds.dataset_research_value(rr)
+        except Exception:  # noqa: BLE001 - a WARN gate must never crash the run
+            rv = {"sufficient": True, "reason": "research-value check unavailable"}
+        return GateResult(
+            gate="E", severity=Severity.WARN, passed=bool(rv.get("sufficient")), p0=False,
+            details="research value " + ("sufficient" if rv.get("sufficient") else "LIMITED")
+                    + ": " + str(rv.get("reason")),
+            evidence={"research_value": rv})
+
     viability = dossier.get("viability") or {}
     floor = int(dossier.get("value_floor") or POOLABLE_FLOOR)
     max_k = viability.get("max_poolable_k")
@@ -424,16 +528,36 @@ def gate_logic(dossier: dict[str, Any]) -> GateResult:
     # Re-grade Scan 2 (quantifiers) against the in-memory real_results numbers so the
     # number-traceability check is exact even without a results/*.json on disk.
     source_numbers = _extract_numbers_from_results(real_results)
+    source_numbers.update(_extract_numbers_from_claim_evidence(dossier.get("claim_evidence")))
+    # statistical-writing conventions (CI levels, significance thresholds) + bare years are
+    # not author claims — they would otherwise read as untraceable numbers (e.g. "95% CI").
+    _CONV = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0, 90.0, 95.0, 99.0, 100.0,
+             0.05, 0.01, 0.1, 0.001, 1.96, 2.5}
     regraded_fail: list[dict[str, Any]] = []
     for f in audit["scan_results"]["quantifiers"]:
         val = _to_number(f.get("number", ""))
-        traced = val is not None and _number_in_results(val, source_numbers)
-        if "NO_SOURCE" in f.get("verdict", "") and not traced:
+        if val is None:
+            continue
+        traced = _number_in_results(val, source_numbers)
+        if not traced and _is_percentage_context(f):
+            traced = _percentage_in_results(val, source_numbers)
+        if not traced:
+            traced = _line_has_traced_number(f, source_numbers)
+        if not traced:
+            traced = _grouped_integer_suffix_in_results(f, source_numbers)
+        is_conv = any(abs(val - c) < 1e-9 for c in _CONV)
+        is_year = 1900 <= val <= 2100 and float(int(val)) == val
+        if "NO_SOURCE" in f.get("verdict", "") and not (traced or is_conv or is_year):
             regraded_fail.append({"scan": "quantifiers", **f})
 
     # Non-quantifier FAILs are independent of result_files; keep them as audited.
     other_fail = [f for f in audit["fail_items"] if f.get("scan") != "quantifiers"]
-    fail_items = regraded_fail + other_fail
+    # Dataset lane: number traceability is owned PRECISELY by number_trace (frontmatter /
+    # sci-notation / ranges / attribute blocks already handled). Drop the logic-audit's
+    # coarser quantifier re-grade here so Gate F enforces the genuine logic scans only
+    # (contradiction / cherry-pick / strong-verb-small-N) without double-counting numbers.
+    is_dataset = str((dossier.get("real_results") or {}).get("lane") or "") == "dataset_agent_analysis"
+    fail_items = other_fail if is_dataset else regraded_fail + other_fail
     total_fail = len(fail_items)
 
     ok = total_fail == 0
@@ -442,3 +566,68 @@ def gate_logic(dossier: dict[str, Any]) -> GateResult:
         details=(f"logic audit: {total_fail} FAIL item(s)" if not ok
                  else "logic audit: 0 FAIL items (coherent)"),
         evidence={"total_fail": total_fail, "fail_items": fail_items[:20]})
+
+
+def _is_percentage_context(finding: dict[str, Any]) -> bool:
+    return "%" in str(finding.get("number") or "") or "%" in str(finding.get("line") or "")
+
+
+def _extract_numbers_from_claim_evidence(claim_evidence: Any) -> set[float]:
+    numbers: set[float] = set()
+    if not isinstance(claim_evidence, list):
+        return numbers
+    for row in claim_evidence:
+        text = ""
+        if isinstance(row, dict):
+            text = " ".join(str(value) for value in row.values())
+        elif isinstance(row, str):
+            text = row
+        for match in _NUMBER_RE.finditer(text):
+            value = _to_number(match.group(1))
+            if value is None:
+                continue
+            numbers.add(value)
+            numbers.add(abs(value))
+    return numbers
+
+
+def _line_has_traced_number(finding: dict[str, Any], source_numbers: set[float]) -> bool:
+    line = str(finding.get("line") or "")
+    for match in _NUMBER_RE.finditer(line):
+        value = _to_number(match.group(1))
+        if value is None:
+            continue
+        if _number_in_results(value, source_numbers):
+            return True
+        if "%" in match.group(1) and _percentage_in_results(value, source_numbers):
+            return True
+    return False
+
+
+def _grouped_integer_suffix_in_results(finding: dict[str, Any], source_numbers: set[float]) -> bool:
+    token = str(finding.get("number") or "").strip()
+    if not re.fullmatch(r"0\d{2}", token):
+        return False
+    for number in source_numbers:
+        if not float(number).is_integer():
+            continue
+        rendered = str(abs(int(number)))
+        if len(rendered) > len(token) and rendered.endswith(token):
+            return True
+    return False
+
+
+def _percentage_in_results(value: float, source_numbers: set[float]) -> bool:
+    fraction = value / 100.0
+    if _number_in_results(fraction, source_numbers):
+        return True
+
+    numbers = [n for n in source_numbers if n and abs(n) > NUMBER_TOLERANCE]
+    for numerator in numbers:
+        for denominator in numbers:
+            if abs(denominator) <= NUMBER_TOLERANCE or abs(numerator) > abs(denominator):
+                continue
+            derived = numerator / denominator * 100.0
+            if abs(value - derived) <= max(0.05, abs(value) * 0.002):
+                return True
+    return False

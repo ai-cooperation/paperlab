@@ -202,7 +202,12 @@ class JobRunnerTest(unittest.TestCase):
             self.assertEqual(sync_repo.call_args_list[0].args[1], "skeleton")
             self.assertEqual(sync_repo.call_args_list[-1].args[1], "done")
             state = job_runner.status("complete", Path(tmp) / "jobs")
-            self.assertEqual(state["notification"]["status"], "not_configured")
+            # 2026-07-10: SMTP unset no longer vanishes silently — the notice goes
+            # out via the Telegram admin channel (here unconfigured too, so the
+            # fallback records not_configured INSIDE the telegram result), and the
+            # SMTP todo is still surfaced for the operator.
+            self.assertEqual(state["notification"]["status"], "telegram_fallback")
+            self.assertEqual(state["notification"]["telegram"]["status"], "not_configured")
             self.assertIn("SMTP_HOST", state["notification"]["todo"])
 
     def test_extract_output_maps_validated_artifacts(self) -> None:
@@ -282,3 +287,62 @@ class JobRunnerTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_notify_completion_falls_back_to_telegram_when_smtp_unset(monkeypatch):
+    """2026-07-10: SMTP was never configured; every completion notice silently
+    returned not_configured while the submission promised the user an email
+    (fresh E2E user: '我沒收到信件'). With SMTP unset the notice must go out via
+    the configured Telegram admin channel instead of vanishing."""
+    import job_runner
+
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+    sent = {}
+
+    def fake_admin(message):
+        sent["message"] = message
+        return {"status": "sent"}
+
+    monkeypatch.setattr(job_runner, "notify_admin", fake_admin)
+    result = job_runner.notify_completion(
+        {"notify_email": "user@example.com", "job_id": "v3_x", "topic": "T"},
+        {"status": "done_pass", "blockers": []},
+    )
+    assert result["status"] == "telegram_fallback"
+    assert result["telegram"]["status"] == "sent"
+    assert "done_pass" in sent["message"] and "user@example.com" in sent["message"]
+
+
+def test_notify_completion_prefers_cloudflare_webhook(monkeypatch):
+    """2026-07-10: email now goes via the Cloudflare Email Worker (no SMTP). When
+    NOTIFY_WEBHOOK_URL/TOKEN are configured and the worker answers sent, that IS
+    the notification — no SMTP, no TG fallback needed."""
+    import job_runner
+
+    monkeypatch.setenv("NOTIFY_WEBHOOK_URL", "https://paper-notify.example.workers.dev")
+    monkeypatch.setenv("NOTIFY_WEBHOOK_TOKEN", "tok")
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+    monkeypatch.setattr(
+        job_runner, "_notify_via_webhook",
+        lambda email, subject, text: {"status": "sent", "via": "cloudflare_email_worker"},
+    )
+    result = job_runner.notify_completion(
+        {"notify_email": "user@example.com", "job_id": "v3_x", "topic": "T"},
+        {"status": "done_pass", "blockers": []},
+    )
+    assert result == {"status": "sent", "email": "user@example.com", "via": "cloudflare_email_worker"}
+
+
+def test_notify_completion_webhook_failure_falls_to_telegram(monkeypatch):
+    import job_runner
+
+    monkeypatch.setenv("NOTIFY_WEBHOOK_URL", "https://paper-notify.example.workers.dev")
+    monkeypatch.setenv("NOTIFY_WEBHOOK_TOKEN", "tok")
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+    monkeypatch.setattr(job_runner, "_notify_via_webhook", lambda *a: {"status": "failed", "error": "502"})
+    monkeypatch.setattr(job_runner, "notify_admin", lambda m: {"status": "sent"})
+    result = job_runner.notify_completion(
+        {"notify_email": "user@example.com", "job_id": "v3_x", "topic": "T"},
+        {"status": "blocked", "blockers": ["Z"]},
+    )
+    assert result["status"] == "telegram_fallback"

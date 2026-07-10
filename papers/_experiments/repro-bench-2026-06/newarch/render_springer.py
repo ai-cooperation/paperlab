@@ -57,7 +57,18 @@ def _extract_abstract(fm: str, body: str) -> tuple[str, str, str]:
     the revision loop rewrites `# Abstract` as `## Abstract`) or the old
     frontmatter. Also captures a trailing `**Keywords:** ...` line the writer
     put inside the section. Returns (abstract, body_without_section, keywords_line)."""
-    am = re.search(r"(?ms)^#{1,3}\s*Abstract\s*\n+(.*?)(?=\n#{1,3}\s)", body)
+    # The abstract marker varies with how the writer emitted it (all seen in
+    # production, all the same double-Abstract breakout when missed):
+    #   '# Abstract', '## Abstract', '# Abstract {.unnumbered}' (Pandoc attr),
+    #   or a bold '**Abstract**' line (0deb). Match any of them; the section
+    #   ends at the next heading OR the next bold marker line. Missing it
+    #   injected an 'Abstract pending.' stub AND left the real body Abstract
+    #   in place, rendering two Abstracts.
+    am = re.search(
+        r"(?ms)^(?:#{1,3}\s*Abstract\s*(?:\{[^}\n]*\})?|\*\*\s*Abstract\s*\*\*)\s*\n+"
+        r"(.*?)(?=\n#{1,3}\s|\n\*\*\s*(?!Keywords)[A-Z])",
+        body,
+    )
     if am:
         text = am.group(1)
         body = body[: am.start()] + body[am.end():]
@@ -66,14 +77,56 @@ def _extract_abstract(fm: str, body: str) -> tuple[str, str, str]:
         if km:
             kw_line = km.group(1).strip().strip("*").strip()
             text = text[: km.start()] + text[km.end():]
-        return " ".join(text.split()), body, kw_line
+        return _sanitize_abstract(" ".join(text.split())), body, kw_line
     fm_abs = re.search(r"(?ms)^abstract:\s*\|?\s*\n((?:[ \t]+.*\n?)+)", fm)
     if fm_abs:
-        return " ".join(fm_abs.group(1).split()), body, ""
+        return _sanitize_abstract(" ".join(fm_abs.group(1).split())), body, ""
     fm_abs1 = re.search(r'(?m)^abstract:\s*"?(.+?)"?\s*$', fm)
     if fm_abs1:
-        return fm_abs1.group(1).strip(), body, ""
+        return _sanitize_abstract(fm_abs1.group(1).strip()), body, ""
     return "", body, ""
+
+
+def _sanitize_abstract(text: str) -> str:
+    """Remove flattened YAML frontmatter that a model can accidentally append to
+    the abstract. This keeps Quarto metadata keys out of the abstract paragraph
+    without trying to interpret the whole frontmatter as YAML."""
+    text = " ".join(text.split())
+    leak = re.search(
+        r"\b(?:keywords|format|bibliography|csl|number-sections|link-citations|toc|geometry)\s*:",
+        text,
+        re.IGNORECASE,
+    )
+    if leak:
+        text = text[: leak.start()].rstrip(" ,-;")
+    return text
+
+
+def _frontmatter_block(fm: str, key: str) -> str:
+    match = re.search(
+        r"(?ms)^" + re.escape(key) + r":\s*\n(.*?)(?=^[A-Za-z0-9_-]+:\s*|\Z)",
+        fm,
+    )
+    return match.group(1) if match else ""
+
+
+def _valid_keyword(keyword: str) -> bool:
+    lowered = keyword.strip().lower()
+    if not (2 < len(keyword) < 40):
+        return False
+    if ":" in keyword or "=" in keyword:
+        return False
+    if lowered in {
+        "format",
+        "bibliography",
+        "csl",
+        "number-sections",
+        "link-citations",
+        "toc",
+        "geometry",
+    }:
+        return False
+    return True
 
 
 def _extract_keywords(fm: str, contract: dict[str, Any], body_kw: str = "") -> list[str]:
@@ -81,11 +134,11 @@ def _extract_keywords(fm: str, contract: dict[str, Any], body_kw: str = "") -> l
     if body_kw:
         found = [k.strip() for k in re.split(r"[;,、；]", body_kw) if k.strip()]
     if not found:
-        block = re.search(r"(?ms)^keywords:\s*\n((?:\s*-\s*.+\n?)+)", fm)
+        block = _frontmatter_block(fm, "keywords")
         if block:
             found = [re.sub(r"^\s*-\s*", "", ln).strip()
-                     for ln in block.group(1).splitlines() if ln.strip()]
-    found = [k for k in found if 2 < len(k) < 40][:8]
+                     for ln in block.splitlines() if re.match(r"^\s*-\s+", ln)]
+    found = [k for k in found if _valid_keyword(k)][:8]
     # Augment when the writer supplied too few (e.g. a single junk keyword
     # "strategy"). The data_source.name carries the English topic terms even when
     # the title is Chinese (so the latin-token seed below isn't empty).
@@ -117,20 +170,52 @@ def _normalize_tables(body: str) -> str:
         if not m or "tbl-colwidths" in ln:
             continue
         ncol = None
+        sep_idx = None
         for j in range(i - 1, max(-1, i - 60), -1):
             s = lines[j].strip()
             if "|" in s and sep_re.match(s) and "-" in s:
                 ncol = len([c for c in s.strip("|").split("|") if c.strip() != "" or True])
+                sep_idx = j
                 break
         if not ncol or ncol < 5:
             continue  # only wide tables overflow the single column
-        weights = [2.4] + [1.0] * (ncol - 1)
-        tot = sum(weights)
-        widths = [round(w / tot * 100) for w in weights]
+        widths = _table_colwidths(lines, sep_idx or i, i, ncol)
         widths[-1] += 100 - sum(widths)
         attr = m.group(0)[:-1] + f' tbl-colwidths="{widths}"}}'
         lines[i] = ln[: m.start()] + attr + ln[m.end():]
     return "\n".join(lines)
+
+
+def _table_colwidths(lines: list[str], sep_idx: int, caption_idx: int, ncol: int) -> list[int]:
+    rows: list[list[str]] = []
+    for idx in range(max(0, sep_idx - 1), caption_idx):
+        line = lines[idx].strip()
+        if "|" not in line or re.match(r"^\|?[\s:|-]*-[\s:|-]*\|[\s:|-]*$", line):
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if len(cells) == ncol:
+            rows.append(cells)
+    if not rows:
+        weights = [2.4] + [1.0] * (ncol - 1)
+    else:
+        weights = []
+        for col in range(ncol):
+            max_len = max(len(row[col]) for row in rows)
+            numeric = sum(1 for row in rows[1:] if re.fullmatch(r"[-+−]?\d+(?:\.\d+)?%?", row[col] or ""))
+            numeric_ratio = numeric / max(1, len(rows) - 1)
+            if numeric_ratio >= 0.6:
+                weights.append(max(0.8, min(1.2, max_len / 10)))
+            else:
+                weights.append(max(1.0, min(3.4, max_len / 18)))
+    total = sum(weights)
+    widths = [max(6, round(weight / total * 100)) for weight in weights]
+    while sum(widths) > 100:
+        idx = max(range(len(widths)), key=widths.__getitem__)
+        widths[idx] -= 1
+    while sum(widths) < 100:
+        idx = max(range(len(widths)), key=lambda k: weights[k])
+        widths[idx] += 1
+    return widths
 
 
 _FIG_IMG = re.compile(r"!\[[^\]]*\]\([^)]*\)\{#fig-[^}]*\}")
@@ -182,17 +267,49 @@ def _strip_trailing_references(body: str) -> str:
     return re.sub(r"(?ms)\n#\s*References\s*\n*\Z", "\n", body)
 
 
+def _strip_assembled_abstract_block(body: str, abstract_rel: str) -> str:
+    """ADR-001 path: the assembler wrapped the abstract in its OWN source-map
+    markers, so the springer derivation cuts that exact block — no heading-variant
+    regex (the class that produced the double-Abstract treadmill)."""
+    if not abstract_rel:
+        return body
+    pattern = r"(?s)<!--\s*SOURCE:\s*%s\s*-->.*?<!--\s*END SOURCE:\s*%s\s*-->\n?" % (
+        re.escape(abstract_rel),
+        re.escape(abstract_rel),
+    )
+    return re.sub(pattern, "", body)
+
+
 def normalize_frontmatter(run_dir: Path, contract: dict[str, Any], src_name: str = "paper_draft_v0.qmd",
-                          out_name: str = "paper_springer.qmd") -> Path:
+                          out_name: str = "paper_springer.qmd",
+                          ir_values: dict[str, Any] | None = None) -> Path:
     """Write a journal-normalised COPY (out_name) of the canonical qmd. The canonical
     paper_draft_v0.qmd is left untouched so the consistency / claim-evidence / prose
-    gates keep operating on the model's original output."""
+    gates keep operating on the model's original output.
+
+    ir_values (ADR-001 new-architecture runs): title/abstract/keywords come from the
+    validated IR (paper_meta.json + sections/00_abstract.md) — never re-extracted
+    from the qmd by regex — and the body abstract block is removed via the
+    assembler's exact source-map markers. Legacy runs (ir_values=None) keep the
+    extraction path unchanged until live validation retires it."""
     qmd = run_dir / src_name
     text = qmd.read_text(encoding="utf-8")
     fm, body = _split_frontmatter(text)
-    title = _old_title(fm, contract)
-    abstract, body, body_kw = _extract_abstract(fm, body)
-    keywords = _extract_keywords(fm, contract, body_kw)
+    if ir_values is not None:
+        title = str(ir_values.get("title") or "").strip() or _old_title(fm, contract)
+        abstract = str(ir_values.get("abstract") or "").strip()
+        if not abstract:
+            # Fail loudly: the assembler fail-closes on a missing abstract, so an
+            # empty value here is a broken contract, never a stub-injection point.
+            raise ValueError("ir_values.abstract is empty; assembler contract violated")
+        body = _strip_assembled_abstract_block(body, str(ir_values.get("abstract_ref") or ""))
+        keywords = [str(k) for k in (ir_values.get("keywords") or []) if _valid_keyword(str(k))]
+        if len(keywords) < 3:
+            keywords = _extract_keywords(fm, contract, "")
+    else:
+        title = _old_title(fm, contract)
+        abstract, body, body_kw = _extract_abstract(fm, body)
+        keywords = _extract_keywords(fm, contract, body_kw)
     body = _strip_trailing_references(body)
     body = _isolate_generated(body)
     body = _strip_crossref_prefixes(body)
@@ -276,6 +393,12 @@ def sanitize_bib(run_dir: Path) -> None:
     # Escape any remaining bare ampersand (xelatex alignment-tab trap) without
     # double-escaping an already-escaped \&.
     t = re.sub(r"(?<!\\)&", r"\\&", t)
+    # Collapse double-escapes to exactly one backslash: `\&amp;` becomes `\\&` via
+    # the entity pass above, and historic runs carry `\\&` outright — both compile
+    # as linebreak + BARE alignment tab and crash xelatex (live proof 2026-07-09,
+    # golden bib line 109; the exact trap the ADR-001 v2 review predicted). A
+    # backslash run before & is never legitimate in a bib field. Idempotent.
+    t = re.sub(r"\\{2,}&", r"\\&", t)
     bib.write_text(t, encoding="utf-8")
 
 
@@ -286,6 +409,19 @@ def ensure_assets(run_dir: Path) -> None:
     csl_src = ASSETS / "scientometrics.csl"
     if csl_src.is_file():
         shutil.copy2(csl_src, run_dir / "scientometrics.csl")
+
+
+def _ir_values(run_dir: Path) -> dict[str, Any] | None:
+    """Structural render values from the ADR-001 IR when this is a new-architecture
+    run (paper_meta.json present + valid). None -> legacy extraction path. Lazy
+    import + broad guard: a broken meta must degrade to the legacy path, never crash
+    a render (the assembly gates surface the block report separately)."""
+    try:
+        from engine_v3.assembly import ir_render_values
+
+        return ir_render_values(run_dir)
+    except Exception:  # noqa: BLE001 - render must not die on assembly import/meta issues
+        return None
 
 
 def render(run_dir: Path, contract: dict[str, Any] | None = None, timeout_s: int = 420) -> bool:
@@ -309,7 +445,7 @@ def render(run_dir: Path, contract: dict[str, Any] | None = None, timeout_s: int
     work_name = "paper_springer.qmd"
     work_pdf = run_dir / "paper_springer.pdf"
     try:
-        normalize_frontmatter(run_dir, contract, out_name=work_name)
+        normalize_frontmatter(run_dir, contract, out_name=work_name, ir_values=_ir_values(run_dir))
         sanitize_bib(run_dir)
         ensure_assets(run_dir)
     except Exception as exc:  # normalisation must never hard-crash the pipeline

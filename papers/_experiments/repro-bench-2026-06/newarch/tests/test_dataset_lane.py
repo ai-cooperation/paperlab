@@ -40,6 +40,7 @@ def _good_result(run_dir: Path, *, survey: bool = True) -> dict:
         "data_manifest_sha256": "MANIFEST_HASH", "analysis_script_sha256": "SCRIPT_HASH",
         "rows": 2, "sample_flow": {"start": 2, "analytic": 2},
         "variables": {"WIN_HRS": {}, "OUTCOME_X": {}, "MYWEIGHT": {}, "MYSTRATA": {}, "MYPSU": {}},
+        "primary_model_id": "m1",
         "models": [{"id": "m1", "family": "survey_logistic", "outcome": "OUTCOME_X",
                     "exposure": "WIN_HRS", "estimate": 1.12, "ci_low": 1.01, "ci_high": 1.24,
                     "p_value": 0.03, "n_unweighted": 1234, "n_weighted": 1.2e8}],

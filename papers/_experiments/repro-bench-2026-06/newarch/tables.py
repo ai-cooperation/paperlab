@@ -17,6 +17,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+import capabilities
+
 GEN_OPEN = "<!-- GENERATED:{tid} source=real_results sha256={sha} -->"
 GEN_CLOSE = "<!-- /GENERATED:{tid} -->"
 GEN_BLOCK_RE = re.compile(
@@ -241,6 +243,9 @@ TEMPLATES = {
     "scientometric": [("tbl-main", _scientometric_overview_table), ("tbl-trend", _pubs_per_year_table)],
     "meta_analysis": [("tbl-main", _meta_pooled_table), ("tbl-sensitivity", _meta_sensitivity_table),
                       ("tbl-studies", _meta_studies_table)],
+    # The general dataset lane's manuscript tables are writer-authored from metrics_block;
+    # tables.py does not deterministically own them -> empty template (no ML-benchmark misroute).
+    "dataset_agent_analysis": [],
 }
 
 
@@ -249,10 +254,12 @@ def _template_for(contract: dict[str, Any], rr: dict[str, Any]) -> str:
         return "meta_analysis"
     if isinstance(rr.get("analysis"), dict) or rr.get("lane") == "scientometric":
         return "scientometric"
+    if str(rr.get("lane") or "") == "dataset_agent_analysis":
+        return "dataset_agent_analysis"
     ct = str(contract.get("contribution_type") or "").lower()
     if "benchmark" in ct or "reproducib" in ct or isinstance(rr.get("benchmark"), list):
         return "classical_ml_benchmark"
-    return "classical_ml_benchmark"  # default; extend per type
+    return "dataset_agent_analysis"  # neutral default: do not force ML-benchmark tables onto unknown lanes
 
 
 def generate(run_dir: Path, contract: dict[str, Any] | None = None) -> dict[str, str]:
@@ -315,11 +322,80 @@ _FIGSPEC = [
      "Overview of the abstract-level meta-analysis pipeline."),
 ]
 
+# The dataset-analysis lane's figures (dataset_lane.figures): forest of model coefficients,
+# spline dose-response, and sample-construction flow. Same machinery, different filenames —
+# every dataset run produces these from its GENERIC real_results schema, so this spec is as
+# general as _FIGSPEC (a run without a spline simply has no fig_dose_response.png and the
+# injector skips it). Keep the canonical labels in sync with _DATASET_FIG_HINT in pipeline.
+DATASET_FIGSPEC = [
+    ("fig-forest", "fig_model_forest.png",
+     "Model coefficient estimates with 95% confidence intervals across specifications."),
+    ("fig-dose", "fig_dose_response.png",
+     "Estimated association across the exposure range (natural cubic spline, 95% CI)."),
+    ("fig-flow", "fig_sample_flow.png", "Sample construction flow."),
+]
 
-def inject_figures(run_dir: Path) -> int:
+
+# Honest caption for the forest slot when the run extracted no poolable
+# effects (2026-07-04 round 12: the injector wrote the pooled-estimate caption
+# back on every format_repair run and Gate Z correctly blocked it each time).
+_FOREST_NO_POOL_CAPTION = (
+    "Outcome-domain pooling status: no pooled effect estimates were extractable in this run."
+)
+
+
+def _run_has_poolable_effects(run_dir: Any) -> bool:
+    if run_dir is None:
+        return True
+    try:
+        import json as _json
+        from pathlib import Path as _Path
+
+        rr = _json.loads(
+            (_Path(run_dir) / "real_experiments" / "real_results.json").read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        return True
+    synthesis = rr.get("synthesis") if isinstance(rr.get("synthesis"), dict) else {}
+    try:
+        effect_count = int(synthesis.get("numeric_effect_count") or 0)
+        poolable = int(rr.get("max_poolable_k") or 0)
+    except (TypeError, ValueError):
+        return True
+    return max(effect_count, poolable) > 0
+
+
+def figspec_for(contract: dict[str, Any] | None, run_dir: Any = None) -> list[tuple[str, str, str]]:
+    """Pick the figure spec by lane AND evidence state. Mirrors
+    pipeline._is_dataset_lane via the capabilities registry; the forest-slot
+    caption must match what the run actually produced (claim<=evidence applies
+    to injected captions too)."""
+    ds = (contract or {}).get("data_source") or {}
+    is_dataset = str(ds.get("type") or "").lower() == "dataset" and not capabilities.is_registered_fast_lane(ds)
+    if is_dataset:
+        return DATASET_FIGSPEC
+    if _run_has_poolable_effects(run_dir):
+        return _FIGSPEC
+    return [
+        (fig_id, filename, _FOREST_NO_POOL_CAPTION if fig_id == "fig-forest" else caption)
+        for fig_id, filename, caption in _FIGSPEC
+    ]
+
+
+def available_fig_refs(run_dir: Path, figspec: list[tuple[str, str, str]]) -> list[str]:
+    """The `@fig-*` refs whose figure file actually EXISTS in figures/ — so the writer is
+    told to reference only figures that will be embedded (no dangling ?@fig- for a figure
+    the analysis did not produce, e.g. no spline -> no dose-response figure)."""
+    figdir = Path(run_dir) / "figures"
+    return [f"@{canon}" for canon, fname, _ in figspec if (figdir / fname).is_file()]
+
+
+def inject_figures(run_dir: Path, figspec: list[tuple[str, str, str]] | None = None) -> int:
     """Normalize the writer's varied @fig-* references to canonical labels and
     guarantee each pre-generated figure is embedded as a labelled float (own
-    paragraph). Returns the number of embeds inserted."""
+    paragraph). Returns the number of embeds inserted. `figspec` selects the lane's
+    figures (default: the meta-analysis _FIGSPEC)."""
+    figspec = figspec if figspec is not None else _FIGSPEC
     run_dir = Path(run_dir)
     qmd = run_dir / "paper_draft_v0.qmd"
     figdir = run_dir / "figures"
@@ -327,12 +403,29 @@ def inject_figures(run_dir: Path) -> int:
         return 0
     text = qmd.read_text(encoding="utf-8", errors="ignore")
     n = 0
-    for canon, fname, caption in _FIGSPEC:
-        if not (figdir / fname).is_file():
-            continue
+    for canon, fname, caption in figspec:
         stem = canon.split("-", 1)[1]                       # forest / prisma / method
-        # 1) normalize varied @-refs (@fig-forest_plot, @fig-forestplot...) -> @fig-forest
-        text = re.sub(rf"@fig-{stem}[A-Za-z_]*", f"@{canon}", text)
+        if not (figdir / fname).is_file():
+            # the analysis did not produce this figure (e.g. no spline -> no dose-response):
+            # neutralize any dangling @fig-stem ref so the PDF has no broken ?@fig-.
+            text = re.sub(rf"\(?\s*@fig-{stem}[A-Za-z0-9_-]*\s*\)?", "the results", text)
+            continue
+        # 1) normalize varied @-refs (@fig-forest_plot, @fig-forest-plot,
+        #    @fig-forestplot...) -> @fig-forest
+        text = re.sub(rf"@fig-{stem}[A-Za-z0-9_-]*", f"@{canon}", text)
+        # 1b) FOREIGN-LABEL embeds of this same file: the healer may embed the file
+        #    under a DIFFERENT id (fresh E2E v3_9e68543a8540: results.md embedded
+        #    fig_forest_plot.png as {#fig-effects}). Step 2 strips that embed by
+        #    filename, which left every @fig-effects ref dangling — the injector
+        #    clobbered the healer's fix and the loop never converged. Normalize the
+        #    foreign refs to the canonical id BEFORE stripping, so the single
+        #    canonical embed serves them.
+        for _fm in re.finditer(
+            rf"!\[[^\]]*\]\(figures/{re.escape(fname)}\)\{{#((?:fig|tbl)-[A-Za-z0-9_-]+)", text
+        ):
+            _foreign = _fm.group(1)
+            if _foreign != canon:
+                text = re.sub(rf"@{re.escape(_foreign)}\b", f"@{canon}", text)
         # 2) DEDUP (the real fix): strip EVERY float embed the writer added for this figure —
         #    keyed by filename OR by the canonical label, any caption/attrs. The injector OWNS the
         #    single embed; we never trust the writer to place it exactly once. The codex writer
@@ -372,7 +465,7 @@ def inject_figures(run_dir: Path) -> int:
             end = len(text) if end == -1 else end
             text = text[:end] + f"\n\n{embed}\n" + text[end:]
         else:                                                # referenced nowhere: append + add a ref
-            text += f"\n\nThe analysis pipeline and pooled results are shown in {ref}.\n\n{embed}\n"
+            text += f"\n\nThe corresponding result is shown in {ref}.\n\n{embed}\n"
         n += 1
     if n:
         qmd.write_text(text, encoding="utf-8")

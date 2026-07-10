@@ -37,8 +37,8 @@ const PJ = (() => {
   const $ = (id) => document.getElementById(id);
   const show = (id, on) => $(id).classList.toggle('hidden', !on);
   const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const BADGE = { ready:'bg-gray-100 text-gray-600', submitted:'bg-blue-100 text-blue-700', running:'bg-amber-100 text-amber-700', done:'bg-green-100 text-green-700', blocked:'bg-red-100 text-red-700', error:'bg-red-100 text-red-700' };
-  const LABEL = { ready:'已存草稿（未送出）', submitted:'已送出', running:'執行中', done:'完成', blocked:'卡住', error:'錯誤' };
+  const BADGE = { ready:'bg-gray-100 text-gray-600', submitted:'bg-blue-100 text-blue-700', running:'bg-amber-100 text-amber-700', human_review_required:'bg-amber-100 text-amber-800', done:'bg-green-100 text-green-700', blocked:'bg-red-100 text-red-700', error:'bg-red-100 text-red-700' };
+  const LABEL = { ready:'已存草稿（未送出）', submitted:'已送出', running:'執行中', human_review_required:'等待人工核准', done:'完成', blocked:'卡住', error:'錯誤' };
 
   async function load() {
     try {

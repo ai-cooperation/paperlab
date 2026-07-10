@@ -1,0 +1,164 @@
+"""Deterministic paper assembler (ADR-001 Directory-as-Schema).
+
+The model writes prose (sections/*.md incl. the abstract file) and structural values
+(paper_meta.json); THIS code owns the artifact shape. paper_draft_v0.qmd becomes a
+GENERATED artifact: exactly one Abstract by construction, every block wrapped in
+source-map comments so render crashes grep back to the source file, and NEVER a
+placeholder stub — missing/thin content fails closed with a machine-readable block
+report so the orchestrator routes the work back to the model (honest terminal state,
+never a placeholder PDF).
+
+Round-trip contract (§V4-C): healers edit SOURCES; ensure_assembled() re-derives the
+qmd write-if-changed at the head of every qmd-reading phase, so a read-only gate on
+the generated artifact always judges the current sources. Legacy runs (no
+paper_meta.json) are untouched — the old composer path stays live until the live
+validation retires it (8a/8b).
+"""
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+
+from . import layouts
+from .ir import AssemblyResult, PaperDraftIR
+from .layouts import GENERATED_BANNER
+from .manifest import assembly_source_sha256
+from .metadata_schema import PAPER_META_FILE, ir_from_meta, load_paper_meta
+
+BLOCK_REPORT_FILE = "assembly_block_report.json"
+DRAFT_FILE = "paper_draft_v0.qmd"
+
+MIN_ABSTRACT_WORDS = 40
+# Matches the legacy composer's substantive-section floor: an outline fragment must
+# not be laundered past the write phase into Gate D.
+MIN_SECTION_WORDS = 80
+
+_STUB_RE = re.compile(r"\babstract\s+pending\b", re.IGNORECASE)
+
+
+def load_ir(run_dir: Path | str) -> tuple[PaperDraftIR | None, list[str]]:
+    """Load + validate every assembly input. Fail-closed: any missing/thin/stub
+    input returns findings and NO IR."""
+    run_path = Path(run_dir)
+    meta, findings = load_paper_meta(run_path)
+    if meta is None:
+        return None, findings
+
+    abstract_rel = str(meta["abstract_ref"])
+    abstract_path = run_path / abstract_rel
+    if not abstract_path.is_file():
+        return None, ["abstract source %s missing" % abstract_rel]
+    abstract = _clean_prose(abstract_path.read_text(encoding="utf-8", errors="ignore"))
+    if _STUB_RE.search(abstract):
+        return None, ["abstract source %s is a placeholder stub" % abstract_rel]
+    if len(abstract.split()) < MIN_ABSTRACT_WORDS:
+        return None, [
+            "abstract source %s too thin (%d words < %d)"
+            % (abstract_rel, len(abstract.split()), MIN_ABSTRACT_WORDS)
+        ]
+
+    sections: list[tuple[str, str]] = []
+    section_findings: list[str] = []
+    for rel in meta["section_order"]:
+        path = run_path / str(rel)
+        if not path.is_file():
+            section_findings.append("section source %s missing" % rel)
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore").strip()
+        if len(text.split()) < MIN_SECTION_WORDS:
+            section_findings.append(
+                "section source %s too thin (%d words < %d)"
+                % (rel, len(text.split()), MIN_SECTION_WORDS)
+            )
+            continue
+        sections.append((str(rel), text))
+    if section_findings:
+        return None, section_findings
+
+    return ir_from_meta(meta, abstract=abstract, sections=sections), []
+
+
+def _clean_prose(text: str) -> str:
+    """Normalize abstract prose: strip a leading Abstract heading (the assembler owns
+    it) and a trailing `**Keywords:** ...` run the writer appended (the frontmatter
+    carries keywords; leaving it in the abstract renders a keyword dump inside the
+    abstract block — VIP visual audit 2026-07-09 caught this on two migrated jobs).
+    Then collapse whitespace."""
+    text = re.sub(r"(?m)^#{1,4}\s*Abstract\s*(?:\{[^}\n]*\})?\s*$", "", text)
+    text = re.sub(r"(?m)^\*\*\s*Abstract\s*\*\*\s*$", "", text)
+    # Cut a trailing Keywords label + its run to EOF. Only when it reads as a LABEL,
+    # not prose: a **bold** Keywords marker (anywhere), or a Keywords: at line start.
+    # DOTALL so the run to EOF spans lines; the LABEL anchors (bold markers / line
+    # start) keep a mid-sentence "the keyword: X" from swallowing the abstract.
+    # `**Keywords:**` (colon inside the bold) or `**Keywords**:` or a plain
+    # `Keywords:` at line start — all a trailing label, cut to EOF.
+    text = re.sub(r"(?is)\*\*\s*keywords?\s*[:：]?\s*\*\*\s*[:：]?\s*.*\Z", "", text)
+    text = re.sub(r"(?ims)^\s*keywords?\s*[:：].*\Z", "", text)
+    return " ".join(text.split())
+
+
+def compose_draft(ir: PaperDraftIR) -> str:
+    """Emit the generated draft qmd by delegating to the layout adapter selected by
+    `ir.layout` (ADR-001 §3). The assembler owns no layout knowledge — all
+    heading/frontmatter/journal shape lives in engine_v3.assembly.layouts."""
+    return layouts.render_ir(ir)
+
+
+def assemble_paper(run_dir: Path | str) -> AssemblyResult:
+    """Assemble the generated draft from sources. Fail-closed writes a block report
+    and touches nothing else; success clears any stale block report."""
+    run_path = Path(run_dir)
+    ir, findings = load_ir(run_path)
+    if ir is None:
+        (run_path / BLOCK_REPORT_FILE).write_text(
+            json.dumps(
+                {"blocked": True, "findings": findings, "phase_contract": "assembly"},
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return AssemblyResult(ok=False, blocked_findings=tuple(findings))
+
+    draft = compose_draft(ir)
+    draft_path = run_path / DRAFT_FILE
+    existing = (
+        draft_path.read_text(encoding="utf-8", errors="ignore") if draft_path.is_file() else None
+    )
+    changed = existing != draft
+    if changed:
+        draft_path.write_text(draft, encoding="utf-8")
+    (run_path / BLOCK_REPORT_FILE).unlink(missing_ok=True)
+    return AssemblyResult(
+        ok=True,
+        written=(DRAFT_FILE,),
+        source_sha256=assembly_source_sha256(run_path) or "",
+        changed=changed,
+    )
+
+
+def ensure_assembled(run_dir: Path | str) -> AssemblyResult | None:
+    """Idempotent re-derivation hook for every qmd-reading phase. No-op (None) on
+    legacy runs; write-if-changed otherwise, so unchanged sources leave the qmd
+    bytes AND mtime alone."""
+    run_path = Path(run_dir)
+    if not (run_path / PAPER_META_FILE).is_file():
+        return None
+    return assemble_paper(run_path)
+
+
+def ir_render_values(run_dir: Path | str) -> dict[str, object] | None:
+    """The structural values the springer/render surface needs (title, abstract,
+    keywords, abstract_ref) — taken from the IR, never re-extracted from the qmd by
+    regex. None for legacy runs (renderer falls back to its extraction path)."""
+    ir, _findings = load_ir(run_dir)
+    if ir is None:
+        return None
+    return {
+        "title": ir.title,
+        "abstract": ir.abstract,
+        "keywords": list(ir.keywords),
+        "abstract_ref": ir.abstract_ref,
+        "journal": ir.journal,
+    }

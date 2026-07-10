@@ -171,6 +171,40 @@ def prisma_flow(run_dir: Path, meta: dict[str, Any]) -> list[str]:
     return _save(fig, run_dir, PRISMA)
 
 
+def protocol_gap_prisma_flow(run_dir: Path, results: dict[str, Any]) -> list[str]:
+    """PRISMA-style flow for protocol-gap / audited-literature lanes.
+
+    This lane has no poolable meta-analysis object, but it still owns a real
+    data-phase screening fact: verified references and k=0 same-subset transfer
+    benchmarks. Keep labels deliberately short so the delivered PDF does not
+    ship with text protruding outside the figure boxes.
+    """
+    verified = int(results.get("verified_reference_count") or 0)
+    crossref = int(results.get("crossref_verified_count") or verified)
+    poolable_k = int(results.get("poolable_same_subset_effect_k") or 0)
+    same_subset_found = bool(results.get("same_extreme_subset_benchmark_found"))
+    same_subset_n = 1 if same_subset_found else 0
+    if not verified and not crossref:
+        return []
+
+    fig, ax = plt.subplots(figsize=(7.2, 8.4))
+    ax.set_xlim(0, 10)
+    ax.set_ylim(0, 12)
+    ax.axis("off")
+    mx = 5.0
+    ys = [10.2, 8.1, 6.0, 3.9, 1.8]
+    w, h = 5.0, 1.15
+    _box(ax, mx, ys[0], w, h, f"Candidate DOI records\nfrom contract additions\n(n = {verified:,})", _BLUE, _BLUE_FILL, fs=8.3)
+    _box(ax, mx, ys[1], w, h, f"Crossref DOI records\nretrieved\n(n = {crossref:,})", _BLUE, _BLUE_FILL, fs=8.3)
+    _box(ax, mx, ys[2], w, 1.35, "Screened for relevance to\nextreme weather, TSFMs, and\nweather foundation models", _BLUE, _BLUE_FILL, fs=7.9)
+    _box(ax, mx, ys[3], w, h, f"Included in audited\nbibliography\n(n = {verified:,})", _GREEN, _GREEN_FILL, fs=8.3)
+    _box(ax, mx, ys[4], w, 1.35, f"Same-subset transfer\nbenchmarks found\n(n = {same_subset_n}; poolable k = {poolable_k})", _RED, _RED_FILL, fs=8.0)
+    for y1, y2 in zip(ys[:-1], ys[1:]):
+        _arrow(ax, mx, y1 - 0.62, mx, y2 + 0.62)
+    ax.set_title("PRISMA-style data-phase evidence flow", fontsize=12, fontweight="bold", color=_INK, pad=14)
+    return _save(fig, run_dir, PRISMA)
+
+
 def method_overview(run_dir: Path, meta: dict[str, Any]) -> list[str]:
     """Horizontal pipeline overview — search -> PICOS screen -> extract -> pool ->
     sensitivity, with the real numbers. Deterministic (replaces the writer's TikZ)."""
@@ -215,6 +249,15 @@ def generate(run_dir: Path) -> dict[str, list[str]]:
         rr = json.loads(rr_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {}
+    if _is_protocol_gap_results(rr):
+        out: dict[str, list[str]] = {}
+        try:
+            pr = protocol_gap_prisma_flow(run_dir, rr)
+            if pr:
+                out[PRISMA] = pr
+        except Exception:  # noqa: BLE001
+            pass
+        return out
     meta = rr.get("meta")
     if not isinstance(meta, dict):
         return {}
@@ -238,6 +281,14 @@ def generate(run_dir: Path) -> dict[str, list[str]]:
     except Exception:  # noqa: BLE001
         pass
     return out
+
+
+def _is_protocol_gap_results(results: dict[str, Any]) -> bool:
+    return (
+        results.get("result_type") == "audited-literature-and-protocol-gap-results"
+        or "same_extreme_subset_benchmark_found" in results
+        or "poolable_same_subset_effect_k" in results
+    )
 
 
 if __name__ == "__main__":

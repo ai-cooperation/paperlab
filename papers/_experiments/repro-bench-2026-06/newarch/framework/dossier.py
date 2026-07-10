@@ -48,7 +48,7 @@ def new_dossier(job_id: str, contract: dict[str, Any], *, mode: str = "paper",
                 "language": contract.get("output_language", "en")},
         "contract": {k: contract.get(k) for k in
                      ("topic", "research_question", "contribution", "data_source",
-                      "synthesis", "level")},
+                      "synthesis", "level", "tier")},
         "status": {"phase": "start", "checkpoint": None, "blocked": False,
                    "blockers": [], "next_action": None},
         "claims": {"research_gaps": [], "contributions": [], "core_claims": [],

@@ -17,10 +17,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 
 import delivery_audit
+import capabilities
 import floor_score
 import format_repair
 import meta_figures
@@ -40,12 +42,51 @@ from .pack import PaperPack
 
 SKILLS = Path(os.environ.get("PAPERBENCH_SKILLS", str(Path.home() / "paperbench" / "skills-bundle")))
 SCORE_TARGET = 80.0
+ANALYSIS_RERUN_BUDGET = 1   # max times review can route the run back to the analysis phase
 SECTIONS = ["Introduction", "Related Work", "Methods", "Results", "Discussion",
             "Limitations", "Conclusion"]
 
 
 def _skill(*names: str) -> str:
-    return "\n".join(f"- {SKILLS}/{n}/SKILL.md" for n in names)
+    """A BINDING skill-load instruction — NOT a dangling path. A dispatched brain (codex)
+    does not reliably open a path merely listed under 'Read:'; it proceeds from priors + the
+    explicit prompt unless told the file is a hard prerequisite (codex self-reported this).
+    So spell it out: open, read in full, apply EVERY rubric/dimension, fail loud if a file
+    cannot be read. The dimension/rubric knowledge stays in the skill — never enumerated here."""
+    paths = "\n".join(f"- {SKILLS}/{n}/SKILL.md" for n in names)
+    return (
+        "AUTHORITATIVE SKILLS (binding — load BEFORE doing this phase's work): for EACH path "
+        "below, open and read the file IN FULL, extract every operative requirement / checklist "
+        "/ scoring rubric / dimension it defines, and apply them on equal footing with this "
+        "prompt. Do NOT work from memory and do NOT skip any dimension. If a skill file cannot "
+        "be read, STOP and report which path failed rather than proceeding.\n"
+        f"{paths}"
+    )
+
+
+def _framing_block(c: dict[str, Any]) -> str:
+    """The researcher's intellectual framing from the b-side grill (gap / positioning /
+    candidate claims). The a-side must BUILD ON this — not regenerate the positioning
+    blind from references.bib (the discourse defect). Framing is the starting HYPOTHESIS;
+    real_results + the claim<=evidence gate are the REFEREE: any claim the evidence does
+    not support is downgraded or dropped, so honoring the human's angle never becomes an
+    overclaim."""
+    fr = c.get("framing") or {}
+    gap = str(fr.get("gap") or "").strip()
+    pos = str(fr.get("positioning") or "").strip()
+    claims = [str(x).strip() for x in (fr.get("claims") or []) if str(x).strip()]
+    if not (gap or pos or claims):
+        return ""
+    out = ["\nResearcher framing (BUILD ON and REFINE this; ground it in references.bib + "
+           "real_results; DROP any element the evidence does not support — claim never exceeds evidence):"]
+    if gap:
+        out.append(f"- Gap: {gap}")
+    if pos:
+        out.append(f"- Positioning: {pos}")
+    if claims:
+        out.append("- Candidate claims (each must map to a real_results row or be downgraded/dropped):")
+        out += [f"    * {x}" for x in claims]
+    return "\n".join(out) + "\n"
 
 
 def _hdr(c: dict[str, Any]) -> str:
@@ -54,13 +95,19 @@ def _hdr(c: dict[str, Any]) -> str:
         f"- Topic: {c.get('topic')}\n- Research question: {c.get('research_question')}\n"
         f"- Contribution: {c.get('contribution')}\n- Target journal: {c.get('target_journal')}\n"
         "Rules: academic English; no emoji; no invented numbers; every numeric claim must trace to "
-        "real_experiments/real_results.json; ground every citation in references.bib.\n")
+        "real_experiments/real_results.json; ground every citation in references.bib.\n"
+        + _framing_block(c))
 
 
 def _dispatch_brain(o: Orchestrator, label: str, prompt: str, writes: list[str],
-                    timeout: int = 1200) -> bool:
+                    timeout: int = 1200, worker_fallback: bool = True) -> bool:
     """One codex-brain reasoning unit via the dispatcher; verify the artifact exists,
-    retry once with a forceful nudge if the brain returned OK but wrote nothing."""
+    retry once with a forceful nudge if the brain returned OK but wrote nothing.
+
+    DEGRADATION LADDER: if codex is UNAVAILABLE (usage limit / quota), don't crash the
+    whole run — fall back to the FREE worker (big-pickle) to finish the task. The output
+    is lower quality (and the deterministic floor will reflect that), but the run COMPLETES
+    and delivers instead of being stuck with no output. The degradation is recorded."""
     o.dispatcher.run_dir = o.run_dir  # type: ignore[attr-defined]
     for attempt in range(2):
         p = prompt if attempt == 0 else (
@@ -71,10 +118,28 @@ def _dispatch_brain(o: Orchestrator, label: str, prompt: str, writes: list[str],
         res = o.fan_out([pkt])[0]
         if all((o.run_dir / w).exists() for w in writes):
             return True
-        if res.status == "error":          # brain unavailable (codex quota/auth) -> fail loud now
+        if res.status == "error":          # codex unavailable (usage limit / quota)
+            if worker_fallback and _worker_fallback(o, label, p, writes):
+                return True                # big-pickle finished it (degraded) — run continues
             raise OrchestratorBlocked(label, reason=f"brain unavailable at {label}: {'; '.join(res.blockers)}")
-    # the brain ran but wrote no output (twice) -> block; never proceed to a garbage paper
+    # the brain ran but wrote no output (twice) -> last-resort free-worker fallback, else block
+    if worker_fallback and _worker_fallback(o, label, prompt, writes):
+        return True
     raise OrchestratorBlocked(label, reason=f"brain produced no output at {label} after 2 attempts: {writes}")
+
+
+def _worker_fallback(o: Orchestrator, label: str, prompt: str, writes: list[str]) -> bool:
+    """codex (brain) unavailable -> the FREE worker (big-pickle) finishes the task so the
+    run completes (lower quality, never stuck). Records the degradation in the dossier."""
+    pkt = WorkerPacket(task_id=f"{label}-fallback", role=label, worker_class="drafter",
+                       task_goal=prompt, allowed_files_write=writes)
+    o.dispatcher.run_dir = o.run_dir  # type: ignore[attr-defined]
+    o.fan_out([pkt])
+    if all((o.run_dir / w).exists() for w in writes):
+        o.dossier.data.setdefault("degraded", []).append(
+            {"phase": label, "reason": "codex usage limit -> big-pickle fallback (lower quality)"})
+        return True
+    return False
 
 
 def _dispatch_worker(o: Orchestrator, label: str, prompt: str, writes: list[str],
@@ -91,8 +156,7 @@ def _is_dataset_lane(contract: dict[str, Any]) -> bool:
     """A real-data analysis (not literature/meta) of an arbitrary public dataset that is
     NOT the registered HUPD lane -> the general agent-driven dataset lane."""
     ds = contract.get("data_source") or {}
-    name = str(ds.get("name") or "").lower()
-    return str(ds.get("type") or "").lower() == "dataset" and "hupd" not in name
+    return str(ds.get("type") or "").lower() == "dataset" and not capabilities.is_registered_fast_lane(ds)
 
 
 def _phase_data(o: Orchestrator) -> None:
@@ -115,11 +179,63 @@ def _phase_data_meta(o: Orchestrator, contract: dict[str, Any]) -> None:
         **o.dossier.data.get("evidence", {}),
         "studies_with_effects": prisma.get("studies_with_effects"),
         "pooled": (result.get("meta") or {}).get("pooled"),
-        "references": {"bib_count": kept},
+        "references": {"bib_count": kept, "doi_real_rate": _doi_real_rate(o.run_dir)},
         "real_results": "real_experiments/real_results.json",
-        "figures": [{"name": p.stem} for p in (o.run_dir / "figures").glob("*.svg")],
+        "figures": [{"name": p.stem, "svg": True, "png": p.with_suffix(".png").exists()}
+                    for p in (o.run_dir / "figures").glob("*.svg")],
     })
     o.dossier.pack_ext_set("metrics_block", PD.meta_metrics_block(result))
+
+
+REF_FLOOR = 35    # the paper-draft skill's HARD minimum real, verified references
+
+
+def _build_dataset_references(o: Orchestrator, contract: dict[str, Any],
+                              lit: dict[str, Any]) -> int:
+    """Multi-source, CrossRef-verified related-work bibliography for the dataset lane.
+
+    DISCOVERY is multi-source: the BRAIN (codex) generates a topic reading list (broad
+    real knowledge of the field) AND the OpenAlex corpus seeds real on-topic DOIs — NOT
+    OpenAlex alone (the single-source cause of the 14-ref thinness). Semantic Scholar is
+    deliberately skipped (rate-limited, unreliable).
+
+    VERIFICATION is fail-closed and runs on the WHOLE list AFTER it is assembled (skill
+    Layer 1): refs_llm CrossRef-title-verifies each codex candidate, and then EVERY DOI
+    (codex + OpenAlex seed + contract seed) is routed through build_refs_from_doi_list,
+    which CrossRef-verifies by DOI and DROPS anything fabricated. So no reference enters
+    the bibliography that CrossRef has not confirmed real — supplementing references ALWAYS
+    re-runs CrossRef. Targets a buffer above REF_FLOOR so the DOI re-verify drop still
+    nets >= REF_FLOOR."""
+    import dataset_lane.refs_llm as refs_llm
+    analysis = (lit or {}).get("analysis") or {}
+    seed = [{"doi": w.get("doi"), "title": w.get("title"), "year": w.get("year")}
+            for w in (analysis.get("background_works") or analysis.get("most_cited") or [])
+            if w.get("doi")]
+    topic = PD._literature_query(contract)
+    disc = refs_llm.collect(
+        o.run_dir, topic,
+        lambda p, wr: _dispatch_brain(o, "ref_discovery", p, wr, worker_fallback=False),
+        target=REF_FLOOR + 12, seed_dois=seed)
+    o.dossier.data.setdefault("ref_discovery", {}).update(
+        {"requested": disc["requested"], "verified_candidates": disc["verified"], "rounds": disc["rounds"]})
+    # Layer 1 re-verify: the FULL union of DOIs (codex + OpenAlex + contract) through the
+    # CrossRef DOI-verify bib builder (writes references.bib / metadata.json / doi_audit.json).
+    union: dict[str, dict[str, Any]] = {}
+    for c in PD.contract_doi_candidates(contract):
+        d = str(c.get("doi") or "").strip().lower()
+        if d:
+            union[d] = {"doi": d}
+    for r in disc["refs"]:
+        union.setdefault(r["doi"], {"doi": r["doi"]})
+    audit = PD.build_refs_from_doi_list(o.run_dir, list(union.values()))
+    kept = int(audit.get("kept") or 0)
+    # fail-closed floor (the skill's HARD >=35): never write a paper on a thin bibliography.
+    if kept < REF_FLOOR:
+        raise OrchestratorBlocked("data", reason=(
+            f"references below the skill floor: {kept} CrossRef-verified < {REF_FLOOR} "
+            f"(codex discovery {disc['rounds']} round(s) + OpenAlex seed exhausted; "
+            "topic may be too narrow)"))
+    return kept
 
 
 def _phase_data_dataset(o: Orchestrator, contract: dict[str, Any]) -> None:
@@ -135,7 +251,10 @@ def _phase_data_dataset(o: Orchestrator, contract: dict[str, Any]) -> None:
         return _dispatch_worker(o, "dataset_worker", prompt, writes)
 
     skills = _skill("dataset-fetch", "survey-weighted-analysis", "number-trace-writing")
-    res = dataset_lane.lane.run(o.run_dir, contract, brain=brain, worker=worker, skills=skills)
+    # On an escalation-ladder re-run, the review's analysis-level findings steer the new spec.
+    feedback = o.dossier.data.get("analysis_feedback") or None
+    res = dataset_lane.lane.run(o.run_dir, contract, brain=brain, worker=worker, skills=skills,
+                                analysis_feedback=feedback)
     # Self-upgrade SKILL loop: distil this run's failures into a general skill lesson so the
     # next run avoids them (the "Skill" half of Hermes+Skill). Best-effort, never blocks.
     try:
@@ -158,11 +277,20 @@ def _phase_data_dataset(o: Orchestrator, contract: dict[str, Any]) -> None:
     try:
         import openalex_analysis
         lit = openalex_analysis.run(PD._literature_query(contract), o.run_dir)
-    except Exception:  # noqa: BLE001 - no corpus just means seed-ref-only bibliography
+    except Exception:  # noqa: BLE001 - no corpus just means codex-discovery-only bibliography
         lit = {}
     if saved is not None:
         rr_path.write_text(saved, encoding="utf-8")   # restore the dataset analysis result
-    kept = PD.expand_references_from_analysis(o.run_dir, contract, lit)
+    kept = _build_dataset_references(o, contract, lit)
+
+    # Deterministic figures from the analysis output: a forest of model coefficients, a
+    # spline dose-response, and the sample-construction flow — machine-drawn so a figure
+    # can never disagree with the numbers (the sibling of meta_figures for this lane).
+    # General: keyed off the GENERIC real_results schema (models[]/spline/sample_flow),
+    # zero dataset-specific strings. The review loop no longer has to invent text-box
+    # placeholders for absent figures (the defect that capped this lane's floor).
+    import dataset_lane.figures as ds_figures
+    ds_figures.generate(o.run_dir)
 
     rr = res.get("real_results") or {}
     o.dossier.set("evidence", {
@@ -171,9 +299,10 @@ def _phase_data_dataset(o: Orchestrator, contract: dict[str, Any]) -> None:
         "dataset_models": rr.get("models"),
         "survey_design": rr.get("survey_design"),
         "sample_flow": rr.get("sample_flow"),
-        "references": {"bib_count": kept},
+        "references": {"bib_count": kept, "doi_real_rate": _doi_real_rate(o.run_dir)},
         "real_results": "real_experiments/real_results.json",
-        "figures": [{"name": p.stem} for p in (o.run_dir / "figures").glob("*.svg")],
+        "figures": [{"name": p.stem, "svg": True, "png": p.with_suffix(".png").exists()}
+                    for p in (o.run_dir / "figures").glob("*.svg")],
     })
     o.dossier.pack_ext_set("metrics_block", dataset_lane.lane.metrics_block(rr))
 
@@ -181,9 +310,12 @@ def _phase_data_dataset(o: Orchestrator, contract: dict[str, Any]) -> None:
 def _phase_gap(o: Orchestrator) -> None:
     c = o.dossier.data["contract"]
     prompt = _hdr(c) + f"""
-You are the RESEARCH-POSITIONING brain. Read these skills:
+You are the RESEARCH-POSITIONING brain.
 {_skill('paper-draft', 'literature-synthesis', 'innovation-positioning')}
-Phase 3. Inputs in THIS directory: references.bib, real_experiments/real_results.json.
+Phase 3. Inputs: references.bib, real_experiments/real_results.json, AND the Researcher framing above.
+ANCHOR the positioning in the Researcher framing — validate and sharpen its gap and claims against
+references.bib + real_results; keep what they support, refine/drop what they do not. Do NOT regenerate
+a positioning that ignores the framing.
 Write `phase3_positioning.md`: (1) a literature landscape grouping the real references;
 (2) a Gap Matrix table | Gap | Description | Existing Work | Our Approach | with >=3 gaps, each
 Existing-Work cell citing REAL references.bib entries (author/year), never invented; (3) a
@@ -207,18 +339,21 @@ End with CHILD_OK."""
 def _phase_structure(o: Orchestrator) -> None:
     c = o.dossier.data["contract"]
     prompt = _hdr(c) + f"""
-You are the PAPER-STRUCTURE brain. Read: {_skill('paper-draft', 'figure-design', 'qmd-writer')}
+You are the PAPER-STRUCTURE brain.
+{_skill('paper-draft', 'figure-design', 'qmd-writer')}
 Phase 4. Inputs: phase3_positioning.md, references.bib, real_experiments/real_results.json.
 Write `phase4_structure.md`: section outline (Abstract/Introduction/Related Work/Methods/Results/
 Discussion/Limitations/Conclusion), each section's key claim, the figures/tables to reference
-(@fig-forest/@fig-prisma/@fig-method/@tbl-*), target 4500-6000 words. Only that file. End with CHILD_OK."""
+({_fig_hint(o, c)} for figures, @tbl-* for tables; reference at least 3 figures and 2 tables),
+target 4500-6000 words. Only that file. End with CHILD_OK."""
     _dispatch_brain(o, "phase4_structure", prompt, ["phase4_structure.md"])
 
 
 def _phase_claim_evidence(o: Orchestrator) -> None:
     c = o.dossier.data["contract"]
     prompt = _hdr(c) + f"""
-You are the CLAIM-EVIDENCE (Gate B) brain. Read: {_skill('paper-draft', 'paper-review-skill')}
+You are the CLAIM-EVIDENCE (Gate B) brain.
+{_skill('paper-draft', 'paper-review-skill')}
 Inputs: real_experiments/real_results.json, phase3_positioning.md, phase4_structure.md.
 Write `claim_evidence_map.md`: a markdown table | Claim | Evidence (real_results field/table/figure) |
 Exact-Match? | N-Support | Attribution-verb | for EVERY quantitative claim. Produce AT LEAST 8 claim rows.
@@ -229,21 +364,74 @@ correlates/associated; N<3 -> suggests, strong causal verbs BANNED). Only that f
     _dispatch_brain(o, "gate_b", prompt, ["claim_evidence_map.md"])
 
 
+def _fig_hint(o: Orchestrator, c: dict[str, Any]) -> str:
+    """The exact `@fig-*` refs the writer may use — lane-aware AND limited to figures that
+    were actually produced (figures are drawn in the data phase, before writing), so the
+    writer never references a figure the analysis did not generate."""
+    import tables
+    refs = tables.available_fig_refs(o.run_dir, tables.figspec_for(c))
+    # No dangling fixed label when no figure was produced (codex acceptance): instruct the
+    # writer to reference NO figure rather than seeding a @fig-forest that does not exist.
+    return "/".join(refs) if refs else "(no figures were generated — do NOT use any @fig- reference)"
+
+
+def _paper_kind(c: dict[str, Any]) -> str:
+    """Lane-aware description of WHAT is being written, so the meta-analysis framing
+    (and its abstract-level/PRISMA limitations) does not leak into a dataset study."""
+    return ("an empirical study analysing a public dataset with the documented real results"
+            if _is_dataset_lane(c) else "an abstract-level random-effects meta-analysis paper")
+
+
+def _limitations_hint(c: dict[str, Any]) -> str:
+    """The honest limitation framing for the lane (meta = abstract-level screening; dataset
+    = observational/associational), so the writer states caveats that are actually true."""
+    return ("the design is observational and the estimates are associational, not causal"
+            if _is_dataset_lane(c) else "this is abstract-level (no full text)")
+
+
+def _limitations_caveats(c: dict[str, Any], rr: dict[str, Any] | None = None) -> str:
+    """The EXACT honest-caveat phrasings the review brain must put in Limitations — lane
+    aware, so a dataset study does not get meta-analysis caveats (RoB2/GRADE/PRISMA) that
+    are not true of it, and a meta-analysis does not get panel caveats."""
+    if _is_dataset_lane(c):
+        rr = rr or {}
+        sf = rr.get("sample_flow") or {}
+        sd = rr.get("survey_design") or {}
+        unit_label = (sf.get("unit_label") or "analytic unit")
+        longitudinal = sf.get("time_min") is not None or sf.get("analytic_year_min") is not None
+        pieces = [
+            'the design is "observational" and the estimates are "associational, not causal"',
+            'the findings "may not generalize" and have limited "external validity"',
+            f'the analytic sample is a harmonized "subset" of the source {unit_label}-level data'
+            + (" panel" if longitudinal else "") + " with small-k subgroups",
+        ]
+        if sd.get("weighted") is False:
+            pieces.append('the analysis is "unweighted"')
+        pieces.append("the measures are observed indicators that do not identify a mechanism")
+        return "; ".join(pieces)
+    return ('the pooled effect is "not statistically significant" (the 95% CI crosses zero); '
+            'the findings "may not generalize" and have limited "external validity"; the '
+            '"sample size" is small (a "subset" of available studies, small k); abstract-level '
+            'extraction only (no full text, pattern-based screening, no RoB2/GRADE/PRISMA)')
+
+
 def _phase_write(o: Orchestrator) -> None:
     """7 free-worker section drafts -> codex composition into paper_draft_v0.qmd."""
     c = o.dossier.data["contract"]
     metrics = o.dossier.data.get("pack_ext", {}).get("metrics_block", "")
+    fig_hint = _fig_hint(o, c)
+    kind = _paper_kind(c)
     (o.run_dir / "sections").mkdir(exist_ok=True)
     # free workers draft each section (the bulk; offloaded to the free worker tier)
     packets = [WorkerPacket(
         task_id=f"draft-{s.replace(' ', '_')}", role=f"section:{s}", worker_class="drafter",
         task_goal=_hdr(c) + f"""
-You draft ONLY the "{s}" section of an abstract-level random-effects meta-analysis paper. Read:
+You draft ONLY the "{s}" section of {kind}.
 {_skill('paper-draft', 'academic-writing')}
 Inputs: phase3_positioning.md (gap), phase4_structure.md (outline), claim_evidence_map.md (allowed
 claims), references.bib. Write `sections/{s.replace(' ', '_')}.md` — prose for the {s} section only,
-academic English, citing references.bib by @key. Reference figures ONLY as @fig-forest/@fig-prisma/
-@fig-method (no image embeds, no {{#fig-}} labels). Use ONLY these admissible numbers, verbatim:
+academic English, citing references.bib by @key. Reference figures ONLY as {fig_hint}
+(no image embeds, no {{#fig-}} labels). Use ONLY these admissible numbers, verbatim:
 
 {metrics}
 
@@ -256,14 +444,17 @@ Only write that one file. End with CHILD_OK.""",
     drafted = [f"sections/{s.replace(' ', '_')}.md" for s in SECTIONS
                if (o.run_dir / "sections" / f"{s.replace(' ', '_')}.md").exists()]
     compose = _hdr(c) + f"""
-You are the COMPOSITION brain. Read: {_skill('paper-draft', 'academic-writing', 'qmd-writer', 'journal-templates')}
-Assemble these section drafts into a complete Quarto `paper_draft_v0.qmd` (>=4500 words):
+You are the COMPOSITION brain.
+{_skill('paper-draft', 'academic-writing', 'qmd-writer', 'journal-templates')}
+Assemble these section drafts into a complete Quarto `paper_draft_v0.qmd` (>=4500 words) for {kind}:
 {chr(10).join('- ' + d for d in drafted)}
 Plus an Abstract you write. Frontmatter: title, author "Cooperation.TW / Paper Lab", bibliography
-references.bib, colorlinks/link-citations/citecolor blue. Cite >=20 references. Reference figures ONLY by
-@fig-forest/@fig-prisma/@fig-method in prose (NO image embeds, NO {{#fig-}} labels — the pipeline injects
+references.bib, colorlinks/link-citations/citecolor blue. CITE >=35 DISTINCT references @key IN THE
+BODY and use EVERY entry in references.bib at least once (no dead/uncited references — the delivery
+gate blocks a bibliography that is present but not cited). Reference figures ONLY by
+{fig_hint} in prose (NO image embeds, NO {{#fig-}} labels — the pipeline injects
 each figure once). Fix any number that does not match real_experiments/real_results.json. State in
-Limitations that this is abstract-level (no full text). Only write paper_draft_v0.qmd. End with CHILD_OK."""
+Limitations that {_limitations_hint(c)}. Only write paper_draft_v0.qmd. End with CHILD_OK."""
     _dispatch_brain(o, "phase8_compose", compose, ["paper_draft_v0.qmd"], timeout=1200)
 
 
@@ -282,10 +473,36 @@ def _phase_render_gates(o: Orchestrator) -> None:
         "qmd_text": draft.read_text(encoding="utf-8") if draft.exists() else "",
         "evidence": o.dossier.data.get("evidence", {}),
         "real_results": _read(o.run_dir / "real_experiments" / "real_results.json"),
-        "claim_evidence": [], "render_ok": draft.exists(),
+        "claim_evidence": _claim_matrix_rows(o.run_dir),    # Gate B (meta) reads the matrix
+        "render_ok": draft.exists(),
+        "viability": o.dossier.data.get("viability", {}),     # Gate E (meta) reads this
     }
-    report = run_gates(PaperPack(), gd, only={"C", "D", "F"})
+    report = run_gates(PaperPack(), gd, only={"B", "C", "D", "E", "F"})
     o.dossier.data.setdefault("gates", {})["render"] = report.as_dict()
+    # Gate E (research value, WARN): the a-side CONFIRMS VALUE (the b-side confirmed the
+    # GAP). Surface it for the report page + the heal loop. A well-powered null is valuable.
+    for _r in report.results:
+        if _r.gate == "E":
+            o.dossier.data["research_value"] = (_r.evidence or {}).get("research_value")
+    # Gate B (claim<=evidence, BLOCK) HARD-enforced for the dataset lane: the negation-aware
+    # qualitative check (no non-disclaimed causal/universal/overreach; numbers gated by
+    # number_trace). Verified clean on an honest paper (0 flags). Meta keeps RECORDED until
+    # its matrix path's precision is verified on a fresh meta run (enforce-then-false-block
+    # is worse than record).
+    # HARD-enforce the BLOCK gates for the dataset lane (all precision-verified on an honest
+    # paper: B negation-aware claims, C figures paired, D readability, F logic-only — numbers
+    # owned by number_trace). E is WARN. A genuinely bad paper (placeholder text, missing
+    # figure, real contradiction, overclaim) blocks; an honest one passes.
+    if _is_dataset_lane(o.dossier.data["contract"]):
+        # B is WARN/advisory (qualitative overclaim is the review brain's semantic call);
+        # numbers are hard-gated by number_trace below. Hard-block on C/D/F only.
+        for _gn, _bl in (("C", "figures_C"), ("D", "readability_D"), ("F", "logic_F")):
+            _g = next((r for r in report.results if r.gate == _gn), None)
+            if _g is not None and not _g.passed:
+                o.dossier.save()
+                o.dossier.update_status(blocked=True, blockers=[_bl])
+                raise OrchestratorBlocked("render_gates",
+                                          reason=f"Gate {_gn}: " + (_g.details or "failed"))
     # Dataset lane: every manuscript number must trace to the analysis output (no
     # hallucinated statistics). The meta lane has its own claim-evidence path; this adds
     # the number-trace gate for agent-run dataset analyses.
@@ -295,6 +512,25 @@ def _phase_render_gates(o: Orchestrator) -> None:
         yrs = {str(y) for y in range(1990, 2031)}        # bare years are not analysis numbers
         traced = dataset_lane.gates.number_trace(gd["qmd_text"], rr, whitelist=yrs)
         o.dossier.data["gates"]["number_trace"] = [p["id"] for p in traced]
+        # HARD BLOCK on hallucinated statistics. number_trace is parsing-precise (ranges/
+        # sci-notation/frontmatter/attribute-blocks handled); a LONE stray token can still be
+        # a methods-rule constant ("30 observations"), so tolerate exactly ONE and block on
+        # >=2 untraced (codex acceptance: keep the fabrication window minimal). A genuine
+        # fabrication comes in bunches, not as a single documented rule number.
+        n_untraced = sum(len(p.get("numbers") or []) for p in traced)
+        if n_untraced >= 2:
+            o.dossier.save()
+            o.dossier.update_status(blocked=True, blockers=["number_trace"])
+            raise OrchestratorBlocked("render_gates", reason=(
+                f"{n_untraced} manuscript numbers do not trace to real_results "
+                "(hallucinated statistics) — claim must not exceed evidence"))
+    # Phase-4 visual plan (RECORDED, soft floor): the figure/table count actually present.
+    # Not a hard block — the dataset lane draws what the analysis supports (e.g. no spline
+    # => no dose-response figure), so a rigid >=3 would false-block a thinner-but-valid run.
+    n_fig = len(re.findall(r"!\[[^\]]*\]\(figures/[^)]*\.(?:png|svg)\)", gd["qmd_text"]))
+    n_tbl = len(re.findall(r"\{#tbl-", gd["qmd_text"]))      # Quarto labelled-table count
+    o.dossier.data.setdefault("gates", {})["visual_plan"] = {
+        "figures": n_fig, "tables": n_tbl, "meets_floor": n_fig >= 2 and n_tbl >= 1}
     o.dossier.save()
 
 
@@ -303,6 +539,23 @@ def _read(p: Path) -> Any:
         return json.loads(p.read_text(encoding="utf-8"))
     except Exception:  # noqa: BLE001
         return {}
+
+
+def _doi_real_rate(run_dir: Path) -> float | None:
+    """The CrossRef real-existence rate from the DOI audit — so Gate A can evaluate its
+    DOI-realness half (refs>=35 AND doi_real_rate>=0.80), not just the count."""
+    audit = _read(run_dir / "doi_audit.json")
+    r = audit.get("real_rate") if isinstance(audit, dict) else None
+    return float(r) if isinstance(r, (int, float)) else None
+
+
+def _claim_matrix_rows(run_dir: Path) -> list[str]:
+    """The claim-evidence matrix table rows for Gate B's meta path (the dataset path uses
+    its own negation-aware qualitative check and ignores the matrix)."""
+    p = run_dir / "claim_evidence_map.md"
+    if not p.is_file():
+        return []
+    return [ln for ln in p.read_text(encoding="utf-8", errors="ignore").splitlines() if "|" in ln]
 
 
 def _phase_review_heal(o: Orchestrator) -> None:
@@ -320,12 +573,16 @@ def _phase_review_heal(o: Orchestrator) -> None:
         rdef_note = ("\nThe COMPILED PDF has UNRESOLVED figure cross-references "
                      "(`?@fig-`/`?@tbl-`) — flag this; the figures must reference-resolve."
                      ) if rdefs else ""
+        rr = _read(o.run_dir / "real_experiments" / "real_results.json")
         prompt = _hdr(c) + f"""
-You are the REVIEW brain (independent — you did NOT write this). Read:
+You are the REVIEW brain (independent — you did NOT write this).
 {_skill('paper-draft', 'paper-review-skill', 'elite-reviewer-audit', 'paper-logic-audit', 'figure-table-checker')}
 Review paper_draft_v0.qmd vs real_experiments/real_results.json + claim_evidence_map.md as a tough
-Q1 reviewer on the 7 dimensions. Also VERIFY the deliverable renders: every @fig-/@tbl- reference must
-resolve (no `?@` in the PDF) and figures/tables must be present.{rdef_note}
+Q1 reviewer. EVALUATE AND REPORT FINDINGS FOR EVERY dimension the loaded review skill defines — do
+NOT skip any. (Faithfully matching the numbers in real_results is necessary but NOT sufficient: the
+loaded skill's dimensions also judge whether the analysis and the manuscript themselves are sound.)
+Also VERIFY the deliverable renders: every @fig-/@tbl- reference must resolve (no `?@` in the PDF)
+and figures/tables must be present.{rdef_note}
 Write `quality_review_round{rnd}.json` with this EXACT shape:
 {{"score_100": <int 0-100>, "p0": [<short labels>], "p1": [<short labels>],
   "edits": [
@@ -334,18 +591,32 @@ Write `quality_review_round{rnd}.json` with this EXACT shape:
       "action": "replace|insert_after|delete",
       "replacement": "<the EXACT new text to write; empty for delete>",
       "reason": "<one line>"}}
+  ],
+  "analysis_findings": [
+    {{"severity": "P0|P1|P2|P3",
+      "issue": "<a problem that CANNOT be fixed by editing manuscript text — it needs the analysis re-run or the model spec changed>",
+      "required_action": "<short tag, e.g. rerun_primary_post1990 | add_control:<var> | rebound_sample:<rule> | refit_model:<id> | verify_estimate_in_ci:<model>>",
+      "reason": "<one line>"}}
   ]}}
 RULES: for EVERY P0/P1 you MUST give a concrete edit whose `locator` is copied VERBATIM from the qmd
 and whose `replacement` is the exact final text — never a vague suggestion. The editor that applies
-these is NOT smart; it only finds your locator and writes your replacement. Prioritise: (a) overclaims
+these is NOT smart; it only finds your locator and writes your replacement. The two items below are
+where to FOCUS FIRST (ordering of effort), NOT the scope of the review — still report findings from
+EVERY skill dimension, do not drop a dimension to save effort: (a) overclaims
 -> rewrite so claim <= evidence (numbers must match real_results; downgrade strong verbs when k small /
 CI crosses zero); (b) STRENGTHEN the Limitations section — prescribe a `replacement` whose text
-EXPLICITLY contains these honest caveats, all genuinely true here, using these exact phrasings: the
-pooled effect is "not statistically significant" (the 95% CI crosses zero); the findings "may not
-generalize" and have limited "external validity"; the "sample size" is small (a "subset" of available
-studies, small k); abstract-level extraction only (no full text, pattern-based screening, no RoB2/
-GRADE/PRISMA). Always include at least one P1 edit whose replacement is a 3-5 sentence Limitations
-paragraph containing those phrases (locator = the existing Limitations heading or first sentence).
+EXPLICITLY contains these honest caveats, all genuinely true here, using these exact phrasings:
+{_limitations_caveats(c, rr)}. Always include at least one P1 edit whose replacement is a 3-5 sentence
+Limitations paragraph containing those phrases (locator = the existing Limitations heading or first
+sentence).
+ANALYSIS-LEVEL findings (CRITICAL — do not lose them): some problems CANNOT be fixed by editing
+manuscript text — they need the analysis re-run or a model spec changed (e.g. the primary model
+rests on implausible data, an omitted control biases the estimate, the analytic period/sample is not
+credible, a reported estimate falls OUTSIDE its own confidence interval). For those, do NOT invent a
+caveat `edit` to paper over them and do NOT drop them — put them in `analysis_findings` with a
+concrete `required_action`. The manuscript editor cannot fix these; they are surfaced to the operator
+(and may route the run back to the analysis phase). Judging whether the analysis itself is sound — not
+just whether the prose matches the numbers — is part of the academic-rigor dimension.
 Do NOT edit the paper yourself. End with CHILD_OK."""
         _dispatch_brain(o, f"review_round{rnd}", prompt, [f"quality_review_round{rnd}.json"])
         o.dossier.pack_ext_set("render_defects", [d.get("id") for d in rdefs])
@@ -355,15 +626,79 @@ Do NOT edit the paper yourself. End with CHILD_OK."""
         hg = fs.get("hard_gates") or {}
         # carry the concrete edits as the loop's findings (one mechanical batch)
         edits = [e for e in (rev.get("edits") or []) if isinstance(e, dict) and e.get("locator")]
+        # analysis-level findings the manuscript editor CANNOT fix — accumulate (dedup by issue)
+        # across rounds so they survive to delivery instead of being lost or downgraded to caveats.
+        af = [a for a in (rev.get("analysis_findings") or []) if isinstance(a, dict) and a.get("issue")]
+        if af:
+            acc = list(o.dossier.data.get("analysis_findings") or [])
+            # dedup by required_action (the canonical fix) so the brain rephrasing the same
+            # issue each round collapses to ONE finding; fall back to the issue text if no action.
+            def _key(x): return str(x.get("required_action") or x.get("issue"))
+            seen = {_key(x) for x in acc}
+            for a in af:
+                if _key(a) not in seen:
+                    acc.append({k: a.get(k) for k in ("severity", "issue", "required_action", "reason")})
+                    seen.add(_key(a))
+            o.dossier.data["analysis_findings"] = acc
         return ReviewOutcome(
             round=rnd, score=float(rev.get("score_100") or 0),
             p0_count=len(rev.get("p0") or []), floor=floor100,
             floor_failed=not hg.get("all_pass", True),   # floor_score hard-gates: all_pass
+            p1_count=len(rev.get("p1") or []),
+            p2_count=sum(1 for e in edits if str(e.get("severity") or "").upper() == "P2"),
             findings_by_type={"edits": edits} if edits else {})
 
-    # the self-heal loop dispatches free-worker fix-agents on each failing round
-    loop = _PaperSelfHeal(o, review_fn, target_score=SCORE_TARGET, max_rounds=3)
-    loop.run()
+    # the self-heal loop dispatches free-worker fix-agents on each failing round.
+    # GRACEFUL DEGRADATION: review is the final POLISH — a rendered draft + a deterministic
+    # floor already exist. If review cannot complete (e.g. codex usage limit even after the
+    # big-pickle fallback), DELIVER the draft with a recorded note instead of crashing the
+    # whole run. Never stuck with no output.
+    # VIP tier is a PREMIUM service: the loop also heals P1/P2 (not just P0 + score >= target)
+    # and gets more rounds to do it. The standard tier stops at "no P0 + floor ok + score >=
+    # target" and leaves minor findings recorded. (Submission + reviewer-response remain a
+    # VIP HUMAN service, deliberately OUT of the pipeline — see build_paper_phases note.)
+    is_vip = str(c.get("tier") or "").lower() == "vip"
+    loop = _PaperSelfHeal(o, review_fn, target_score=SCORE_TARGET,
+                          max_rounds=5 if is_vip else 3, clear_minor=is_vip)
+    result = None
+    try:
+        result = loop.run()
+    except OrchestratorBlocked as exc:
+        o.dossier.data.setdefault("degraded", []).append(
+            {"phase": "review_heal", "reason": f"review incomplete ({exc}); delivered the rendered draft"})
+    # ACT on the review outcome — never let the phase complete silently with the loop's
+    # blocked status ignored. A deterministic INTEGRITY hard-gate failure (analysis not
+    # completed / simulated / a P0 consistency error) is a TERMINAL content block: a
+    # fabricated or incomplete analysis must NOT deliver, even degraded. (A soft score
+    # below target is NOT a hard block — the loop did its best; we record the verdict.)
+    hg = floor_score.hard_gates(o.run_dir)
+    analysis_findings = o.dossier.data.get("analysis_findings") or []
+    o.dossier.pack_ext_set("review_verdict", {
+        "status": getattr(result, "status", "degraded"),
+        "rounds": getattr(result, "rounds", None),
+        "hard_gates_pass": hg.get("all_pass"),
+        # analysis-level findings the review surfaced but could NOT auto-fix (need a re-run /
+        # spec change) — carried to delivery so the operator sees them, not silently dropped.
+        "analysis_findings": analysis_findings})
+    if not hg.get("all_pass", True):
+        o.dossier.save()
+        o.dossier.update_status(blocked=True, blockers=["floor_hard_gates"])
+        raise OrchestratorBlocked("review_heal",
+                                  reason=f"integrity hard-gates failed (not deliverable): {hg}")
+    # ESCALATION LADDER (VIP): a P0/P1 analysis-level finding can ONLY be fixed by re-running the
+    # analysis with a changed spec — editing prose cannot. If the review surfaced such findings and
+    # the bounded re-run budget is not spent, route the run BACK to the data phase, feeding the
+    # findings to the next analysis spec. Bounded to ONE re-run (cost + loop guard); standard tier
+    # delivers with the findings recorded for the operator instead of re-running.
+    critical_af = [a for a in analysis_findings if str(a.get("severity") or "").upper() in ("P0", "P1")]
+    rerun_count = int(o.dossier.data.get("analysis_rerun_count") or 0)
+    if is_vip and critical_af and rerun_count < ANALYSIS_RERUN_BUDGET:
+        o.dossier.data["analysis_rerun_count"] = rerun_count + 1
+        o.dossier.data["analysis_feedback"] = critical_af     # consumed by the dataset spec prompt
+        o.dossier.data["analysis_findings"] = []              # re-populate from the post-rerun review
+        o.dossier.data["_reroute_from"] = "data"              # orchestrator.run() re-runs from here
+        o.dossier.save()
+        return
     o.dossier.pack_ext_set("final_score", floor_score.floor_scores(o.run_dir).get("mean_6_floor"))
 
 
@@ -429,9 +764,16 @@ def _phase_format_repair(o: Orchestrator) -> None:
     o.dossier.save()
 
 
+# These 8 orchestrator phases cover the paper-draft skill's documented Phase 1-9 (data/
+# experiment -> gap -> structure -> claim-evidence -> write -> render -> 7-dim review/heal).
+# The paper-draft Phase 10-11 (journal SUBMISSION + REVIEWER-RESPONSE / rebuttal) are a VIP
+# HUMAN service, deliberately OUT of the automated pipeline — a person prepares the cover
+# letter, handles the submission system, and drafts rebuttals. The engine stops at a
+# delivered, reviewed draft; it does not submit or rebut.
 def build_paper_phases() -> list[Phase]:
     return [
-        Phase("data", _phase_data, checkpoint_artifacts=["real_experiments/real_results.json", "references.bib"]),
+        Phase("data", _phase_data, gates=frozenset({"A"}),
+              checkpoint_artifacts=["real_experiments/real_results.json", "references.bib"]),
         Phase("gap", _phase_gap, checkpoint_artifacts=["phase3_positioning.md"]),
         Phase("structure", _phase_structure, checkpoint_artifacts=["phase4_structure.md"]),
         Phase("claim_evidence", _phase_claim_evidence, checkpoint_artifacts=["claim_evidence_map.md"]),

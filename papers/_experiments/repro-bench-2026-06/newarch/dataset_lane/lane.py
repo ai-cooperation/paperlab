@@ -35,7 +35,7 @@ def _contract_brief(contract: dict[str, Any]) -> str:
 def _resolve_prompt(contract: dict[str, Any], skills: str, feedback: str = "") -> str:
     ds = contract.get("data_source") or {}
     return _contract_brief(contract) + (
-        f"\nYou are the DATA-RESOLUTION brain. Read these skills:\n{skills}\n"
+        f"\nYou are the DATA-RESOLUTION brain.\n{skills}\n"
         f"Resolve the dataset at {ds.get('url')} into the ACTUAL downloadable data files "
         "needed for this study. Use your terminal to FIND and VERIFY the real file URLs — "
         "do NOT guess a URL pattern from memory (data portals change their paths). Steps: "
@@ -50,11 +50,26 @@ def _resolve_prompt(contract: dict[str, Any], skills: str, feedback: str = "") -
         "\nOnly write that one file. End with CHILD_OK.")
 
 
-def _spec_prompt(contract: dict[str, Any], manifest: dict[str, Any], skills: str) -> str:
+def _feedback_block(analysis_feedback: list[dict[str, Any]] | None) -> str:
+    """A PRIOR-RUN review fed back analysis-level problems (escalation ladder). The new spec
+    MUST address them — they could not be fixed by editing prose."""
+    items = [a for a in (analysis_feedback or []) if isinstance(a, dict) and a.get("issue")]
+    if not items:
+        return ""
+    lines = "\n".join(f"- [{a.get('required_action') or 'fix'}] {a.get('issue')}" for a in items)
+    return ("\nPRIOR-RUN ANALYSIS PROBLEMS — a reviewer flagged these about the LAST analysis; they "
+            "need a CHANGED specification (not prose edits). Address each in THIS spec where the data "
+            "allow (e.g. restrict the period, add a control, complete an interaction test, bound an "
+            "unstable elasticity); if a fix is genuinely impossible with this dataset, say so in the "
+            f"spec rationale rather than ignoring it:\n{lines}\n")
+
+
+def _spec_prompt(contract: dict[str, Any], manifest: dict[str, Any], skills: str,
+                 analysis_feedback: list[dict[str, Any]] | None = None) -> str:
     cols = sorted({c for a in (manifest.get("artifacts") or [])
                    for c in ((a.get("probe_sample") or {}).get("columns") or [])})
-    return _contract_brief(contract) + (
-        f"\nYou are the ANALYSIS-SPEC brain. Read these skills:\n{skills}\n"
+    return _contract_brief(contract) + _feedback_block(analysis_feedback) + (
+        f"\nYou are the ANALYSIS-SPEC brain.\n{skills}\n"
         "The real data is downloaded (see data/manifest.json). Sample columns seen: "
         f"{cols[:80] if cols else '(binary format — open the files to discover columns)'}.\n"
         "Write `real_experiments/analysis_spec.json`: map the contract's exposures/outcomes/"
@@ -62,14 +77,22 @@ def _spec_prompt(contract: dict[str, Any], manifest: dict[str, Any], skills: str
         "dataset is a complex survey, declare survey_design = {weight_variable, "
         "strata_variable, psu_variable, design notes} using the dataset's REAL column names. "
         "Include `required_outputs` (sample_flow, weighted/unweighted n, model_results, "
-        "spline_results, subgroup_results, sensitivity_results). Keep wording consistent "
+        "spline_results, subgroup_results, sensitivity_results). DECLARE which model is the "
+        "PRIMARY specification via `primary_model_id` (the id of the most rigorous adjusted "
+        "model answering the research question — e.g. the two-way fixed-effects model with key "
+        "controls, NOT a naive descriptive model); real_results.json MUST echo `primary_model_id`. "
+        "The analysis MUST also emit generic `sample_flow` declarations: `analytic_units` "
+        "(count of DISTINCT analytic units, e.g. countries/firms/stations/subjects/households), "
+        "`unit_label` (e.g. countries, firms, stations), and when longitudinal/time-indexed "
+        "`time_min`, `time_max`, and optional `time_label`; omit time fields for cross-sectional data. "
+        "Keep wording consistent "
         "with the study design (e.g. cross-sectional => association/odds, not prevention). "
         "Only write that one file. End with CHILD_OK.")
 
 
 def _code_prompt(contract: dict[str, Any], skills: str) -> str:
     return _contract_brief(contract) + (
-        f"\nYou WRITE the analysis program. Read these skills:\n{skills}\n"
+        f"\nYou WRITE the analysis program.\n{skills}\n"
         "Write `real_experiments/analysis.py`. It is invoked as:\n"
         "  python analysis.py --manifest data/manifest.json "
         "--spec real_experiments/analysis_spec.json --out real_experiments/real_results.json\n"
@@ -83,7 +106,11 @@ def _code_prompt(contract: dict[str, Any], skills: str) -> str:
         "the manifest you read), rows, sample_flow, survey_design (weighted bool + the real "
         "column names + design_df + weight combination rule), variables (the columns you "
         "actually used), models (each: id, family, outcome, exposure, estimate, ci_low, "
-        "ci_high, p_value, n_unweighted, n_weighted, covariates), and numeric_index (a flat "
+        "ci_high, p_value, n_unweighted, n_weighted, covariates), primary_model_id (the id of "
+        "the PRIMARY model from the spec — the rigorous adjusted specification, not a naive "
+        "descriptive one), sample_flow declarations `analytic_units` (count of DISTINCT analytic "
+        "units), `unit_label`, and when longitudinal/time-indexed `time_min`, `time_max`, and "
+        "optional `time_label` (omit time fields for cross-sectional data), and numeric_index (a flat "
         "list of EVERY number you report). Print a one-line summary to stdout. Do NOT "
         "hardcode results or write numbers you did not compute. Only write that one file. "
         "End with CHILD_OK.")
@@ -96,7 +123,7 @@ def _review_prompt(contract: dict[str, Any], problems: list[dict[str, Any]], ski
     worker-applicable)."""
     bullets = "\n".join(f"- [{p.get('id')}] {p.get('description')}" for p in problems)
     return _contract_brief(contract) + (
-        f"\nYou are the REVIEW brain (Hermes two-layer §3.6). Read these skills:\n{skills}\n"
+        f"\nYou are the REVIEW brain (Hermes two-layer §3.6).\n{skills}\n"
         "The deterministic gates FAILED on the worker's analysis. READ the actual files:\n"
         "- `real_experiments/analysis.py` (the code the worker wrote — may be missing/empty)\n"
         "- `real_experiments/analysis_stderr.txt` and `analysis_stdout.txt` (the run log)\n"
@@ -129,7 +156,7 @@ def _brain_apply_prompt(contract: dict[str, Any], skills: str) -> str:
     prescription, so it now implements it fully and correctly."""
     return _contract_brief(contract) + (
         f"\nThe free worker could not produce a working analysis (its draft is missing/empty or "
-        "the fix is a rewrite), so YOU (the capable author) now write it. Read these skills:\n"
+        "the fix is a rewrite), so YOU (the capable author) now write it.\n"
         f"{skills}\nFollow your own `real_experiments/fix_prescription.md` and "
         "`real_experiments/analysis_spec.json`. Write the COMPLETE `real_experiments/analysis.py` "
         "with the fixed interface (argparse --manifest/--spec/--out): read the real downloaded "
@@ -140,7 +167,8 @@ def _brain_apply_prompt(contract: dict[str, Any], skills: str) -> str:
 
 
 def run(run_dir: Path, contract: dict[str, Any], *, brain: Dispatch, worker: Dispatch,
-        skills: str = "", max_heal_rounds: int = 2) -> dict[str, Any]:
+        skills: str = "", max_heal_rounds: int = 2,
+        analysis_feedback: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Fetch -> spec -> code -> execute -> gates (+heal). Returns
     {ok, problems, real_results}. Raises nothing; the caller decides on `ok`."""
     run_dir = Path(run_dir)
@@ -162,7 +190,7 @@ def run(run_dir: Path, contract: dict[str, Any], *, brain: Dispatch, worker: Dis
     # 2. the BRAIN reasons the SPEC (map the contract to this dataset's real variables +
     # survey design); the free WORKER drafts the analysis CODE from the spec+skills.
     manifest = schema.read_json(run_dir, schema.MANIFEST) or {}
-    brain(_spec_prompt(contract, manifest, skills), [schema.ANALYSIS_SPEC])
+    brain(_spec_prompt(contract, manifest, skills, analysis_feedback), [schema.ANALYSIS_SPEC])
     worker(_code_prompt(contract, skills), [schema.ANALYSIS_CODE])
 
     # 3. the HERMES ESCALATION LADDER (loop engineering): cheapest layer first, escalate on
@@ -185,7 +213,11 @@ def run(run_dir: Path, contract: dict[str, Any], *, brain: Dispatch, worker: Dis
         brain(_review_prompt(contract, problems, skills), [schema.FIX_PRESCRIPTION])      # review + SCOPE
         code = run_dir / schema.ANALYSIS_CODE
         code_empty = (not code.is_file()) or len(code.read_text(encoding="utf-8", errors="ignore").strip()) < 40
-        use_brain = escalated or code_empty or _scope(run_dir) == "rewrite"
+        # A spec-alignment failure (the code did not implement the spec — wrong primary model or
+        # sample) is NOT a small worker edit: force the BRAIN to (re)write the code so the result
+        # actually conforms to its own spec. Otherwise the worker can keep echoing the label.
+        force_brain = any(str(p.get("id") or "").startswith("DS_SPEC_") for p in problems)
+        use_brain = force_brain or escalated or code_empty or _scope(run_dir) == "rewrite"
         if use_brain:
             brain(_brain_apply_prompt(contract, skills), [schema.ANALYSIS_CODE])           # brain writes it
             escalated = True                                                               # keep it (worker unable)
@@ -236,4 +268,3 @@ def metrics_block(real_results: dict[str, Any]) -> str:
             f"estimate={m.get('estimate')}{ci} | p={m.get('p_value')} | "
             f"n_unweighted={m.get('n_unweighted')} | n_weighted={m.get('n_weighted')}")
     return "\n".join(lines)
-

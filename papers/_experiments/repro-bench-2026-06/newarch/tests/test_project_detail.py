@@ -36,7 +36,7 @@ def test_projection_feeds_the_four_page_blocks(tmp_path, load_fixture_json):
     assert s["b_gap"] and "a_gap" in s                          # blocks 2-3
     assert s["tier"] == "master" and "viability" in s          # block 4: tier + viability
     assert s["status"] and "blocked" in s                       # terminal status
-    assert "pdf" in s["artifacts"] and "floor_100" in s["summary"]
+    assert "has_pdf" in s["artifacts"] and "floor_100" in s["summary"]
 
 
 def test_project_status_projection_shape_directly(tmp_path):
@@ -54,4 +54,4 @@ def test_project_status_projection_shape_directly(tmp_path):
     assert proj["a_gap"] == [{"description": "a-side gap"}]
     assert proj["tier"] == "phd" and proj["viability"]["viable"] is True
     assert proj["summary"]["floor_100"] == 70.7
-    assert proj["artifacts"]["pdf"] is None                     # no pdf on disk in this tmp dir
+    assert proj["artifacts"]["has_pdf"] is False                # no pdf on disk in this tmp dir

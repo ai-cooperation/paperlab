@@ -80,6 +80,23 @@ def test_gate_a_fail_closed_on_missing_evidence():
 #   KNOWN-FAIL: every one of the 5 LISTED overclaims is P0, AND the planted
 #   UNLISTED claim is ALSO caught by independent extraction (not just the listed).
 # --------------------------------------------------------------------------- #
+def test_gate_b_treats_epc_contract_guarantee_as_domain_term():
+    claims = paper_gates.extract_claims(
+        "Contract guarantees, profit sharing, and risk allocation depend on the "
+        "credibility of the savings estimate."
+    )
+
+    assert claims == []
+
+
+def test_gate_b_still_flags_general_guarantees_as_strong_claim():
+    claims = paper_gates.extract_claims(
+        "The intervention guarantees lower mortality across all settings."
+    )
+
+    assert claims and claims[0]["causal"] == "guarantees"
+
+
 def test_gate_b_flags_all_listed_and_the_unlisted_overclaim(fixtures_dir):
     claims, evidence = _claim_evidence_blocks(fixtures_dir)
     assert len(claims) == 6 and len(evidence) == 6   # 5 listed + 1 unlisted
@@ -123,6 +140,137 @@ def test_gate_b_pass_when_number_matches_evidence(fixtures_dir):
         {"draft_text": good, "claim_evidence": claim_evidence,
          "real_results": GOLDEN_REAL_RESULTS}, "B")
     assert res.passed is True and res.p0 is False, res.evidence.get("flagged")
+    assert report.blocked is False
+
+
+def test_gate_b_scientific_notation_p_value_matches_claim_evidence_row():
+    draft = (
+        "In the M4 adjusted model, the current-DTP3 row reports a coefficient of "
+        "-0.234 (clustered SE 0.059, 95% CI [-0.350, -0.118], p = 7.618e-05)."
+    )
+    claim_evidence = [
+        {
+            "row": (
+                "In the M4 adjusted model, the current-DTP3 row reports a coefficient of "
+                "-0.234 (clustered SE 0.059, 95% CI [-0.350, -0.118], p = 7.618e-05). "
+                "Evidence: real_results M4 current-DTP3 row."
+            )
+        }
+    ]
+    real_results = {
+        "current_coef": -0.234,
+        "current_se": 0.059,
+        "current_ci": [-0.350, -0.118],
+        "current_p": 7.618e-05,
+    }
+
+    report, res = _run_one(
+        {"draft_text": draft, "claim_evidence": claim_evidence, "real_results": real_results},
+        "B",
+    )
+
+    assert res.passed is True, res.evidence.get("flagged")
+    assert report.blocked is False
+
+
+def test_gate_b_allows_first_line_when_guideline_evidence_is_listed():
+    draft = (
+        "Cognitive behavioral therapy for insomnia is widely recommended as a "
+        "first-line intervention by clinical guidance [@Morin2015; @Carney2017]."
+    )
+    claim_evidence = [
+        {
+            "row": (
+                "first-line intervention | Morin2015 and Carney2017 clinical guidance "
+                "support CBT-I as a first-line insomnia intervention"
+            )
+        }
+    ]
+
+    report, res = _run_one(
+        {"draft_text": draft, "claim_evidence": claim_evidence, "real_results": {}},
+        "B",
+    )
+
+    assert res.passed is True, res.evidence.get("flagged")
+    assert res.p0 is False
+    assert report.blocked is False
+
+
+def test_gate_b_does_not_block_first_line_background_context():
+    draft = (
+        "Digital cognitive behavioral therapy for insomnia can expand access to "
+        "first-line insomnia care, but the available evidence remains heterogeneous. "
+        "Cognitive behavioral therapy for insomnia is widely recommended as a "
+        "first-line intervention [@Morin2015]."
+    )
+
+    report, res = _run_one(
+        {"draft_text": draft, "claim_evidence": [], "real_results": {}},
+        "B",
+    )
+
+    assert res.passed is True, res.evidence.get("flagged")
+    assert res.p0 is False
+    assert report.blocked is False
+
+
+def test_gate_b_does_not_block_negated_protocol_or_epistemic_scope_language():
+    draft = (
+        "The resulting research gap is not that Transformers have never been used for weather forecasting. "
+        "The protocol requires identical train, validation, and test splits for every model family. "
+        "The evidence includes studies questioning whether pretrained large time-series models consistently "
+        "outperform smaller alternatives."
+    )
+    claim_evidence = [
+        {"row": "research gap is bounded to same-subset protocol absence"},
+        {"row": "protocol scope covers the model families evaluated in this benchmark"},
+        {"row": "outperformance is framed as an open question, not as a finding"},
+    ]
+
+    report, res = _run_one(
+        {"draft_text": draft, "claim_evidence": claim_evidence, "real_results": {}},
+        "B",
+    )
+
+    assert res.passed is True, res.evidence.get("flagged")
+    assert res.p0 is False
+    assert report.blocked is False
+
+
+def test_gate_b_does_not_treat_calendar_years_as_result_numbers():
+    draft = (
+        "A case study of the July 2021 Henan rainfall event traces the chain from weather "
+        "forecast to climate risk, illustrating how event-specific processes and impact "
+        "definitions can affect interpretation [@Wu2023]."
+    )
+
+    report, res = _run_one(
+        {"draft_text": draft, "claim_evidence": [], "real_results": {}},
+        "B",
+    )
+
+    assert res.passed is True, res.evidence.get("flagged")
+    assert report.blocked is False
+
+
+def test_gate_b_does_not_block_feasibility_summary_demonstrates_that_language():
+    draft = (
+        "The broader extreme-event modeling literature also demonstrates that event tasks "
+        "are feasible but heterogeneous. This category demonstrates that deep learning can "
+        "be applied to tropical cyclones, lightning, heatwaves, and precipitation correction."
+    )
+    claim_evidence = [
+        {"row": "extreme-event modeling literature covers task feasibility and heterogeneity"},
+        {"row": "task-specific studies show deep learning applications across event targets"},
+    ]
+
+    report, res = _run_one(
+        {"draft_text": draft, "claim_evidence": claim_evidence, "real_results": {}},
+        "B",
+    )
+
+    assert res.passed is True, res.evidence.get("flagged")
     assert report.blocked is False
 
 
@@ -206,6 +354,34 @@ def test_inject_figures_places_float_in_body_not_abstract(tmp_path):
     out2 = (run_dir / "paper_draft_v0.qmd").read_text(encoding="utf-8")
     assert out2.find("{#fig-forest}") > out2.find("# Introduction")
     assert out2.count("(figures/fig_forest_plot.png)") == 1
+
+
+def test_inject_figures_normalizes_hyphenated_writer_aliases(tmp_path):
+    run_dir = tmp_path / "run"
+    (run_dir / "figures").mkdir(parents=True)
+    (run_dir / "figures" / "fig_forest_plot.png").write_bytes(b"")
+    (run_dir / "figures" / "fig_prisma_flow.png").write_bytes(b"")
+    (run_dir / "figures" / "fig_method_overview.png").write_bytes(b"")
+    (run_dir / "paper_draft_v0.qmd").write_text(
+        "# Introduction\n\n"
+        "See @fig-method-overview and @fig-prisma-flow.\n\n"
+        "# Results\n\n"
+        "The evidence summary is shown in @fig-forest-plot.\n",
+        encoding="utf-8",
+    )
+
+    tables.inject_figures(run_dir)
+    out = (run_dir / "paper_draft_v0.qmd").read_text(encoding="utf-8")
+
+    assert "@fig-method-overview" not in out
+    assert "@fig-prisma-flow" not in out
+    assert "@fig-forest-plot" not in out
+    assert "@fig-method" in out
+    assert "@fig-prisma" in out
+    assert "@fig-forest" in out
+    assert out.count("{#fig-method}") == 1
+    assert out.count("{#fig-prisma}") == 1
+    assert out.count("{#fig-forest}") == 1
 
 
 def test_gate_c_pass_golden_figures(golden_dir):
@@ -311,6 +487,86 @@ def test_gate_f_pass_coherent_draft(fixtures_dir):
     assert res.evidence["total_fail"] == 0
 
 
+def test_gate_f_accepts_derived_percentage_from_result_counts():
+    draft = (
+        "The verified corpus contains 41 references. Machine-readable abstracts were "
+        "available for 33/41 records, or 80.5%."
+    )
+    real_results = {
+        "verified_reference_count": 41,
+        "abstract_coverage": {
+            "machine_readable": 33,
+            "total": 41,
+            "rate": 0.805,
+        },
+    }
+
+    report, res = _run_one({"draft_text": draft, "real_results": real_results}, "F")
+
+    assert res.passed is True, res.evidence.get("fail_items")
+    assert res.p0 is False
+    assert report.blocked is False
+
+
+def test_gate_f_accepts_numbers_traced_in_claim_evidence_map():
+    draft = (
+        "The current listed company universe is 1,089 firms. "
+        "Mean ESG indicator company coverage is 82.6%."
+    )
+    real_results = {
+        "computed_descriptive_results": {
+            "listed_company_universe_n": 1089,
+            "mean_esg_indicator_company_coverage": 0.825528,
+        }
+    }
+    claim_evidence = [
+        {
+            "row": (
+                "Current endpoint probing identified 1,089 listed companies. | "
+                "real_results listed_company_universe_n = 1089"
+            )
+        },
+        {
+            "row": (
+                "Mean ESG indicator company coverage of 82.6%. | "
+                "real_results mean_esg_indicator_company_coverage = 0.825528"
+            )
+        },
+    ]
+
+    report, res = _run_one(
+        {
+            "draft_text": draft,
+            "real_results": real_results,
+            "claim_evidence": claim_evidence,
+        },
+        "F",
+    )
+
+    assert res.passed is True, res.evidence.get("fail_items")
+    assert res.p0 is False
+    assert report.blocked is False
+
+
+def test_gate_f_accepts_truncated_grouped_integer_suffix_from_logic_audit():
+    draft = (
+        "Mandatory ESG disclosure reforms are intended to improve corporate transparency, "
+        "but their value depends on whether firms improve the substance of sustainability "
+        "reporting rather than merely expanding formal compliance across the current listed "
+        "company universe of 1,089 firms."
+    )
+    real_results = {
+        "computed_descriptive_results": {
+            "listed_company_universe_n": 1089,
+        }
+    }
+
+    report, res = _run_one({"draft_text": draft, "real_results": real_results}, "F")
+
+    assert res.passed is True, res.evidence.get("fail_items")
+    assert report.blocked is False
+
+
 def test_gate_f_fail_closed_without_draft():
     _, res = _run_one({"real_results": GOLDEN_REAL_RESULTS}, "F")
     assert res.passed is False and res.p0 is True
@@ -344,6 +600,547 @@ def test_paperctl_gate_a_to_f_routes_and_blocks(tmp_path, golden_dir, fixtures_d
         out = json.loads(capsys.readouterr().out)
         assert rc == 0, f"gate {gate} unexpectedly blocked: {out['details']}"
         assert out["gate"] == gate and out["passed"] is True
+
+
+def test_paperctl_gate_a_accepts_v3_doi_audit_schema(tmp_path, capsys):
+    import paperctl
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "doi_audit.json").write_text(
+        json.dumps(
+            {
+                "bib_count": 36,
+                "doi_count": 36,
+                "doi_real_rate": 1.0,
+                "summary": {"doi_real_rate": 1.0},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rc = paperctl.main(["gate", "A", "--run-dir", str(run_dir)])
+    out = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert out["passed"] is True
+    assert out["evidence"] == {"bib_count": 36, "doi_real_rate": 1.0}
+
+
+def test_paperctl_gate_a_accepts_entries_two_of_three_schema(tmp_path, capsys):
+    import paperctl
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "doi_audit.json").write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "total": 44,
+                    "passes_two_of_three": 41,
+                    "fails_two_of_three": 3,
+                },
+                "entries": [
+                    {"doi": "10.1000/%s" % idx, "passes_two_of_three": idx < 41}
+                    for idx in range(44)
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rc = paperctl.main(["gate", "A", "--run-dir", str(run_dir)])
+    out = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert out["passed"] is True
+    assert out["evidence"] == {"bib_count": 44, "doi_real_rate": 41 / 44}
+
+
+def test_paperctl_gate_a_prefers_v3_1_canonical_data(tmp_path, capsys):
+    import paperctl
+
+    run_dir = tmp_path / "run"
+    (run_dir / "artifacts" / "data").mkdir(parents=True)
+    (run_dir / "doi_audit.json").write_text(
+        json.dumps({"bib_count": 35, "doi_real_rate": 0.0}),
+        encoding="utf-8",
+    )
+    (run_dir / "artifacts" / "data" / "canonical.v3_1.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "paperlab.data.v3.1",
+                "references": {"count": 40},
+                "verification": {"two_source_rate": 1.0},
+                "effects": {"poolable_k": 9, "abstract_level_count": 9},
+                "figures": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rc_a = paperctl.main(["gate", "A", "--run-dir", str(run_dir)])
+    out_a = json.loads(capsys.readouterr().out)
+    rc_e = paperctl.main(["gate", "E", "--run-dir", str(run_dir)])
+    out_e = json.loads(capsys.readouterr().out)
+
+    assert rc_a == 0
+    assert out_a["evidence"] == {"bib_count": 40, "doi_real_rate": 1.0}
+    assert rc_e == 0
+    assert out_e["evidence"]["max_poolable_k"] == 9
+
+
+def test_paperctl_gate_a_prefers_v3_2_canonical_data_over_legacy_inputs(tmp_path, capsys):
+    import paperctl
+
+    run_dir = tmp_path / "run"
+    (run_dir / "artifacts" / "data").mkdir(parents=True)
+    (run_dir / "doi_audit.json").write_text(
+        json.dumps({"bib_count": 35, "doi_real_rate": 0.0}),
+        encoding="utf-8",
+    )
+    (run_dir / "artifacts" / "data" / "canonical.v3_1.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "paperlab.data.v3.1",
+                "references": {"count": 36},
+                "verification": {"two_source_rate": 0.8},
+                "effects": {"poolable_k": 1, "abstract_level_count": 1},
+                "figures": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "artifacts" / "data" / "canonical.v3_2.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "paperlab.data.v3.2",
+                "references": {"count": 41, "two_source_verified": 41},
+                "verification": {
+                    "two_source_rate": 1.0,
+                    "source_artifact": "artifacts/data/doi_verification.v3_2.json",
+                },
+                "effects": {
+                    "poolable_k": 6,
+                    "abstract_level_count": 6,
+                    "source_artifact": "artifacts/data/effects.v3_2.json",
+                },
+                "figures": [],
+                "human_checkpoint": None,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rc = paperctl.main(["gate", "A", "--run-dir", str(run_dir)])
+    out = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert out["evidence"] == {"bib_count": 41, "doi_real_rate": 1.0}
+
+
+def test_paperctl_gate_e_accepts_v3_real_results_schema(tmp_path, capsys):
+    import paperctl
+
+    run_dir = tmp_path / "run"
+    (run_dir / "real_experiments").mkdir(parents=True)
+    (run_dir / "real_experiments" / "real_results.json").write_text(
+        json.dumps(
+            {
+                "max_poolable_k": 6,
+                "poolable_effects": [{"study": str(i)} for i in range(6)],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rc = paperctl.main(["gate", "E", "--run-dir", str(run_dir)])
+    out = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert out["gate"] == "E"
+    assert out["evidence"]["max_poolable_k"] == 6
+
+
+def test_paperctl_gates_derive_values_from_hermes_summary_schema(tmp_path, capsys):
+    import paperctl
+
+    run_dir = tmp_path / "run"
+    (run_dir / "real_experiments").mkdir(parents=True)
+    (run_dir / "doi_audit.json").write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "bib_entries_written": 35,
+                    "all_bib_entries_two_source_verified": True,
+                },
+                "bib_keys": [{"key": str(i)} for i in range(35)],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "real_experiments" / "real_results.json").write_text(
+        json.dumps({"effects": [{"study": str(i)} for i in range(10)]}),
+        encoding="utf-8",
+    )
+
+    rc_a = paperctl.main(["gate", "A", "--run-dir", str(run_dir)])
+    out_a = json.loads(capsys.readouterr().out)
+    rc_e = paperctl.main(["gate", "E", "--run-dir", str(run_dir)])
+    out_e = json.loads(capsys.readouterr().out)
+
+    assert rc_a == 0
+    assert out_a["evidence"] == {"bib_count": 35, "doi_real_rate": 1.0}
+    assert rc_e == 0
+    assert out_e["evidence"]["max_poolable_k"] == 10
+
+
+def test_paperctl_gates_derive_values_from_selected_reference_schema(tmp_path, capsys):
+    import paperctl
+
+    run_dir = tmp_path / "run"
+    (run_dir / "real_experiments").mkdir(parents=True)
+    (run_dir / "doi_audit.json").write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "selected_references": 40,
+                    "selected_passing_two_source_rule": 40,
+                    "selected_with_abstract_field": 40,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "real_experiments" / "real_results.json").write_text(
+        json.dumps(
+            {
+                "included_effects": [{"study": "a"}, {"study": "b"}, {"study": "c"}],
+                "pooled_smd": {"k": 3},
+                "prisma_counts": {"abstract_extractable_effects_in_quantitative_synthesis": 3},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rc_a = paperctl.main(["gate", "A", "--run-dir", str(run_dir)])
+    out_a = json.loads(capsys.readouterr().out)
+    rc_e = paperctl.main(["gate", "E", "--run-dir", str(run_dir)])
+    out_e = json.loads(capsys.readouterr().out)
+
+    assert rc_a == 0
+    assert out_a["evidence"] == {"bib_count": 40, "doi_real_rate": 1.0}
+    assert rc_e == 0
+    assert out_e["evidence"]["max_poolable_k"] == 3
+
+
+def test_paperctl_gates_derive_values_from_verification_summary_schema(tmp_path, capsys):
+    import paperctl
+
+    run_dir = tmp_path / "run"
+    (run_dir / "real_experiments").mkdir(parents=True)
+    (run_dir / "doi_audit.json").write_text(
+        json.dumps(
+            {
+                "retained_verified_references": 40,
+                "verification_summary": {
+                    "all_retained_have_abstract": True,
+                    "all_retained_verified_by_at_least_two_sources": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "real_experiments" / "real_results.json").write_text(
+        json.dumps(
+            {
+                "abstract_level_effects": [{"study": "a"}, {"study": "b"}],
+                "screening": {"abstract_level_numeric_effects_extracted": 2},
+                "synthesis": {"numeric_effect_count": 2},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rc_a = paperctl.main(["gate", "A", "--run-dir", str(run_dir)])
+    out_a = json.loads(capsys.readouterr().out)
+    rc_e = paperctl.main(["gate", "E", "--run-dir", str(run_dir)])
+    out_e = json.loads(capsys.readouterr().out)
+
+    assert rc_a == 0
+    assert out_a["evidence"] == {"bib_count": 40, "doi_real_rate": 1.0}
+    assert rc_e == 0
+    assert out_e["evidence"]["max_poolable_k"] == 2
+
+
+def test_paperctl_gates_derive_values_from_audit_summary_schema(tmp_path, capsys):
+    import paperctl
+
+    run_dir = tmp_path / "run"
+    (run_dir / "real_experiments").mkdir(parents=True)
+    (run_dir / "doi_audit.json").write_text(
+        json.dumps(
+            {
+                "audit_summary": {
+                    "total": 35,
+                    "verified_at_least_two_sources": 35,
+                    "crossref_pass": 35,
+                    "europepmc_pass": 29,
+                    "semantic_scholar_pass_or_fallback": 6,
+                },
+                "records": [
+                    {"doi": "10.1000/example.1", "verified": True},
+                    {"doi": "10.1000/example.2", "verified": True},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "real_experiments" / "real_results.json").write_text(
+        json.dumps(
+            {
+                "abstract_extracted_effects": [
+                    {"doi": "10.1000/example.1", "effect": 0.41},
+                    {"doi": "10.1000/example.2", "effect": 0.52},
+                    {"doi": "10.1000/example.3", "effect": 0.63},
+                ],
+                "prisma_counts": {"included_in_data_phase": 35},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rc_a = paperctl.main(["gate", "A", "--run-dir", str(run_dir)])
+    out_a = json.loads(capsys.readouterr().out)
+    rc_e = paperctl.main(["gate", "E", "--run-dir", str(run_dir)])
+    out_e = json.loads(capsys.readouterr().out)
+
+    assert rc_a == 0
+    assert out_a["evidence"] == {"bib_count": 35, "doi_real_rate": 1.0}
+    assert rc_e == 0
+    assert out_e["evidence"]["max_poolable_k"] == 3
+
+
+def test_paperctl_gates_derive_values_from_included_summary_schema(tmp_path, capsys):
+    import paperctl
+
+    run_dir = tmp_path / "run"
+    (run_dir / "real_experiments").mkdir(parents=True)
+    (run_dir / "doi_audit.json").write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "total_candidates_audited": 37,
+                    "verified_included_references": 35,
+                    "verification_rate_included": 1.0,
+                    "abstract_coverage_included": 35,
+                },
+                "included_keys": ["a", "b", "c"],
+                "audit_records": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "real_experiments" / "real_results.json").write_text(
+        json.dumps(
+            {
+                "abstract_level_outcomes": [
+                    {"doi": "10.1000/example.1", "estimate": -0.8},
+                    {"doi": "10.1000/example.2", "estimate": -0.6},
+                    {"doi": "10.1000/example.3", "estimate": -0.4},
+                    {"doi": "10.1000/example.4", "estimate": -0.3},
+                ],
+                "abstract_numeric_evidence_index": [
+                    {"doi": "10.1000/example.1"},
+                    {"doi": "10.1000/example.2"},
+                ],
+                "screening_counts": {"verified_included_references": 35},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rc_a = paperctl.main(["gate", "A", "--run-dir", str(run_dir)])
+    out_a = json.loads(capsys.readouterr().out)
+    rc_e = paperctl.main(["gate", "E", "--run-dir", str(run_dir)])
+    out_e = json.loads(capsys.readouterr().out)
+
+    assert rc_a == 0
+    assert out_a["evidence"] == {"bib_count": 35, "doi_real_rate": 1.0}
+    assert rc_e == 0
+    assert out_e["evidence"]["max_poolable_k"] == 4
+
+
+def test_paperctl_gates_derive_values_from_doi_backed_summary_schema(tmp_path, capsys):
+    import paperctl
+
+    run_dir = tmp_path / "run"
+    (run_dir / "real_experiments").mkdir(parents=True)
+    (run_dir / "doi_audit.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "paperlab.doi_audit.v3",
+                "summary": {
+                    "included_doi_backed_references": 35,
+                    "crossref_pass": 35,
+                    "europepmc_pass": 35,
+                    "doi_org_resolves": 23,
+                    "two_source_pass_rate": 1.0,
+                },
+                "items": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "real_experiments" / "real_results.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "paperlab.real_results.v3",
+                "forest_style_data": [
+                    {"key": "a", "abstract_direction_score": 1.1},
+                    {"key": "b", "abstract_direction_score": 0.9},
+                    {"key": "c", "abstract_direction_score": 0.7},
+                    {"key": "d", "abstract_direction_score": 0.5},
+                    {"key": "e", "abstract_direction_score": 0.3},
+                ],
+                "doi_verification_summary": {
+                    "included_doi_backed_references": 35,
+                    "two_source_pass_rate": 1.0,
+                },
+                "screening": {"included_references": 35},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rc_a = paperctl.main(["gate", "A", "--run-dir", str(run_dir)])
+    out_a = json.loads(capsys.readouterr().out)
+    rc_e = paperctl.main(["gate", "E", "--run-dir", str(run_dir)])
+    out_e = json.loads(capsys.readouterr().out)
+
+    assert rc_a == 0
+    assert out_a["evidence"] == {"bib_count": 35, "doi_real_rate": 1.0}
+    assert rc_e == 0
+    assert out_e["evidence"]["max_poolable_k"] == 5
+
+
+def test_paperctl_gate_a_derives_selected_pass_rate_schema(tmp_path, capsys):
+    import paperctl
+
+    run_dir = tmp_path / "run"
+    (run_dir / "real_experiments").mkdir(parents=True)
+    (run_dir / "doi_audit.json").write_text(
+        json.dumps(
+            {
+                "selected_count": 35,
+                "selected_pass_count": 35,
+                "selected_pass_rate": 1.0,
+                "records": [
+                    {"doi": "10.1000/example.1", "passed_two_of_three": True},
+                    {"doi": "10.1000/example.2", "passed_two_of_three": True},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "real_experiments" / "real_results.json").write_text(
+        json.dumps(
+            {
+                "abstract_level_effects": [
+                    {"doi": "10.1000/example.1", "estimate": 0.4},
+                ],
+                "reference_pool": {
+                    "selected_n": 35,
+                    "two_of_three_verification_rate": 1.0,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rc_a = paperctl.main(["gate", "A", "--run-dir", str(run_dir)])
+    out_a = json.loads(capsys.readouterr().out)
+
+    assert rc_a == 0
+    assert out_a["evidence"] == {"bib_count": 35, "doi_real_rate": 1.0}
+
+
+def test_paperctl_gates_derive_values_from_included_two_source_schema(tmp_path, capsys):
+    import paperctl
+
+    run_dir = tmp_path / "run"
+    (run_dir / "real_experiments").mkdir(parents=True)
+    (run_dir / "doi_audit.json").write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "included_bib_entries": 35,
+                    "included_crossref_verified": 35,
+                    "included_semantic_scholar_verified": 35,
+                    "included_two_source_verified": 35,
+                    "included_two_source_verification_rate": 1.0,
+                },
+                "included_records": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "real_experiments" / "real_results.json").write_text(
+        json.dumps(
+            {
+                "abstract_level_effects_extracted": [
+                    {"doi": "10.1000/example.1", "estimate": -0.5},
+                    {"doi": "10.1000/example.2", "estimate": -0.4},
+                ],
+                "counts": {
+                    "included_references": 35,
+                    "standardized_effects_with_ci_extracted": 2,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rc_a = paperctl.main(["gate", "A", "--run-dir", str(run_dir)])
+    out_a = json.loads(capsys.readouterr().out)
+    rc_e = paperctl.main(["gate", "E", "--run-dir", str(run_dir)])
+    out_e = json.loads(capsys.readouterr().out)
+
+    assert rc_a == 0
+    assert out_a["evidence"] == {"bib_count": 35, "doi_real_rate": 1.0}
+    assert rc_e == 0
+    assert out_e["evidence"]["max_poolable_k"] == 2
+
+
+def test_paperctl_gate_a_derives_rate_from_v32_included_validation_summary(tmp_path, capsys):
+    import paperctl
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "doi_audit.json").write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "candidates_seen": 69,
+                    "included_references": 35,
+                    "included_with_two_or_more_validations": 35,
+                    "included_with_abstract": 35,
+                    "failed_or_excluded_candidates": 34,
+                },
+                "included": [
+                    {"doi": "10.1000/example.%s" % idx, "validation_count": 3}
+                    for idx in range(35)
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rc_a = paperctl.main(["gate", "A", "--run-dir", str(run_dir)])
+    out_a = json.loads(capsys.readouterr().out)
+
+    assert rc_a == 0
+    assert out_a["evidence"] == {"bib_count": 35, "doi_real_rate": 1.0}
 
 
 def test_paperctl_gate_b_blocks_on_overclaim_draft(tmp_path, golden_dir, fixtures_dir, capsys):

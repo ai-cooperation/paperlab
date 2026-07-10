@@ -47,6 +47,10 @@ def run_analysis(run_dir: Path, *, python: str | None = None, timeout: int = 180
 
     (run_dir / schema.ANALYSIS_STDOUT).write_text(so, encoding="utf-8")
     (run_dir / schema.ANALYSIS_STDERR).write_text(se, encoding="utf-8")
+    # Canonicalize estimate-field aliases BEFORE hashing, so the recorded sha/mtime reflect
+    # the canonical file and every consumer sees `estimate` (robustness, not recomputation).
+    if out.is_file():
+        schema.canonicalize_estimates(run_dir)
     record = {
         "analysis_script_sha256": schema.sha256_file(script) if script.is_file() else None,
         "analysis_spec_sha256": schema.sha256_file(spec) if spec.is_file() else None,

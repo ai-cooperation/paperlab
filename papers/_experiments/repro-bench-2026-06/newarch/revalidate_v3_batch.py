@@ -1,0 +1,508 @@
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import time
+import traceback
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any, Callable
+
+from batch_validate_v3 import JobValidation, decide_batch_gate, validate_jobs
+from engine_v3.core import DossierStore
+from engine_v3.core.orchestrator import EngineV3Orchestrator
+from engine_v3.job_lock import acquire_job_lock, release_job_lock
+from engine_v3.packs.paper import PaperPack
+from engine_v3.pipelines.paper import full_paper_pipeline
+from engine_v3.runtime_config import (
+    HERMES_OUTPUT_COMPLETE_GRACE_ENV,
+    HERMES_OUTPUT_PARTIAL_IDLE_ENV,
+    HERMES_OUTPUT_STARTUP_IDLE_ENV,
+    HERMES_TIMEOUT_ENV,
+    runtime_from_env,
+)
+
+
+@dataclass(frozen=True)
+class RunOutcome:
+    job_id: str
+    status: str
+    phases: dict[str, str]
+    seconds: float
+    has_pdf: bool
+    error: str | None
+
+
+@dataclass(frozen=True)
+class RevalidationRow:
+    run: RunOutcome
+    validation: JobValidation
+
+
+RunOne = Callable[[Path, str], RunOutcome]
+Validate = Callable[..., list[JobValidation]]
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Sequentially revalidate Paper Lab V3 jobs with bounded runtime settings.")
+    parser.add_argument("--jobs-dir", type=Path, default=Path("jobs"))
+    parser.add_argument("--job-id", action="append", default=[], required=True)
+    parser.add_argument("--min-floor", type=float, default=80.0)
+    parser.add_argument("--runtime-timeout-s", type=int, default=None)
+    parser.add_argument("--startup-idle-s", type=float, default=None)
+    parser.add_argument("--partial-idle-s", type=float, default=None)
+    parser.add_argument("--complete-grace-s", type=float, default=None)
+    parser.add_argument("--json", action="store_true", dest="json_output")
+    parser.add_argument("--batch-gate", action="store_true")
+    parser.add_argument("--strict", action="store_true")
+    args = parser.parse_args()
+
+    _apply_runtime_bounds(args)
+    rows = revalidate_jobs(args.jobs_dir, args.job_id, min_floor=args.min_floor)
+    if args.json_output:
+        print(json.dumps([_row_dict(row) for row in rows], ensure_ascii=False, indent=2))
+    else:
+        _print_table(rows)
+    decision = decide_batch_gate([row.validation for row in rows])
+    if args.batch_gate:
+        print(json.dumps(asdict(decision), ensure_ascii=False, indent=2))
+    if (args.strict and any(not row.validation.passed for row in rows)) or (args.batch_gate and not decision.passed):
+        return 1
+    return 0
+
+
+def revalidate_jobs(
+    jobs_dir: Path,
+    job_ids: list[str],
+    *,
+    min_floor: float = 80.0,
+    run_one: RunOne | None = None,
+    validate: Validate = validate_jobs,
+) -> list[RevalidationRow]:
+    jobs_dir = jobs_dir.expanduser()
+    runner = run_one or _run_one_orchestrator
+    lock_dir = jobs_dir / "_locks_v3"
+    rows: list[RevalidationRow] = []
+    for job_id in job_ids:
+        print("REVALIDATE_START\t%s" % job_id, flush=True)
+        # Single-owner guarantee: never run a job another live process already
+        # holds. e9e1's polluted state (2026-07-07) came from a probe process
+        # and a queue process both revalidating the same job and interleaving
+        # phase writes. Shares the HTTP layer's _locks_v3 PID lock.
+        handle = acquire_job_lock(lock_dir, job_id)
+        if handle is None:
+            outcome = RunOutcome(
+                job_id=job_id,
+                status="locked",
+                phases={},
+                seconds=0.0,
+                has_pdf=False,
+                error="skipped: job is locked by another live process (concurrent run refused)",
+            )
+            validation = validate(jobs_dir, job_ids=[job_id], min_floor=min_floor)[0]
+            row = RevalidationRow(run=outcome, validation=validation)
+            rows.append(row)
+            print("REVALIDATE_RESULT\t%s" % json.dumps(_row_dict(row), ensure_ascii=False), flush=True)
+            continue
+        try:
+            if run_one is None:
+                # ADR-001 (§V4-C batch surface): the preflight validators judge the
+                # generated qmd — re-derive it from current sources FIRST so a healed
+                # source is never judged through a stale derived artifact. No-op on
+                # legacy runs.
+                _ensure_assembled_preflight(jobs_dir, job_id)
+                preflight = validate(jobs_dir, job_ids=[job_id], min_floor=min_floor)[0]
+                _prepare_acceptance_repair_resume(jobs_dir, job_id, preflight)
+                _prepare_review_provenance_resume(jobs_dir, job_id)
+                _prepare_content_finding_resume(jobs_dir, job_id)
+                _prepare_revise_verdict_resume(jobs_dir, job_id)
+                _prepare_loop_metadata_resume(jobs_dir, job_id)
+            outcome = runner(jobs_dir, job_id)
+        except Exception as exc:  # noqa: BLE001 - batch runners must keep going.
+            outcome = RunOutcome(
+                job_id=job_id,
+                status="exception",
+                phases={},
+                seconds=0.0,
+                has_pdf=False,
+                error="%s: %s\n%s" % (type(exc).__name__, exc, traceback.format_exc(limit=5)),
+            )
+        finally:
+            release_job_lock(handle)
+        validation = validate(jobs_dir, job_ids=[job_id], min_floor=min_floor)[0]
+        row = RevalidationRow(run=outcome, validation=validation)
+        rows.append(row)
+        print("REVALIDATE_RESULT\t%s" % json.dumps(_row_dict(row), ensure_ascii=False), flush=True)
+    return rows
+
+
+def _ensure_assembled_preflight(jobs_dir: Path, job_id: str) -> None:
+    from engine_v3.assembly import ensure_assembled
+
+    try:
+        ensure_assembled(jobs_dir / job_id / "run")
+    except Exception:  # noqa: BLE001 - preflight must never kill the batch loop
+        pass
+
+
+def _delivery_stale(run_dir: Path) -> bool:
+    from engine_v3.assembly import is_delivery_stale
+
+    try:
+        return is_delivery_stale(run_dir)
+    except Exception:  # noqa: BLE001 - staleness probe must never kill the batch loop
+        return False
+
+
+def _prepare_acceptance_repair_resume(jobs_dir: Path, job_id: str, validation: JobValidation) -> bool:
+    # ADR-001 §V4-A: the reset fires on (the existing failure-driven trigger) OR
+    # source staleness — ADDED, never substituted. "Gate logic changed, sources
+    # unchanged, old PDF must re-validate" (the existing regression test) still
+    # resets; a passed-but-stale delivery now ALSO resets so the orchestrator
+    # re-renders instead of skipping a done format_repair.
+    stale = _delivery_stale(jobs_dir / job_id / "run")
+    if validation.passed and not stale:
+        return False
+    if not stale and not _delivery_repairable_acceptance_failure(validation):
+        return False
+    dossier_path = jobs_dir / job_id / "run" / "dossier.v3.json"
+    try:
+        dossier = json.loads(dossier_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    phases = dossier.get("phases")
+    if not isinstance(phases, dict):
+        return False
+    if phases.get("format_repair") != "done":
+        return False
+    phases["format_repair"] = "blocked"
+    dossier_path.write_text(json.dumps(dossier, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+    return True
+
+
+def _reset_quality_phases(
+    run_dir: Path,
+    job_id: str,
+    findings: list[str],
+    *,
+    reset_event: str,
+    phases_to_reset: tuple[str, ...] = ("render_gates", "review_heal", "format_repair"),
+) -> bool:
+    """Reset the quality phases to blocked with a fresh repair budget so
+    orchestrator resume re-runs them. Records the reset event in evidence."""
+    dossier_path = run_dir / "dossier.v3.json"
+    try:
+        dossier = json.loads(dossier_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    phases = dossier.get("phases")
+    if not isinstance(phases, dict):
+        return False
+    changed = False
+    for phase in phases_to_reset:
+        if phases.get(phase) == "done":
+            phases[phase] = "blocked"
+            changed = True
+    evidence = dossier.setdefault("evidence", {})
+    baselines = evidence.setdefault("repair_budget_baseline", {})
+    delegations = dossier.get("delegations") or []
+    for phase in phases_to_reset:
+        if phases.get(phase) != "blocked":
+            continue
+        prefix = "%s:repair:" % phase
+        attempts = [
+            int(str(d.get("task_id") or "").rsplit(":", 1)[-1])
+            for d in delegations
+            if str(d.get("task_id") or "").startswith(prefix)
+            and str(d.get("task_id") or "").rsplit(":", 1)[-1].isdigit()
+        ]
+        baseline = max(attempts, default=0)
+        if baselines.get(phase) != baseline:
+            baselines[phase] = baseline
+            changed = True
+    if not changed:
+        return False
+    resets = evidence.setdefault("quality_phase_resets", [])
+    resets.append({"event": reset_event, "findings": findings[:6]})
+    dossier_path.write_text(json.dumps(dossier, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+    print("REVALIDATE_%s\t%s\t%s" % (reset_event.upper(), job_id, "; ".join(findings[:3])), flush=True)
+    return True
+
+
+def _prepare_content_finding_resume(jobs_dir: Path, job_id: str) -> bool:
+    """Route Gate Z content findings back to review_heal.
+
+    Title language, caption overclaims, and renderer-reported overflow need
+    Hermes manuscript edits; format_repair cannot fix them in place. Computed
+    from the run directory (ground truth), not from dossier history, so any
+    content-finding class routes here without enumerating gate messages. The
+    re-run reviewer loads the strengthened review skill and owns the fix."""
+    from engine_v3.pipelines.paper import content_validators
+
+    run_dir = jobs_dir / job_id / "run"
+    findings: list[str] = []
+    for validator in content_validators():
+        result = validator(run_dir)
+        findings.extend(str(f) for f in (result.get("findings") or []))
+    if not findings:
+        return False
+    return _reset_quality_phases(run_dir, job_id, findings, reset_event="content_finding_reset")
+
+
+REVISE_VERDICT_RETRY_LIMIT = 2
+
+
+def _prepare_revise_verdict_resume(jobs_dir: Path, job_id: str) -> bool:
+    """A trusted revise verdict on a blocked quality phase IS the retry signal:
+    without a budget refresh the phase re-enters with zero budget and replays
+    the stale verdict verbatim (round-2 defect). Bounded by a convergence
+    guard - after REVISE_VERDICT_RETRY_LIMIT retries still ending in revise,
+    stop honestly (non-convergence defaults to a real deficiency, a64ad5b)."""
+    run_dir = jobs_dir / job_id / "run"
+    try:
+        review = json.loads((run_dir / "quality_review_round1.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(review, dict):
+        return False
+    delivery = str(review.get("delivery") or "").lower()
+    if delivery in {"pass", "passed", "ok"}:
+        return False
+    try:
+        dossier = json.loads((run_dir / "dossier.v3.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    phases = dossier.get("phases") if isinstance(dossier.get("phases"), dict) else {}
+    if phases.get("review_heal") != "blocked":
+        return False
+    resets = (dossier.get("evidence") or {}).get("quality_phase_resets") or []
+    prior_retries = sum(
+        1 for r in resets if isinstance(r, dict) and r.get("event") == "revise_verdict_retry"
+    )
+    if prior_retries >= REVISE_VERDICT_RETRY_LIMIT:
+        print(
+            "REVALIDATE_REVISE_RETRY_EXHAUSTED\t%s\tretries=%d; verdict stays %s (honest stop)"
+            % (job_id, prior_retries, delivery),
+            flush=True,
+        )
+        return False
+    return _reset_quality_phases(
+        run_dir,
+        job_id,
+        ["review verdict %s; granting bounded re-review retry %d/%d" % (delivery, prior_retries + 1, REVISE_VERDICT_RETRY_LIMIT)],
+        reset_event="revise_verdict_retry",
+        phases_to_reset=("review_heal", "format_repair"),
+    )
+
+
+LOOP_METADATA_RETRY_LIMIT = 2
+
+
+def _prepare_loop_metadata_resume(jobs_dir: Path, job_id: str) -> bool:
+    """A trusted pass verdict rejected by Gate R for review_loop metadata is a
+    retry signal (round 18: independent_reviewer=false blocked a floor-80,
+    p0=0, provenance-clean review; no preparer owned the class, so reruns
+    replayed the blocked state verbatim). Consumes the same _review_loop_ok
+    ground truth as Gate R, so any loop-metadata failure routes here without
+    enumerating field names. Bounded by its own convergence guard."""
+    from engine_v3.packs.paper import _review_loop_ok
+
+    run_dir = jobs_dir / job_id / "run"
+    try:
+        review = json.loads((run_dir / "quality_review_round1.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(review, dict):
+        return False
+    delivery = str(review.get("delivery") or "").lower()
+    if delivery not in {"pass", "passed", "ok"}:
+        return False
+    loop = review.get("review_loop") if isinstance(review.get("review_loop"), dict) else {}
+    log_present = (run_dir / "quality_review_log.md").is_file()
+    if _review_loop_ok(loop, log_present):
+        return False
+    try:
+        dossier = json.loads((run_dir / "dossier.v3.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    phases = dossier.get("phases") if isinstance(dossier.get("phases"), dict) else {}
+    if phases.get("review_heal") != "blocked":
+        return False
+    resets = (dossier.get("evidence") or {}).get("quality_phase_resets") or []
+    prior_retries = sum(
+        1 for r in resets if isinstance(r, dict) and r.get("event") == "loop_metadata_retry"
+    )
+    if prior_retries >= LOOP_METADATA_RETRY_LIMIT:
+        print(
+            "REVALIDATE_LOOP_METADATA_RETRY_EXHAUSTED\t%s\tretries=%d (honest stop)"
+            % (job_id, prior_retries),
+            flush=True,
+        )
+        return False
+    return _reset_quality_phases(
+        run_dir,
+        job_id,
+        [
+            "pass verdict rejected for review_loop metadata; granting bounded re-review retry %d/%d"
+            % (prior_retries + 1, LOOP_METADATA_RETRY_LIMIT)
+        ],
+        reset_event="loop_metadata_retry",
+        phases_to_reset=("review_heal", "format_repair"),
+    )
+
+
+def _prepare_review_provenance_resume(jobs_dir: Path, job_id: str) -> bool:
+    """Reset the quality phases when the recorded review has no trustworthy
+    provenance, so orchestrator resume re-runs them instead of skipping.
+
+    Ground-truth based: it consumes review_provenance.validate_review_artifacts
+    on the run directory (the same rules as Gate R), not string-matched
+    validation findings, so any provenance failure class routes here without
+    enumerating messages. Data/write phases stay done; only the quality
+    machinery (render_gates, review_heal, format_repair) re-runs.
+    """
+    from engine_v3 import review_provenance
+    from engine_v3.packs import paper_artifacts
+
+    run_dir = jobs_dir / job_id / "run"
+    findings = review_provenance.validate_review_artifacts(
+        run_dir,
+        review_file=paper_artifacts.REVIEW_FILE,
+        review_log_file=paper_artifacts.REVIEW_LOG_FILE,
+        manuscript_files=paper_artifacts.review_manuscript_files(run_dir),
+    )
+    if not findings:
+        return False
+    dossier_path = run_dir / "dossier.v3.json"
+    try:
+        dossier = json.loads(dossier_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    phases = dossier.get("phases")
+    if not isinstance(phases, dict):
+        return False
+    changed = False
+    for phase in ("render_gates", "review_heal", "format_repair"):
+        if phases.get(phase) == "done":
+            phases[phase] = "blocked"
+            changed = True
+    # Grant the reset phases a fresh repair budget: prior attempts belong to
+    # the superseded (provenance-invalid) run. The delegation audit trail is
+    # untouched; the orchestrator subtracts this baseline when counting the
+    # budget. Also applies when an earlier reset already left phases blocked.
+    evidence = dossier.setdefault("evidence", {})
+    baselines = evidence.setdefault("repair_budget_baseline", {})
+    delegations = dossier.get("delegations") or []
+    for phase in ("render_gates", "review_heal", "format_repair"):
+        if phases.get(phase) != "blocked":
+            continue
+        prefix = "%s:repair:" % phase
+        attempts = [
+            int(str(d.get("task_id") or "").rsplit(":", 1)[-1])
+            for d in delegations
+            if str(d.get("task_id") or "").startswith(prefix)
+            and str(d.get("task_id") or "").rsplit(":", 1)[-1].isdigit()
+        ]
+        baseline = max(attempts, default=0)
+        if baselines.get(phase) != baseline:
+            baselines[phase] = baseline
+            changed = True
+    if not changed:
+        return False
+    dossier_path.write_text(json.dumps(dossier, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+    print("REVALIDATE_PROVENANCE_RESET	%s	%s" % (job_id, "; ".join(findings[:3])), flush=True)
+    return True
+
+
+def _delivery_repairable_acceptance_failure(validation: JobValidation) -> bool:
+    findings = " | ".join(validation.findings)
+    return validation.status == "done" and any(
+        marker in findings
+        for marker in (
+            "PDF content-quality validation missing",
+            "PDF contains repeated fallback boilerplate",
+            "PDF contains low-quality citation labels",
+            "PDF contains duplicated traceability addenda or tables",
+            "Z gate delivery PDF validation missing",
+        )
+    )
+
+
+def _run_one_orchestrator(jobs_dir: Path, job_id: str) -> RunOutcome:
+    started = time.monotonic()
+    run_dir = jobs_dir / job_id / "run"
+    dossier = EngineV3Orchestrator(
+        runtime=runtime_from_env(),
+        domain_pack=PaperPack(),
+        phases=full_paper_pipeline(),
+        dossier_store=DossierStore(run_dir),
+    ).run(job_id=job_id, resume=True)
+    phases = dict(dossier.phases)
+    checkpoint = (dossier.evidence or {}).get("human_checkpoint")
+    pending_human = (
+        isinstance(checkpoint, dict)
+        and str(checkpoint.get("status") or "") == "human_review_required"
+    )
+    return RunOutcome(
+        job_id=job_id,
+        status=_status(phases, pending_human=pending_human),
+        phases=phases,
+        seconds=round(time.monotonic() - started, 1),
+        has_pdf=(run_dir / "paper_draft_v0.pdf").is_file(),
+        error=None,
+    )
+
+
+def _status(phases: dict[str, str], *, pending_human: bool = False) -> str:
+    if any(status == "error" for status in phases.values()):
+        return "failed"
+    if any(status == "blocked" for status in phases.values()):
+        return "blocked"
+    if phases.get("format_repair") == "done":
+        # D2: a pending human checkpoint means the run is awaiting delivery
+        # review - reporting "done" reads as deliverable (round 20).
+        return "human_review_required" if pending_human else "done"
+    return "partial" if phases else "missing"
+
+
+def _apply_runtime_bounds(args: argparse.Namespace) -> None:
+    _set_env_if_present(HERMES_TIMEOUT_ENV, args.runtime_timeout_s)
+    _set_env_if_present(HERMES_OUTPUT_STARTUP_IDLE_ENV, args.startup_idle_s)
+    _set_env_if_present(HERMES_OUTPUT_PARTIAL_IDLE_ENV, args.partial_idle_s)
+    _set_env_if_present(HERMES_OUTPUT_COMPLETE_GRACE_ENV, args.complete_grace_s)
+
+
+def _set_env_if_present(name: str, value: Any) -> None:
+    if value is not None:
+        os.environ[name] = str(value)
+
+
+def _row_dict(row: RevalidationRow) -> dict[str, Any]:
+    return {
+        "run": asdict(row.run),
+        "validation": asdict(row.validation),
+    }
+
+
+def _print_table(rows: list[RevalidationRow]) -> None:
+    print("job_id\trun_status\tacceptance\tpassed\tseconds\tfloor_100\tdelivery\tfindings")
+    for row in rows:
+        validation = row.validation
+        print(
+            "%s\t%s\t%s\t%s\t%.1f\t%s\t%s\t%s"
+            % (
+                row.run.job_id,
+                row.run.status,
+                validation.acceptance_status,
+                "yes" if validation.passed else "no",
+                row.run.seconds,
+                "" if validation.floor_100 is None else "%.1f" % validation.floor_100,
+                validation.delivery,
+                " | ".join(validation.findings),
+            )
+        )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

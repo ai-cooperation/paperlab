@@ -10,10 +10,10 @@
   },
   "vars": {
     "PAPER_JOB_SERVICE_URL": "https://paper-a.cooperation.tw",
-    // A/B engine routing. Unset / "/jobs" = old paper_driver pipeline (default, prod-safe).
-    // Set to "/v2/jobs" to route submit to the new Hermes+Skill engine (requires the
-    // viability-lock gate). Flip ONLY after a golden A/B passes (BSIDE_WEB_INTEGRATION_PLAN §7).
-    "A_ENGINE_ENDPOINT": "/jobs",
+    // A/B engine routing. "/jobs" = old paper_driver; "/v2/jobs" = bounded Hermes+Skill;
+    // "/v3/jobs" = full Engine v3 paper pipeline. Hermes endpoints enforce viability-lock.
+    // Roll back by setting "/v2/jobs" or "/jobs"; old routes stay available on a-side.
+    "A_ENGINE_ENDPOINT": "/v3/jobs",
     "DEFAULT_FREE_QUOTA": "3",
     "DEFAULT_VIP_QUOTA": "50",
     "TOKEN_TTL_DAYS": "30"

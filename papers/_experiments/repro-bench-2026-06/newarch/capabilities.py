@@ -20,6 +20,16 @@ SCHEMA_PATH = SCRIPT_DIR / "assets" / "contract_v2.schema.json"
 RECIPES_DIR = SCRIPT_DIR / "recipes"
 RESULT_SCHEMA_VERSION = "2026-06-06-a"
 MAX_PAYLOAD_BYTES = 1_000_000
+REGISTERED_FAST_LANE_TOKENS: tuple[str, ...] = ("hupd", "harvard uspto")
+
+
+def is_registered_fast_lane(data_source: dict[str, Any] | None) -> bool:
+    """True when the data_source is a pre-verified registered lane (e.g. HUPD), as opposed
+    to the general agent-driven dataset lane. The registered-lane name fragments live HERE
+    (the registry), not scattered across routing predicates."""
+    ds = data_source or {}
+    hay = f"{ds.get('name') or ''} {ds.get('id') or ''}".lower()
+    return any(tok in hay for tok in REGISTERED_FAST_LANE_TOKENS)
 
 
 def schema_text() -> str:

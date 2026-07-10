@@ -32,6 +32,17 @@
       <div id="pp-steps" class="flex flex-wrap gap-2"></div>
     </div>
 
+    <!-- lane downgrade (D1): shown when a meta-analysis was honestly downgraded -->
+    <div id="pp-downgrade" class="hidden bg-tip border-l-4 border-secondary rounded-r-lg p-5 mb-5">
+      <div class="text-sm font-bold uppercase tracking-wide text-secondary mb-2">研究路線調整</div>
+      <div id="pp-downgrade-body" class="text-base text-gray-700 leading-relaxed"></div>
+    </div>
+
+    <!-- human review checkpoint (D2): VIP delivery awaits human approval -->
+    <div id="pp-checkpoint" class="hidden bg-amber-50 border border-amber-300 rounded-xl p-5 mb-5">
+      <div id="pp-checkpoint-body" class="text-base text-amber-900 leading-relaxed"></div>
+    </div>
+
     <!-- terminal result (shown when done/blocked/failed) -->
     <div id="pp-result" class="hidden rounded-xl p-5 mb-5"></div>
 
@@ -184,6 +195,39 @@
         + `<br><span class="text-gray-500 text-sm">此研究未產生可合併的統計效應量；完整產出見論文 PDF。</span>`;
       $('pp-finding').classList.remove('hidden');
     } else { $('pp-finding').classList.add('hidden'); }
+
+    // lane downgrade (D1): explicit, honest event — the contracted meta-analysis
+    // became a narrative/evidence-map deliverable because effects were not poolable.
+    const dg = s.lane_downgrade;
+    if (dg && dg.from) {
+      const LANE_LABEL = { 'meta-analysis': '統合分析（meta-analysis）',
+        'narrative_evidence_map_review': '敘事式證據地圖回顧' };
+      $('pp-downgrade-body').innerHTML =
+        `本研究原規劃為 <b>${esc(LANE_LABEL[dg.from] || dg.from)}</b>，`
+        + `因資料階段未取得可合併的效應量，已誠實調整為 <b>${esc(LANE_LABEL[dg.to] || dg.to)}</b>。`
+        + (dg.reason ? `<br><span class="text-gray-500 text-sm">原因：${esc(dg.reason)}</span>` : '')
+        + `<br><span class="text-gray-500 text-sm">此調整為顯性事件，論文內文亦明確載明，且不會呈現任何合併效應量或森林圖。</span>`;
+      $('pp-downgrade').classList.remove('hidden');
+    } else { $('pp-downgrade').classList.add('hidden'); }
+
+    // human review checkpoint (D2): VIP delivery pauses for a human quality review
+    // even when every mechanical gate passes. This is a stable waiting state — stop
+    // polling and tell the user delivery is pending human approval (not a failure).
+    const hc = s.human_checkpoint;
+    const awaiting = hc && hc.status === 'human_review_required';
+    if (awaiting) {
+      $('pp-checkpoint-body').innerHTML =
+        `<div class="flex items-center gap-2 mb-1"><span class="px-2.5 py-1 rounded-full text-sm font-bold bg-amber-200 text-amber-900">等待人工核准</span></div>`
+        + `機械品質關卡已全數通過，正依規範進行交付前人工品質複核。`
+        + `<br><span class="text-amber-800 text-sm">${esc(hc.reason || '完成複核後即可下載論文 PDF。')}</span>`;
+      $('pp-checkpoint').classList.remove('hidden');
+      if (timer) { clearInterval(timer); timer = null; }   // stable state — stop polling
+    } else if (hc && hc.status === 'approved') {
+      $('pp-checkpoint-body').innerHTML =
+        `<div class="flex items-center gap-2"><span class="px-2.5 py-1 rounded-full text-sm font-bold bg-green-100 text-green-700">人工複核通過</span>`
+        + `<span class="text-sm text-gray-600">${hc.approved_at ? '核准於 ' + esc(new Date(hc.approved_at).toLocaleString('zh-TW')) : ''}</span></div>`;
+      $('pp-checkpoint').classList.remove('hidden');
+    } else { $('pp-checkpoint').classList.add('hidden'); }
 
     // phase timeline: known phases in order; if the current phase is unknown, append it.
     let order = PHASE_ORDER.slice();

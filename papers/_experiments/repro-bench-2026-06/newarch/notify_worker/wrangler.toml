@@ -1,0 +1,7 @@
+name = "paper-notify"
+main = "src/index.js"
+compatibility_date = "2026-07-01"
+
+send_email = [
+  { name = "NOTIFY", destination_address = "alan.chen75@gmail.com" }
+]

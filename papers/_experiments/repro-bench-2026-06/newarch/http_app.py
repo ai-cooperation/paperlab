@@ -156,7 +156,12 @@ def paper_path_for_job(job_id: str, jobs_dir: Path) -> Path:
 
 def create_app(jobs_dir: Path = DEFAULT_HTTP_JOBS_DIR, start_worker: bool = True,
                engine_v2: bool = False, v2_spawn: Any = None,
-               v2_max_concurrent: int = 1) -> FastAPI:
+               v2_max_concurrent: int = 1,
+               engine_v3: bool = False,
+               v3_auth_token: str | None = None,
+               v3_max_live_jobs: int | None = None,
+               v3_runtime_factory: Any = None,
+               v3_phases_factory: Any = None) -> FastAPI:
     app = FastAPI(title="Paper Job Service", version=job_runner.RUNNER_VERSION)
     # Let the public live progress page (paperlab.cooperation.tw) fetch the read-only
     # GET status/paper across origin. Scoped to that origin + GET only — the b-side
@@ -175,6 +180,19 @@ def create_app(jobs_dir: Path = DEFAULT_HTTP_JOBS_DIR, start_worker: bool = True
         if v2_spawn is not None:
             kw["spawn"] = v2_spawn
         engine_routes.register(app, resolved_jobs_dir, **kw)
+
+    if engine_v3:
+        from engine_v3 import routes as engine_v3_routes
+        engine_v3_routes.register(
+            app,
+            resolved_jobs_dir,
+            auth_token=v3_auth_token or os.environ.get("PAPER_ENGINE_V3_TOKEN"),
+            max_live_jobs=v3_max_live_jobs
+            if v3_max_live_jobs is not None
+            else int(os.environ.get("PAPER_ENGINE_V3_MAX_LIVE_JOBS", "1")),
+            runtime_factory=v3_runtime_factory,
+            phases_factory=v3_phases_factory,
+        )
 
     @app.get("/health")
     def health() -> dict[str, Any]:
@@ -294,5 +312,14 @@ def create_app(jobs_dir: Path = DEFAULT_HTTP_JOBS_DIR, start_worker: bool = True
     return app
 
 
-# engine-v2 routes mount only when PAPER_ENGINE_V2=1 (A/B opt-in; prod default off)
-app = create_app(engine_v2=os.environ.get("PAPER_ENGINE_V2") == "1")
+def app_from_env() -> FastAPI:
+    jobs_dir = Path(os.environ.get("PAPER_JOBS_DIR", str(job_runner.DEFAULT_JOBS_DIR)))
+    return create_app(
+        jobs_dir=jobs_dir,
+        engine_v2=os.environ.get("PAPER_ENGINE_V2") == "1",
+        engine_v3=os.environ.get("PAPER_ENGINE_V3") == "1",
+    )
+
+
+# Engine v2/v3 routes mount only when the corresponding env flag is set (A/B opt-in).
+app = app_from_env()

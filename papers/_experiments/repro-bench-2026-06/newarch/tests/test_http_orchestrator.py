@@ -61,7 +61,7 @@ def test_v2_status_enriched_projection(client, load_fixture_json):
                       "viability", "summary", "artifacts"}
     assert s["research_plan"]["topic"] and s["b_gap"] and s["tier"] == "master"
     assert s["summary"]["floor_100"] == 70.7 and s["summary"]["delivery"] == "blocked"
-    assert "pdf" in s["artifacts"]                                # PDF link field present
+    assert "has_pdf" in s["artifacts"]                            # PDF-presence field present
 
 
 def test_v2_idempotent_replay(client, load_fixture_json):

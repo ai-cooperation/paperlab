@@ -1,0 +1,723 @@
+from __future__ import annotations
+
+import shutil
+import threading
+import time
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+import http_app
+import engine_v3.pipelines.paper as paper_pipeline
+from engine_v3.core import TaskResult
+from engine_v3.pipelines.paper import (
+    BOUNDED_GOLDEN_OUTPUTS,
+    DATA_OUTPUTS,
+    FULL_PIPELINE_OUTPUTS,
+    bounded_golden_pipeline,
+    full_paper_pipeline,
+)
+from engine_v3.runtimes.codex_cli import CliRunResult, CodexCliRuntime
+
+pytestmark = pytest.mark.integration
+
+
+def _fixture_runtime(golden_dir: Path):
+    def fixture_runner(command: list[str], cwd: Path, _timeout_s: int):
+        prompt = command[-1]
+        for rel in BOUNDED_GOLDEN_OUTPUTS:
+            if rel not in prompt:
+                continue
+            src = golden_dir / rel
+            dst = cwd / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(src, dst)
+        return CliRunResult(exit_code=0, stdout="CHILD_OK", stderr="")
+
+    return CodexCliRuntime(runner=fixture_runner)
+
+
+def _full_fixture_runtime(golden_dir: Path):
+    clean_draft = _clean_long_draft()
+
+    def fixture_runner(command: list[str], cwd: Path, _timeout_s: int):
+        prompt = command[-1]
+        for rel in DATA_OUTPUTS:
+            if rel in prompt:
+                src = golden_dir / rel
+                dst = cwd / rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(src, dst)
+        if "phase3_positioning.md" in prompt:
+            (cwd / "phase3_positioning.md").write_text("## Gap\nA-side gap.\n", encoding="utf-8")
+        if "phase4_structure.md" in prompt:
+            (cwd / "phase4_structure.md").write_text("## Structure\nIMRaD.\n", encoding="utf-8")
+        if "claim_evidence_map.md" in prompt:
+            (cwd / "claim_evidence_map.md").write_text(
+                "| Claim | Evidence |\n"
+                "|---|---|\n"
+                "| k = 8; SMD -0.4327; I-squared 95.4 | real_results meta pooled |\n",
+                encoding="utf-8",
+            )
+        if "paper_draft_v0.qmd" in prompt:
+            for rel in [p for p in FULL_PIPELINE_OUTPUTS if p.startswith("sections/")]:
+                path = cwd / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("section\n", encoding="utf-8")
+            (cwd / "paper_draft_v0.qmd").write_text(clean_draft, encoding="utf-8")
+        if "paper_springer.qmd" in prompt:
+            (cwd / "paper_springer.qmd").write_text(clean_draft, encoding="utf-8")
+        if "quality_review_round1.json" in prompt:
+            (cwd / "quality_review_round1.json").write_text(
+                '{"p0_count": 0, "delivery": "pass", "floor_100": 82.0, '
+                '"review_method": {"schema_version": "paperlab.review_method.v3.2", '
+                '"decision_owner": "hermes", "capability_class": "domain_expert_review", '
+                '"selected_skill": "paper-review-skill", '
+                '"selection_reason": "domain expert review before delivery", '
+                '"vip_capability_required": true, "vip_capability_available": true, '
+                '"inputs_checked": ["paper_draft_v0.qmd", "references.bib"]}, '
+                '"review_loop": {"status": "passed", "rounds": 1, '
+                '"reviewer_model": "codex-class", "fixer_model": "big-pickle", '
+                '"independent_reviewer": true, "floor_failed": false}, '
+                '"dimensions": {'
+                '"academic_rigor": {"score": 8.1}, '
+                '"novelty_positioning": {"score": 8.4}, '
+                '"experimental_completeness": {"score": 7.8}, '
+                '"writing_quality": {"score": 8.3}, '
+                '"practical_feasibility": {"score": 8.0}, '
+                '"citation_accuracy": {"score": 8.6}, '
+                '"format_compliance": {"score": 8.5}}}\n',
+                encoding="utf-8",
+            )
+        if "quality_review_log.md" in prompt:
+            (cwd / "quality_review_log.md").write_text(
+                "# Quality review log\n\n## Skill Decision Trace\n\n"
+                "- selected: paper-review-skill because the task needs a domain expert review\n\n"
+                + "- round 1: passed; no P0; floor ok; seven dimensions checked.\n" * 20,
+                encoding="utf-8",
+            )
+        if "paper_draft_v0.pdf" in prompt:
+            (cwd / "paper_draft_v0.pdf").write_bytes(b"%PDF-1.4\n" + b"x" * 120_000)
+        return CliRunResult(exit_code=0, stdout="CHILD_OK", stderr="")
+
+    return CodexCliRuntime(runner=fixture_runner)
+
+
+def _clean_long_draft() -> str:
+    sentence = (
+        "The SMD pool included k = 8 effects [@geng2026; @yan2026]. "
+        "The pooled standardised mean difference was -0.4327, which indicates a reduction "
+        "in depressive symptoms favouring exercise [@lan2025]. "
+        "Heterogeneity was considerable, with I-squared of 95.4, and this is consistent "
+        "with a diverse study pool spanning different exercise modalities [@tu2025]. "
+        "The pooled estimate is directionally informative rather than clinically definitive."
+    )
+    return "\n\n".join([sentence for _ in range(90)])
+
+
+def _wait_for_status(tc: TestClient, status_url: str, status: str, timeout_s: float = 5.0) -> dict:
+    deadline = time.time() + timeout_s
+    last: dict = {}
+    while time.time() < deadline:
+        response = tc.get(status_url)
+        if response.status_code == 200:
+            last = response.json()
+            if last.get("status") == status:
+                return last
+        time.sleep(0.05)
+    raise AssertionError(f"timed out waiting for {status}; last={last}")
+
+
+def test_v3_jobs_require_bearer_token(tmp_path: Path):
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+        )
+    )
+
+    assert tc.post("/v3/jobs", json={"topic": "x"}).status_code == 401
+    assert tc.post(
+        "/v3/jobs",
+        json={"topic": "x"},
+        headers={"Authorization": "Bearer wrong"},
+    ).status_code == 403
+
+
+def test_v3_viability_probe_requires_bearer_token(tmp_path: Path):
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+        )
+    )
+
+    assert tc.post("/v3/jobs/viability-probe", json={}).status_code == 401
+
+
+def test_v3_job_runs_bounded_golden_and_status(tmp_path: Path, golden_dir: Path):
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+            v3_runtime_factory=lambda: _fixture_runtime(golden_dir),
+            v3_phases_factory=bounded_golden_pipeline,
+        )
+    )
+
+    created = tc.post(
+        "/v3/jobs",
+        json={"domain": "paper", "topic": "bounded golden"},
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert created.status_code == 202
+    body = created.json()
+    assert body["engine"] == "v3"
+    assert body["status"] == "accepted"
+    assert body["job_id"].startswith("v3_")
+    payload = _wait_for_status(tc, body["status_url"], "done")
+    assert payload["engine"] == "v3"
+    assert payload["engine_revision"] == "3.2"
+    assert payload["status"] == "done"
+    assert payload["phases"] == {"data": "done", "render_gates": "done"}
+    data_substeps = {step["id"]: step for step in payload["substeps"]["data"]}
+    assert data_substeps["verify_doi_two_sources"]["status"] == "done"
+    assert data_substeps["top_up_references"]["status"] == "done"
+    assert data_substeps["write_canonical_data"]["status"] == "done"
+    assert data_substeps["data_output_completeness"]["status"] == "done"
+    assert data_substeps["gate_A_E_G"]["status"] == "done"
+    assert all(report["blocked"] is False for report in payload["gates"])
+
+
+def test_v3_job_submit_returns_before_runtime_finishes(tmp_path: Path):
+    started = threading.Event()
+    release = threading.Event()
+
+    class BlockingRuntime:
+        name = "blocking"
+
+        def prepare(self, _context):
+            return None
+
+        def run_brain(self, task, _context):
+            started.set()
+            release.wait(timeout=3)
+            return TaskResult(status="ok", task_id=task.task_id)
+
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+            v3_runtime_factory=lambda: BlockingRuntime(),
+            v3_phases_factory=bounded_golden_pipeline,
+        )
+    )
+
+    created = tc.post(
+        "/v3/jobs",
+        json={"domain": "paper", "topic": "slow"},
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert created.status_code == 202
+    assert created.json()["status"] == "accepted"
+    assert started.wait(timeout=1)
+    status = tc.get(created.json()["status_url"])
+    assert status.status_code == 200
+    assert status.json()["status"] == "running"
+    release.set()
+
+
+def test_v3_status_includes_project_page_projection(tmp_path: Path, golden_dir: Path, monkeypatch):
+    def fake_format_repair(run_dir: Path, _contract: dict):
+        (run_dir / "paper_draft_v0.pdf").write_bytes(b"%PDF-1.4\n" + b"x" * 120_000)
+        return {"crossref_ok": True}
+
+    monkeypatch.setattr(paper_pipeline.format_repair, "verify_and_repair", fake_format_repair)
+    monkeypatch.setattr(
+        paper_pipeline,
+        "_validate_delivery_pdf",
+        lambda _pdf, _run_dir=None: {
+            "valid": True,
+            "producer": "xdvipdfmx",
+            "raw_citation_count": 0,
+                "unresolved_marker_count": 0,
+                "numbered_section_detected": True,
+                "table_widths": {"valid": True, "findings": []},
+                "content_quality": {"valid": True, "findings": []},
+                "findings": [],
+            },
+        )
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+            v3_runtime_factory=lambda: _full_fixture_runtime(golden_dir),
+            v3_phases_factory=full_paper_pipeline,
+        )
+    )
+    created = tc.post(
+        "/v3/jobs",
+        json={
+            "domain": "paper",
+            "topic": "bounded golden",
+            "research_question": "Does the intervention improve outcomes?",
+            "contribution": "A reproducible rapid synthesis",
+            "level": "master",
+        },
+        headers={"Authorization": "Bearer secret"},
+    ).json()
+
+    payload = _wait_for_status(tc, created["status_url"], "done")
+
+    assert payload["research_plan"] == {
+        "topic": "bounded golden",
+        "research_question": "Does the intervention improve outcomes?",
+        "contribution": "A reproducible rapid synthesis",
+    }
+    assert payload["tier"] == "master"
+    assert "b_gap" in payload and "a_gap" in payload
+    assert payload["summary"]["delivery"] == "pass"
+    assert payload["acceptance"]["status"] == "done_pass"
+    assert payload["acceptance"]["passed"] is True
+    assert payload["artifacts"]["has_pdf"] is True
+    assert "/artifact/paper_draft_v0.pdf?sha=" in payload["artifacts"]["pdf"]
+
+
+def test_project_status_projection_surfaces_lane_downgrade(tmp_path: Path):
+    """D1 (V3_2_SPEC.md Decisions): a meta-analysis contract that downgrades
+    to a narrative/evidence-map deliverable is an EXPLICIT event - stated in
+    the manuscript AND on the status page. The v3 projection did not carry
+    lane_downgrade at all, so the project page could not show it. Surface the
+    structured downgrade fact (from/to/reason) from real_results.json."""
+    from engine_v3.core import DossierStore
+    from engine_v3.routes import _project_status
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "research_contract.input.json").write_text(
+        '{"topic":"T","research_question":"Q","level":"master"}', encoding="utf-8"
+    )
+    (run_dir / "real_experiments").mkdir()
+    (run_dir / "real_experiments" / "real_results.json").write_text(
+        '{"lane_downgrade": {"from": "meta-analysis", '
+        '"to": "narrative_evidence_map_review", '
+        '"decided_by": "data_phase_evidence_floor", '
+        '"reason": "no extractable poolable effects"}}',
+        encoding="utf-8",
+    )
+    store = DossierStore(run_dir)
+    dossier = store.create(job_id="v3_dg", domain="paper")
+    for ph in ("data", "gap", "structure", "claim_evidence", "write", "render_gates", "review_heal", "format_repair"):
+        dossier.mark_phase(ph, "done")
+    store.save(dossier)
+
+    proj = _project_status(dossier, run_dir)
+
+    dg = proj["lane_downgrade"]
+    assert dg["from"] == "meta-analysis"
+    assert dg["to"] == "narrative_evidence_map_review"
+    assert "poolable" in dg["reason"]
+
+
+def test_project_status_no_downgrade_reports_none(tmp_path: Path):
+    from engine_v3.core import DossierStore
+    from engine_v3.routes import _project_status
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "research_contract.input.json").write_text('{"topic":"T"}', encoding="utf-8")
+    store = DossierStore(run_dir)
+    dossier = store.create(job_id="v3_nd", domain="paper")
+    store.save(dossier)
+
+    proj = _project_status(dossier, run_dir)
+
+    assert "lane_downgrade" in proj
+    assert proj["lane_downgrade"] is None
+
+
+def test_phase_gap_projection_never_dumps_raw_markdown(tmp_path: Path):
+    """User-facing regression (project v3_0deb2abec3d2): the 研究缺口 block on
+    the project page showed the ENTIRE phase3_positioning.md verbatim -
+    '# Research Positioning ## Literature Landscape ... [@bi2023pangu;
+    @lam2023graphcast]' - because _phase_gap returned the whole file as one
+    description. The projection must return either structured gap rows, a
+    sanitized gap-section summary (no heading tokens, no citekeys, bounded
+    length), or an honest empty list. Never raw pipeline markdown."""
+    from engine_v3.routes import _phase_gap
+
+    (tmp_path / "phase3_positioning.md").write_text(
+        "# Research Positioning\n\n"
+        "## Literature Landscape\n\n"
+        "Pangu-Weather and GraphCast establish the baseline "
+        "[@bi2023pangu; @lam2023graphcast]. " + ("More prose. " * 80) + "\n\n"
+        "## Research Gap\n\n"
+        "No study reconciles the contradictory transfer-learning evidence "
+        "across weather foundation models [@lam2023graphcast]. This protocol "
+        "defines the reconciliation benchmark.\n\n"
+        "## Positioning\n\nMore text.\n",
+        encoding="utf-8",
+    )
+
+    gaps = _phase_gap(tmp_path)
+
+    assert len(gaps) == 1
+    desc = gaps[0]["description"]
+    assert "No study reconciles" in desc
+    assert "#" not in desc
+    assert "[@" not in desc
+    assert "Literature Landscape" not in desc
+    assert len(desc) <= 700
+
+
+def test_phase_gap_projection_prefers_structured_table(tmp_path: Path):
+    from engine_v3.routes import _phase_gap
+
+    (tmp_path / "phase3_positioning.md").write_text(
+        "# Positioning\n\n"
+        "| Gap | Description |\n"
+        "|---|---|\n"
+        "| No pooled estimate | Prior reviews stop at narrative synthesis |\n",
+        encoding="utf-8",
+    )
+
+    gaps = _phase_gap(tmp_path)
+
+    assert gaps == [
+        {"gap": "No pooled estimate", "description": "Prior reviews stop at narrative synthesis"}
+    ]
+
+
+def test_phase_gap_projection_returns_empty_when_no_gap_content(tmp_path: Path):
+    from engine_v3.routes import _phase_gap
+
+    (tmp_path / "phase3_positioning.md").write_text(
+        "# Research Positioning\n\n## Literature Landscape\n\nOnly landscape prose here.\n",
+        encoding="utf-8",
+    )
+
+    assert _phase_gap(tmp_path) == []
+
+
+def test_v3_artifact_route_serves_only_indexed_artifacts(tmp_path: Path, golden_dir: Path):
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+            v3_runtime_factory=lambda: _fixture_runtime(golden_dir),
+            v3_phases_factory=bounded_golden_pipeline,
+        )
+    )
+    created = tc.post(
+        "/v3/jobs",
+        json={"domain": "paper", "topic": "artifact route"},
+        headers={"Authorization": "Bearer secret"},
+    ).json()
+    job_id = created["job_id"]
+    _wait_for_status(tc, created["status_url"], "done")
+
+    bib = tc.get(f"/v3/jobs/{job_id}/artifact/references.bib")
+    nested = tc.get(f"/v3/jobs/{job_id}/artifact/real_experiments/real_results.json")
+    missing = tc.get(f"/v3/jobs/{job_id}/artifact/not-indexed.txt")
+    traversal = tc.get(f"/v3/jobs/{job_id}/artifact/../../research_contract.input.json")
+
+    assert bib.status_code == 200
+    assert "@article" in bib.text or "@misc" in bib.text
+    assert nested.status_code == 200
+    assert nested.json()["meta"]["pooled"]
+    assert missing.status_code == 404
+    assert traversal.status_code == 404
+
+
+def test_v3_submit_idempotent_replay_same_hash(tmp_path: Path, golden_dir: Path):
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+            v3_runtime_factory=lambda: _fixture_runtime(golden_dir),
+            v3_phases_factory=bounded_golden_pipeline,
+        )
+    )
+    headers = {"Authorization": "Bearer secret", "Idempotency-Key": "same"}
+    contract = {"domain": "paper", "topic": "bounded golden"}
+
+    first = tc.post("/v3/jobs", json=contract, headers=headers)
+    second = tc.post("/v3/jobs", json=contract, headers=headers)
+
+    assert first.status_code == 202
+    assert second.status_code == 200
+    assert first.json()["job_id"] == second.json()["job_id"]
+    assert second.json()["idempotent_replay"] is True
+
+
+def test_v3_submit_conflict_different_hash(tmp_path: Path, golden_dir: Path):
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+            v3_runtime_factory=lambda: _fixture_runtime(golden_dir),
+            v3_phases_factory=bounded_golden_pipeline,
+        )
+    )
+    headers = {"Authorization": "Bearer secret", "Idempotency-Key": "same"}
+
+    first = tc.post("/v3/jobs", json={"domain": "paper", "topic": "a"}, headers=headers)
+    second = tc.post("/v3/jobs", json={"domain": "paper", "topic": "b"}, headers=headers)
+
+    assert first.status_code == 202
+    assert second.status_code == 409
+
+
+def test_v3_job_creation_lock_blocks_unclaimed_duplicate(tmp_path: Path):
+    contract = {"domain": "paper", "topic": "locked"}
+    import engine_v3.routes as routes
+
+    job_id = routes._job_id(contract)
+    lock_dir = tmp_path / "_locks_v3"
+    lock_dir.mkdir()
+    (lock_dir / (job_id + ".lock")).write_text("busy", encoding="utf-8")
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+        )
+    )
+
+    response = tc.post(
+        "/v3/jobs",
+        json=contract,
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 409
+
+
+def test_v3_submit_respects_max_live_jobs(tmp_path: Path, golden_dir: Path):
+    lock_dir = tmp_path / "_locks_v3"
+    lock_dir.mkdir()
+    (lock_dir / "v3_other.lock").write_text("busy", encoding="utf-8")
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+            v3_max_live_jobs=1,
+            v3_runtime_factory=lambda: _fixture_runtime(golden_dir),
+            v3_phases_factory=bounded_golden_pipeline,
+        )
+    )
+
+    response = tc.post(
+        "/v3/jobs",
+        json={"domain": "paper", "topic": "busy"},
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 429
+    assert "engine busy" in response.json()["detail"]
+
+
+def test_v3_submit_ignores_stale_empty_legacy_lock(tmp_path: Path, golden_dir: Path):
+    lock_dir = tmp_path / "_locks_v3"
+    lock_dir.mkdir()
+    (lock_dir / "v3_stale.lock").write_text("", encoding="utf-8")
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+            v3_max_live_jobs=1,
+            v3_runtime_factory=lambda: _fixture_runtime(golden_dir),
+            v3_phases_factory=bounded_golden_pipeline,
+        )
+    )
+
+    response = tc.post(
+        "/v3/jobs",
+        json={"domain": "paper", "topic": "not busy"},
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 202
+
+
+def test_v3_status_marks_stale_lock_as_accepted_not_running(tmp_path: Path):
+    job_id = "v3_stalejob"
+    run_dir = tmp_path / job_id / "run"
+    run_dir.mkdir(parents=True)
+    lock_dir = tmp_path / "_locks_v3"
+    lock_dir.mkdir()
+    (lock_dir / (job_id + ".lock")).write_text("", encoding="utf-8")
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+        )
+    )
+
+    response = tc.get(f"/v3/jobs/{job_id}/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "accepted"
+    assert body["lock_state"] == "stale"
+
+
+def test_v3_admin_cleanup_stale_locks_removes_only_dead_locks(tmp_path: Path):
+    import os
+
+    lock_dir = tmp_path / "_locks_v3"
+    lock_dir.mkdir()
+    stale_empty = lock_dir / "v3_empty.lock"
+    stale_pid = lock_dir / "v3_dead.lock"
+    active = lock_dir / "v3_active.lock"
+    foreign = lock_dir / "v3_foreign.lock"
+    stale_empty.write_text("", encoding="utf-8")
+    stale_pid.write_text('{"pid": 999999999}', encoding="utf-8")
+    active.write_text('{"pid": %d}' % os.getpid(), encoding="utf-8")
+    foreign.write_text("busy", encoding="utf-8")
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+        )
+    )
+
+    response = tc.post(
+        "/v3/admin/stale-locks/cleanup",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert sorted(body["removed"]) == ["v3_dead.lock", "v3_empty.lock"]
+    assert body["kept"] == ["v3_active.lock", "v3_foreign.lock"]
+    assert not stale_empty.exists()
+    assert not stale_pid.exists()
+    assert active.exists()
+    assert foreign.exists()
+
+
+def test_v3_worker_crash_sets_failed_state(tmp_path: Path):
+    class CrashingRuntime:
+        name = "crashing"
+
+        def prepare(self, _context):
+            raise RuntimeError("runtime exploded")
+
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+            v3_runtime_factory=lambda: CrashingRuntime(),
+            v3_phases_factory=bounded_golden_pipeline,
+        )
+    )
+
+    created = tc.post(
+        "/v3/jobs",
+        json={"domain": "paper", "topic": "crash"},
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert created.status_code == 202
+    assert created.json()["status"] == "accepted"
+    status = _wait_for_status(tc, created.json()["status_url"], "failed")
+    assert status["phases"] == {"system": "error"}
+    assert status["error"]["type"] == "RuntimeError"
+
+
+def test_v3_routes_absent_without_flag(tmp_path: Path):
+    tc = TestClient(http_app.create_app(jobs_dir=tmp_path, start_worker=False))
+
+    assert tc.post("/v3/jobs", json={}).status_code == 404
+
+
+def test_app_from_env_mounts_v3_when_enabled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("PAPER_JOBS_DIR", str(tmp_path))
+    monkeypatch.setenv("PAPER_ENGINE_V3", "1")
+    monkeypatch.setenv("PAPER_ENGINE_V3_TOKEN", "secret")
+
+    tc = TestClient(http_app.app_from_env())
+
+    assert tc.get("/v3/health").status_code == 200
+
+
+def test_v3_health_capabilities_and_schema(tmp_path: Path):
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+        )
+    )
+
+    health = tc.get("/v3/health")
+    capabilities = tc.get("/v3/capabilities")
+    schema = tc.get("/v3/schema/paper/contract_v3.schema.json")
+
+    assert health.status_code == 200
+    assert health.json()["status"] == "ok"
+    assert capabilities.status_code == 200
+    assert capabilities.json()["engine"] == "v3"
+    assert "paper" in capabilities.json()["packs"]
+    assert capabilities.json()["default_pipeline"] == "full_paper_pipeline"
+    assert schema.status_code == 200
+    assert schema.json()["type"] == "object"
+
+
+def test_v3_viability_probe_uses_paper_pack(tmp_path: Path, load_fixture_json):
+    tc = TestClient(
+        http_app.create_app(
+            jobs_dir=tmp_path,
+            start_worker=False,
+            engine_v3=True,
+            v3_auth_token="secret",
+        )
+    )
+    response = tc.post(
+        "/v3/jobs/viability-probe",
+        json={
+            "contract": load_fixture_json("contract_paper.json"),
+            "sources": {"corpus": load_fixture_json("corpus_exercise.json")},
+        },
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["engine"] == "v3"
+    assert body["domain"] == "paper"
+    assert body["viable"] is True
+    assert body["metric"]["max_poolable_k"] == 8
+    assert body["contract_hash"]

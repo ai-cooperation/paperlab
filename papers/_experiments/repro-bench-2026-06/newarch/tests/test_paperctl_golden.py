@@ -166,6 +166,33 @@ def test_figures_meta_produces_svg_png(tmp_path, golden_dir):
             assert f.is_file() and f.stat().st_size > 0, f"missing {f.name}"
 
 
+def test_figures_meta_produces_protocol_gap_prisma_svg_png(tmp_path):
+    run_dir = tmp_path / "run"
+    (run_dir / "real_experiments").mkdir(parents=True)
+    (run_dir / "real_experiments" / "real_results.json").write_text(
+        json.dumps(
+            {
+                "result_type": "audited-literature-and-protocol-gap-results",
+                "verified_reference_count": 41,
+                "crossref_verified_count": 41,
+                "same_extreme_subset_benchmark_found": False,
+                "poolable_same_subset_effect_k": 0,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rc = paperctl.main(["figures", "meta", "--run-dir", str(run_dir)])
+
+    assert rc == 0
+    for ext in (".svg", ".png"):
+        f = run_dir / "figures" / f"fig_prisma_flow{ext}"
+        assert f.is_file() and f.stat().st_size > 0, f"missing {f.name}"
+    svg = (run_dir / "figures" / "fig_prisma_flow.svg").read_text(encoding="utf-8")
+    assert "PRISMA-style data-phase evidence flow" in svg
+    assert "weather foundation models" in svg
+
+
 # --------------------------------------------------------------------------- #
 # 4. provenance — provenance.json with the golden key shape
 # --------------------------------------------------------------------------- #

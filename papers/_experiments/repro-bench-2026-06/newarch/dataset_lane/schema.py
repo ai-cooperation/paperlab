@@ -45,7 +45,16 @@ REAL_RESULTS_REQUIRED = (
     "status", "simulated", "lane", "source",
     "data_manifest_sha256", "analysis_script_sha256",
     "rows", "sample_flow", "models", "numeric_index",
+    # the analysis must DECLARE which model is primary — so the report card and the
+    # research-value gate read a declaration, never guess the primary by string-matching
+    # an id (that would be a fixed script wearing a general coat).
+    "primary_model_id",
 )
+# research-value (Gate E, dataset lane): a finding — significant OR null — is worth writing
+# only if the analysis is adequately POWERED. A well-powered null is informative; an
+# underpowered one cannot conclude. Generic floors on the agent-produced n.
+DATASET_N_FLOOR = 300       # analytic observations
+DATASET_UNIT_FLOOR = 15     # distinct units (countries/subjects/...) for a panel/grouped design
 # a model row must declare these so a gate can check it, regardless of the dataset
 MODEL_REQUIRED = ("id", "family", "outcome", "exposure", "estimate", "n_unweighted")
 # present ONLY when the analysis declares a complex-survey design (generic — no names)
@@ -57,6 +66,65 @@ EXECUTION_RECORD_REQUIRED = (
 )
 # filename substrings that betray fabricated/placeholder data (fail closed)
 SYNTHETIC_MARKERS = ("synthetic", "simulated", "fake", "dummy", "example", "placeholder", "mock")
+
+
+# ── shared result accessors (consumers read the DECLARATION, never guess) ────
+def primary_model(rr: dict[str, Any]) -> dict[str, Any]:
+    """The PRIMARY model — read from the analysis's declaration (`primary_model_id`),
+    NOT guessed by string-matching ids. Falls back, for runs predating the declaration,
+    to a heuristic (id/family naming the primary, then a fixed-effects/within spec, then
+    the most-adjusted = most covariates), so old runs still render without breaking."""
+    models = [m for m in (rr.get("models") or []) if isinstance(m, dict)]
+    if not models:
+        return {}
+    declared = str(rr.get("primary_model_id") or "")
+    if declared:
+        for m in models:
+            if str(m.get("id") or "") == declared:
+                return m
+    def _rank(m: dict[str, Any]) -> tuple:
+        idf = (str(m.get("id") or "") + " " + str(m.get("family") or "")).lower()
+        named = "primary" in idf
+        fe = "fixed" in idf or "twfe" in idf or "within" in idf
+        ncov = len(m.get("covariates") or []) + len(m.get("fixed_effects") or [])
+        return (named, fe, ncov)
+    return max(models, key=_rank)
+
+
+def dataset_research_value(rr: dict[str, Any]) -> dict[str, Any]:
+    """Gate E (dataset lane): is the finding worth writing? Value rests on POWER + a
+    rigorous primary spec, NOT on getting a significant result — a well-powered null that
+    qualifies a prior belief is valuable; an underpowered null cannot conclude. Returns
+    {sufficient, rows, units, has_primary, reason}."""
+    rows = int(rr.get("rows") or 0)
+    sf = rr.get("sample_flow") or {}
+    units = 0
+    try:
+        units = int(sf.get("analytic_units") or 0)
+    except (TypeError, ValueError):
+        units = 0
+    if units == 0:
+        for k, v in sf.items():
+            if "countries" in k or "units" in k or "subjects" in k or "clusters" in k:
+                try:
+                    units = max(units, int(v))
+                except (TypeError, ValueError):
+                    pass
+    unit_label = str(sf.get("unit_label") or "units")
+    pm = primary_model(rr)
+    has_primary = bool(pm)
+    powered = rows >= DATASET_N_FLOOR and (units == 0 or units >= DATASET_UNIT_FLOOR)
+    sufficient = powered and has_primary
+    if sufficient:
+        reason = (f"well-powered (n={rows}, {unit_label}={units}) with a primary specification — "
+                  "the finding is informative whether or not it is statistically significant")
+    elif not has_primary:
+        reason = "no primary model specification declared"
+    else:
+        reason = (f"under-powered (n={rows}, {unit_label}={units}) — a null here cannot distinguish "
+                  "'no association' from 'insufficient evidence'")
+    return {"sufficient": sufficient, "rows": rows, "units": units,
+            "has_primary": has_primary, "reason": reason}
 
 
 # ── small deterministic helpers ──────────────────────────────────────────────
@@ -84,18 +152,63 @@ def write_json(run_dir: Path, rel: str, obj: Any) -> Path:
     return p
 
 
+# Aliases the brain sometimes uses for a model's point estimate instead of the canonical
+# `estimate` (MODEL_REQUIRED). Run-to-run variance: the same prompt produced `estimate` in
+# one run and only `estimate_beta` in another. Checked in priority order.
+ESTIMATE_ALIASES = ("estimate_beta", "coef", "coefficient", "beta")
+
+
+def canonicalize_estimates(run_dir: Path) -> bool:
+    """Robustness: every model MUST expose its point estimate as `estimate`, but the agent
+    occasionally names it `estimate_beta`/`coef`/`beta`. When `estimate` is absent/None and
+    a known alias holds a numeric value, COPY it into `estimate` so the schema gate AND every
+    downstream consumer (metrics_block, tables, number_trace) see the same value. Never
+    recomputes or fabricates — only renames an already-computed number. Returns True if any
+    model was filled. Generic: no dataset/column knowledge."""
+    rr = read_json(run_dir, REAL_RESULTS)
+    if not isinstance(rr, dict):
+        return False
+    changed = False
+    for key in ("models", "model_results"):
+        for m in (rr.get(key) or []):
+            if not isinstance(m, dict) or m.get("estimate") is not None:
+                continue
+            for alias in ESTIMATE_ALIASES:
+                v = m.get(alias)
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    m["estimate"] = v
+                    changed = True
+                    break
+    if changed:
+        write_json(run_dir, REAL_RESULTS, rr)
+    return changed
+
+
 def iter_numeric_index(real_results: dict[str, Any]) -> set[str]:
-    """Every number the manuscript is allowed to cite, normalized to strings. The analysis
-    script MUST emit `numeric_index` (a flat list/dict of its reported numbers); a paper
-    number not in here is untraceable -> blocked."""
-    idx = (real_results or {}).get("numeric_index")
+    """Every number the manuscript is allowed to cite. ROBUST: walk the ENTIRE real_results
+    (models, subgroup_results, sensitivity_results, spline_results, sample_flow, variables,
+    AND the analysis's numeric_index) and collect every computed number — the actual results
+    are the source of truth, not a self-reported index that the analysis may leave incomplete.
+    A prose number not computed ANYWHERE is the fabrication this catches."""
     out: set[str] = set()
-    vals = idx.values() if isinstance(idx, dict) else (idx or [])
-    for v in vals:
-        if isinstance(v, (int, float)):
-            out.add(_norm_num(v))
-        elif isinstance(v, str):
-            out.add(v.strip())
+
+    def _walk(obj: Any) -> None:
+        if isinstance(obj, bool):
+            return
+        if isinstance(obj, (int, float)):
+            out.add(_norm_num(float(obj)))
+        elif isinstance(obj, str):
+            s = obj.strip()
+            if s:
+                out.add(s)
+        elif isinstance(obj, dict):
+            for v in obj.values():
+                _walk(v)
+        elif isinstance(obj, (list, tuple)):
+            for v in obj:
+                _walk(v)
+
+    _walk(real_results or {})
     return out
 
 

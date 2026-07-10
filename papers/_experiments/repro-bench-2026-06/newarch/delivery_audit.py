@@ -32,7 +32,10 @@ UNSUPPORTED_METHOD_PATTERNS = [
     r"individual[ -]patient[ -]data", r"\bIPD\b", r"\bRoB ?2\b", r"\bGRADE\b",
     r"trim[ -]and[ -]fill",
 ]
-MIN_REFS_META = 20   # a meta-analysis cites far more than its included studies
+MIN_REFS_META = 20      # a meta-analysis cites far more than its included studies
+MIN_REFS_DATASET = 35   # the paper-draft skill's HARD floor for an empirical dataset study
+_REF_FLOORS = {"meta_analysis": MIN_REFS_META, "scientometric": MIN_REFS_META,
+               "dataset_agent_analysis": MIN_REFS_DATASET}
 
 
 def _read_json(p: Path, default: Any) -> Any:
@@ -54,14 +57,57 @@ def _issue(cid: str, sev: str, msg: str, **extra: Any) -> dict[str, Any]:
 
 
 def _refs_count_check(run_dir: Path, rr: dict[str, Any]) -> list[dict[str, Any]]:
-    if str(rr.get("lane") or "") not in ("meta_analysis", "scientometric"):
+    lane = str(rr.get("lane") or "")
+    floor = _REF_FLOORS.get(lane)
+    if floor is None:                         # lanes without a reference floor (e.g. ML)
         return []
     bib = _read_text(run_dir / "references.bib")
     n = len(re.findall(r"^@\w+\s*\{", bib, re.M))
-    if n < MIN_REFS_META:
+    if n < floor:
         return [_issue("D1_REFS_TOO_FEW", "P0",
-                       f"meta-analysis shipped with only {n} references (need >= {MIN_REFS_META}); "
-                       "expand_references likely failed", count=n)]
+                       f"{lane} shipped with only {n} references (need >= {floor}); "
+                       "reference collection likely failed", count=n)]
+    return []
+
+
+def _inbody_cite_count_check(run_dir: Path, rr: dict[str, Any]) -> list[dict[str, Any]]:
+    """The skill's floor is >=35 citations USED IN THE BODY (@citekey), not merely >=35
+    entries sitting in references.bib. A bibliography the writer never cites does not meet
+    the bar. Counts unique in-body cite keys (excluding @fig-/@tbl- crossrefs)."""
+    lane = str(rr.get("lane") or "")
+    floor = _REF_FLOORS.get(lane)
+    if floor is None:
+        return []
+    qmd = _read_text(run_dir / "paper_draft_v0.qmd")
+    keys = set(re.findall(r"@([A-Za-z][A-Za-z0-9_:.\-]+)", qmd))
+    keys = {k for k in keys if k.split("-", 1)[0].lower() not in ("fig", "tbl", "sec", "eq", "thm", "lst")}
+    n = len(keys)
+    if n < floor:
+        return [_issue("D7_INBODY_CITES_TOO_FEW", "P0",
+                       f"{n} unique in-body citations (@key) < floor {floor}; a bibliography "
+                       "must be CITED, not just present", count=n)]
+    return []
+
+
+def _citation_integrity_check(run_dir: Path) -> list[dict[str, Any]]:
+    """Skill Layer 2 (Phase 9 文獻複驗): EVERY in-text citation must resolve to a
+    CrossRef-verified bibliography entry. A key cited but absent from metadata.json was
+    introduced AFTER verification (e.g. a review edit) and is unverified — fail closed.
+    This is the 'no newly-added unverified citation' guarantee: any supplemented reference
+    must have gone through the CrossRef-verified builder, or it is caught here."""
+    meta = _read_json(run_dir / "metadata.json", [])
+    verified = {str(r.get("key")) for r in meta if isinstance(r, dict) and r.get("key")}
+    if not verified:                          # no bib at all -> _refs_count_check owns that
+        return []
+    qmd = _read_text(run_dir / "paper_draft_v0.qmd")
+    cited = set(re.findall(r"@([A-Za-z][A-Za-z0-9_:.\-]+)", qmd))
+    cited = {k for k in cited if not k.split("-", 1)[0].lower() in ("fig", "tbl", "sec", "eq", "thm", "lst")}
+    unverified = sorted(cited - verified)
+    if unverified:
+        return [_issue("D6_UNVERIFIED_CITATION", "P0",
+                       f"{len(unverified)} in-text citation(s) not in the CrossRef-verified "
+                       f"bibliography (added after verification): {', '.join(unverified[:8])}",
+                       keys=unverified)]
     return []
 
 
@@ -170,6 +216,8 @@ def audit(run_dir: Path) -> dict[str, Any]:
         issues.append(_issue("AUDIT_RQ_ERROR", "P1", f"render_quality_check failed: {exc}"))
     # add the human-caught classes
     issues.extend(_refs_count_check(run_dir, rr))
+    issues.extend(_inbody_cite_count_check(run_dir, rr))   # skill floor is >=35 in-BODY cites
+    issues.extend(_citation_integrity_check(run_dir))      # skill Layer 2: no unverified citation
     issues.extend(_promise_capability_check(run_dir))
     issues.extend(_subgroup_promise_check(run_dir, rr))
     issues.extend(_synthesis_type_check(run_dir, rr))

@@ -18,6 +18,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import number_format
 import render_springer
 import revision_tasks
 import tables
@@ -33,7 +34,9 @@ def render(run_dir: Path, contract: dict[str, Any]) -> bool:
     run_dir = Path(run_dir)
     try:
         tables.inject(run_dir, contract)
-        tables.inject_figures(run_dir)        # by-construction: floats land in the body
+        # by-construction: floats land in the body. figspec is lane-aware (the dataset
+        # lane's forest/dose/flow vs the meta lane's forest/prisma/method).
+        tables.inject_figures(run_dir, figspec=tables.figspec_for(contract, run_dir=run_dir))
     except Exception:  # noqa: BLE001 - a missing table/figure must not abort the render
         pass
     return render_springer.render(run_dir, contract)
@@ -52,6 +55,10 @@ def verify_and_repair(run_dir: Path, contract: dict[str, Any]) -> dict[str, Any]
     Honest and convergent: at most one repair pass; if it still fails, report — never
     loop the paper to death."""
     run_dir = Path(run_dir)
+    # Presentation precision: round raw-float artifacts in tables + prose to academic display
+    # precision. Runs HERE (after number_trace in render_gates) so the academic "<0.001"
+    # wording cannot trip the traceability gate. Idempotent.
+    number_format.format_qmd(run_dir / "paper_draft_v0.qmd")
     render(run_dir, contract)
     broken = broken_crossrefs(run_dir)
     before = [b.get("id") for b in broken]

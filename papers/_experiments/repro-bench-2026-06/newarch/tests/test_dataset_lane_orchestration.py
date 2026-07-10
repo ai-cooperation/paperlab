@@ -30,6 +30,7 @@ def _good_real_results(run_dir: Path) -> dict:
         "variables": {"WCOL": {}, "SCOL": {}, "PCOL": {}, "x": {}, "y": {}},
         "survey_design": {"weighted": True, "weight_variable": "WCOL", "strata_variable": "SCOL",
                           "psu_variable": "PCOL", "design_df": 30},
+        "primary_model_id": "m1",
         "models": [{"id": "m1", "family": "survey_logistic", "outcome": "y", "exposure": "x",
                     "estimate": 1.4, "ci_low": 1.1, "ci_high": 1.8, "p_value": 0.01,
                     "n_unweighted": 100, "n_weighted": 5000.0}],
