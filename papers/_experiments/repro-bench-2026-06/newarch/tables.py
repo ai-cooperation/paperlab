@@ -413,6 +413,19 @@ def inject_figures(run_dir: Path, figspec: list[tuple[str, str, str]] | None = N
         # 1) normalize varied @-refs (@fig-forest_plot, @fig-forest-plot,
         #    @fig-forestplot...) -> @fig-forest
         text = re.sub(rf"@fig-{stem}[A-Za-z0-9_-]*", f"@{canon}", text)
+        # 1b) FOREIGN-LABEL embeds of this same file: the healer may embed the file
+        #    under a DIFFERENT id (fresh E2E v3_9e68543a8540: results.md embedded
+        #    fig_forest_plot.png as {#fig-effects}). Step 2 strips that embed by
+        #    filename, which left every @fig-effects ref dangling — the injector
+        #    clobbered the healer's fix and the loop never converged. Normalize the
+        #    foreign refs to the canonical id BEFORE stripping, so the single
+        #    canonical embed serves them.
+        for _fm in re.finditer(
+            rf"!\[[^\]]*\]\(figures/{re.escape(fname)}\)\{{#((?:fig|tbl)-[A-Za-z0-9_-]+)", text
+        ):
+            _foreign = _fm.group(1)
+            if _foreign != canon:
+                text = re.sub(rf"@{re.escape(_foreign)}\b", f"@{canon}", text)
         # 2) DEDUP (the real fix): strip EVERY float embed the writer added for this figure —
         #    keyed by filename OR by the canonical label, any caption/attrs. The injector OWNS the
         #    single embed; we never trust the writer to place it exactly once. The codex writer

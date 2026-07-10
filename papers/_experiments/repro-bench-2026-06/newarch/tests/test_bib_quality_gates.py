@@ -136,3 +136,29 @@ def test_labeled_and_generated_refs_not_flagged(tmp_path: Path) -> None:
 
 def test_figure_ref_gate_registered() -> None:
     assert "_validate_figure_ref_targets" in {v.__name__ for v in content_validators()}
+
+
+# --- injector must not clobber a healer's foreign-label embed (fresh E2E) ------
+
+
+def test_inject_figures_normalizes_foreign_label_refs(tmp_path: Path) -> None:
+    """v3_9e68543a8540: the healer embedded fig_forest_plot.png as {#fig-effects};
+    the injector stripped it by filename and left @fig-effects dangling forever.
+    Now the foreign refs are normalized to the canonical id before the strip, so
+    the single canonical embed serves them."""
+    import tables
+
+    (tmp_path / "figures").mkdir()
+    (tmp_path / "figures" / "fig_forest_plot.png").write_bytes(b"png")
+    (tmp_path / "paper_draft_v0.qmd").write_text(
+        "---\ntitle: t\n---\n\n# Results\n\n"
+        "The map in @fig-effects shows the estimates.\n\n"
+        "![healer caption](figures/fig_forest_plot.png){#fig-effects width=85%}\n",
+        encoding="utf-8",
+    )
+    tables.inject_figures(tmp_path, figspec=[("fig-forest", "fig_forest_plot.png", "Canonical caption.")])
+    text = (tmp_path / "paper_draft_v0.qmd").read_text(encoding="utf-8")
+    assert "@fig-effects" not in text          # foreign ref normalized
+    assert "@fig-forest" in text               # ...to the canonical id
+    assert text.count("{#fig-forest}") == 1    # exactly one canonical embed
+    assert "{#fig-effects" not in text         # foreign embed gone (dedup preserved)
