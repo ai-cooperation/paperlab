@@ -329,3 +329,46 @@ def test_inline_heading_leak_scans_sources_but_ignores_source_map(tmp_path: Path
     (run / "sections" / "part2.md").write_text("Prose ends abruptly. ## Sneaky Heading", encoding="utf-8")
     result = _validate_inline_heading_leakage(run)
     assert result["valid"] is False
+
+
+# --- §9: healer round-trip contract (Q5 CRITICAL) -----------------------------
+
+
+def test_generated_qmds_not_in_review_heal_outputs() -> None:
+    """The healer's allowed write set must EXCLUDE the generated artifacts — else a
+    direct edit survives one phase then ensure_assembled clobbers it, breaking the
+    round-trip (ADR-001 §7 Q5 CRITICAL)."""
+    outputs = set(paper_pipeline.REVIEW_HEAL_OUTPUTS)
+    assert "paper_draft_v0.qmd" not in outputs
+    assert "paper_springer.qmd" not in outputs
+    # sources the healer DOES edit are present
+    assert "paper_meta.json" in outputs
+    assert "sections/00_abstract.md" in outputs
+    assert "references.bib" in outputs  # bib fix still allowed (round 17)
+
+
+def test_write_source_outputs_excludes_generated_draft() -> None:
+    assert "paper_draft_v0.qmd" not in paper_pipeline.WRITE_SOURCE_OUTPUTS
+    assert "paper_meta.json" in paper_pipeline.WRITE_SOURCE_OUTPUTS
+
+
+def test_heal_prompt_directs_edits_to_sources_not_generated() -> None:
+    prompt = paper_pipeline.REVIEW_HEAL_PROMPT
+    assert "Do NOT edit paper_draft_v0.qmd" in prompt
+    assert "GENERATED" in prompt and "editing the SOURCE files" in prompt
+
+
+def test_round_trip_source_edit_then_reassemble_reaches_gate(tmp_path: Path) -> None:
+    """End-to-end round-trip: a source edit between phases is re-derived into the qmd
+    (already covered by test_heal_edit_propagates_to_gate_surface) AND a stale direct
+    qmd edit is overwritten by the next ensure_assembled."""
+    from engine_v3.assembly import assemble_paper, ensure_assembled
+
+    run = make_run(tmp_path)
+    assemble_paper(run)
+    # simulate a (forbidden) direct qmd edit — it must NOT survive re-assembly
+    (run / "paper_draft_v0.qmd").write_text("HAND EDIT THAT SHOULD VANISH", encoding="utf-8")
+    ensure_assembled(run)
+    draft = (run / "paper_draft_v0.qmd").read_text(encoding="utf-8")
+    assert "HAND EDIT THAT SHOULD VANISH" not in draft  # clobbered by re-assembly
+    assert "## Abstract" in draft  # regenerated from sources

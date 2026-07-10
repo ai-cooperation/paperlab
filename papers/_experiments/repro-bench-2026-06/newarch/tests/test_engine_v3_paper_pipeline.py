@@ -1469,8 +1469,12 @@ def test_review_heal_phase_requires_fresh_review_artifacts_before_manuscript_rep
 
     assert "quality_review_round1.json" in review_heal.expected_outputs
     assert "quality_review_log.md" in review_heal.expected_outputs
-    assert "paper_draft_v0.qmd" in review_heal.expected_outputs
-    assert "paper_springer.qmd" in review_heal.expected_outputs
+    # ADR-001 §7 (Q5 CRITICAL): the healer edits SOURCES, never the generated
+    # artifacts — they are re-derived by ensure_assembled every phase.
+    assert "paper_draft_v0.qmd" not in review_heal.expected_outputs
+    assert "paper_springer.qmd" not in review_heal.expected_outputs
+    assert "paper_meta.json" in review_heal.expected_outputs
+    assert "sections/00_abstract.md" in review_heal.expected_outputs
     assert "sections/results.md" in review_heal.expected_outputs
     assert "figures/fig_prisma_flow.png" in review_heal.expected_outputs
     assert review_heal.repair_expected_outputs is not None

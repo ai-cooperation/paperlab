@@ -129,6 +129,12 @@ WRITE_OUTPUTS = [
     "paper_draft_v0.qmd",
 ]
 
+# ADR-001 §7 (Q5 CRITICAL): the healer's edit target is the SOURCES only. The
+# generated qmd/springer are overwrite-only artifacts — if the healer writes them
+# directly, ensure_assembled clobbers the edit on the next phase and the round-trip
+# breaks. This is WRITE_OUTPUTS minus the generated draft.
+WRITE_SOURCE_OUTPUTS = [rel for rel in WRITE_OUTPUTS if rel != "paper_draft_v0.qmd"]
+
 PAPER_META_CONTRACT_PROMPT = """
 paper_meta.json contract (STRICT — unknown keys are rejected, no prose inside):
 {
@@ -185,11 +191,15 @@ Hard requirements:
 REVIEW_OUTPUTS = ["quality_review_round1.json", "quality_review_log.md"]
 REVIEW_HEAL_OUTPUTS = (
     REVIEW_OUTPUTS
-    + WRITE_OUTPUTS
+    # ADR-001 §7 (Q5 CRITICAL): SOURCES only — NOT paper_draft_v0.qmd /
+    # paper_springer.qmd. Those are generated from the sources and overwritten by
+    # ensure_assembled / render every phase; a healer edit to them is lost. The
+    # healer fixes a finding by editing the section source or paper_meta.json.
+    + WRITE_SOURCE_OUTPUTS
     # the reviewer must be able to FIX what it (or a gate) flags: claim map
     # thinness, bib mojibake (round 17: the em-dash fix was impossible because
     # references.bib was not in the allowed output set)
-    + ["paper_springer.qmd", "claim_evidence_map.md", "references.bib"]
+    + ["claim_evidence_map.md", "references.bib"]
     + FIGURE_OUTPUTS
 )
 REVIEW_HEAL_REPAIR_OUTPUTS = REVIEW_HEAL_OUTPUTS
@@ -296,10 +306,11 @@ Figure and citation hard requirements (figure-design skill, binding):
 
 Deterministic blocker worklist:
 - If pending_content_findings.md exists in the run directory, every line in it is a
-  deterministic delivery-gate blocker computed from run artifacts. Fix each one in ALL
-  manuscript surfaces (paper_draft_v0.qmd, paper_springer.qmd, and the matching
-  sections/*.md) before writing the review. Delivery cannot be "pass" while any
-  pending finding remains unfixed.
+  deterministic delivery-gate blocker computed from run artifacts. Fix each one by
+  editing the SOURCE files (sections/*.md and paper_meta.json) before writing the
+  review. Do NOT edit paper_draft_v0.qmd or paper_springer.qmd — they are generated
+  from the sources and overwritten every phase, so a direct edit to them is lost.
+  Delivery cannot be "pass" while any pending finding remains unfixed.
 - operator_findings.md is owned by the human operator: never edit or clear it (any
   edit you make is reverted). Fix the findings in the manuscript; the operator clears
   the file after independently verifying your fix.
@@ -341,10 +352,13 @@ V3.2 boundary:
   run against the original contract type re-blocks a decision the product owner
   already made; instead verify the downgrade is stated and no pooled claims leak.
 - If review finds fixable manuscript, table, citation, or visual-layout issues, repair
-  paper_draft_v0.qmd, paper_springer.qmd, and the affected sections within this phase.
-- Every manuscript fix must be applied to paper_draft_v0.qmd, paper_springer.qmd, AND
-  the matching sections/*.md file. A fix applied only to the qmd re-infiltrates from
-  the stale section file on the next recomposition.
+  them by editing the SOURCE files: the section file under sections/ that carries the
+  prose, and paper_meta.json for title/author/keyword/section-order. The harness
+  re-assembles paper_draft_v0.qmd and paper_springer.qmd from those sources
+  deterministically after your edit.
+- Do NOT edit paper_draft_v0.qmd or paper_springer.qmd directly. They are GENERATED
+  artifacts, overwritten from the sources every phase; a direct edit is discarded on
+  the next re-assembly. Fix the source, and the generated surfaces follow.
 """
 
 REVIEW_HEAL_REPAIR_PROMPT = """Run bounded final re-review after deterministic structural repairs.
@@ -1694,8 +1708,9 @@ def _surface_pending_content_findings(run_dir: Path) -> list[str]:
     path.write_text(
         "# Pending deterministic content findings\n\n"
         "Each item below WILL be blocked by a deterministic delivery gate.\n"
-        "Fix every one in ALL manuscript surfaces (paper_draft_v0.qmd,\n"
-        "paper_springer.qmd, and the matching sections/*.md).\n\n"
+        "Fix every one by editing the SOURCE files (sections/*.md and\n"
+        "paper_meta.json). Do NOT edit paper_draft_v0.qmd / paper_springer.qmd —\n"
+        "they are generated from the sources and overwritten every phase.\n\n"
         + "\n".join("- %s" % f for f in findings)
         + "\n",
         encoding="utf-8",
