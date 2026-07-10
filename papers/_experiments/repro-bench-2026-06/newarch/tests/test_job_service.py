@@ -202,7 +202,12 @@ class JobRunnerTest(unittest.TestCase):
             self.assertEqual(sync_repo.call_args_list[0].args[1], "skeleton")
             self.assertEqual(sync_repo.call_args_list[-1].args[1], "done")
             state = job_runner.status("complete", Path(tmp) / "jobs")
-            self.assertEqual(state["notification"]["status"], "not_configured")
+            # 2026-07-10: SMTP unset no longer vanishes silently — the notice goes
+            # out via the Telegram admin channel (here unconfigured too, so the
+            # fallback records not_configured INSIDE the telegram result), and the
+            # SMTP todo is still surfaced for the operator.
+            self.assertEqual(state["notification"]["status"], "telegram_fallback")
+            self.assertEqual(state["notification"]["telegram"]["status"], "not_configured")
             self.assertIn("SMTP_HOST", state["notification"]["todo"])
 
     def test_extract_output_maps_validated_artifacts(self) -> None:
