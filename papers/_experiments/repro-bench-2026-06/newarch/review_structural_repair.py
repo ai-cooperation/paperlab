@@ -249,7 +249,8 @@ def _append_review_log(run_dir: Path, changed: list[str]) -> None:
         "\n\n## Deterministic structural repair\n\n"
         "Applied mechanical V3.2 review repairs before re-review: "
         + ", ".join(sorted(set(changed)))
-        + ". Abstract fields use explicit unavailable placeholders when local verified metadata did not contain abstracts; no synthetic abstract summaries were generated.\n"
+        + ". Bib abstract fields are STRIPPED (they never render and read as "
+        "fabricated metadata); no synthetic abstract summaries were generated.\n"
     )
     path.write_text(existing.rstrip() + block, encoding="utf-8")
 

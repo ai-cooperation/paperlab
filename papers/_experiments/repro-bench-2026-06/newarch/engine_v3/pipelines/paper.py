@@ -587,6 +587,11 @@ def _collect_gate_inputs(
             _apply_exact_review_replacements(context.run_dir)
             _repair_generated_content_quality_v3_2(context.run_dir)
             _ensure_minimal_claim_evidence_map_v3_2(context.run_dir)
+        # ADR-001: re-derive the springer from the (just-refreshed) draft so the
+        # reviewer and the pending-findings bridge judge a FRESH derived surface —
+        # a stale original-run springer is unfixable by the healer (it cannot
+        # write generated files) and burned review rounds on two rerun jobs.
+        _ensure_paper_springer_source_v3_2(context.run_dir)
         _ensure_review_record_v3_2(context.run_dir)
         _normalize_review_record_schema(context.run_dir)
         # The bridge runs AFTER any harness mutation so the worklist describes
@@ -990,6 +995,33 @@ This V3.2 manuscript draft is generated from verified run artifacts. It summariz
 def _ensure_paper_springer_source_v3_2(run_dir: Path) -> bool:
     target = run_dir / "paper_springer.qmd"
     draft = run_dir / "paper_draft_v0.qmd"
+    # ADR-001 (2026-07-10 rerun validation): on a NEW-ARCHITECTURE run the springer
+    # is a DERIVED artifact and must be REGENERATED from the fresh draft + IR values
+    # every time — a stale original-run springer blocked two jobs the same way:
+    # gates/reviewer flagged defects that live only in the stale springer, the
+    # healer is (correctly, Q5) not allowed to write it, and nothing re-derived it
+    # before render, so review_heal burned its rounds on an unfixable finding
+    # (e2307's reviewer wrote it verbatim: "this file is not among the allowed
+    # outputs ... cannot make the manuscript deliverable"). The V2-C rule applies:
+    # a gate may read a derived artifact ONLY if it is provably re-derived first.
+    if (run_dir / engine_assembly.PAPER_META_FILE).is_file() and draft.is_file():
+        values = engine_assembly.ir_render_values(run_dir)
+        if values is not None:
+            import render_springer as _render_springer
+
+            contract = _read_json(run_dir / "research_contract.json") or _read_json(
+                run_dir / "research_contract.input.json"
+            )
+            before = (
+                target.read_text(encoding="utf-8", errors="ignore") if target.is_file() else None
+            )
+            _render_springer.normalize_frontmatter(run_dir, contract, ir_values=values)
+            after = target.read_text(encoding="utf-8", errors="ignore")
+            return before != after
+        # meta exists but sources cannot assemble: the assembly block report gates
+        # this run already; leave the springer alone rather than derive from a
+        # potentially stale draft.
+        return False
     if target.is_file() and target.read_text(encoding="utf-8", errors="ignore").strip():
         # ⚠️ P0 gate breakout (2026-07-07): an existing springer is NOT trusted
         # blindly. Retro-rerun jobs carried a pre-V3.2 springer with a stale

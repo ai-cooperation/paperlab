@@ -372,3 +372,43 @@ def test_round_trip_source_edit_then_reassemble_reaches_gate(tmp_path: Path) -> 
     draft = (run / "paper_draft_v0.qmd").read_text(encoding="utf-8")
     assert "HAND EDIT THAT SHOULD VANISH" not in draft  # clobbered by re-assembly
     assert "## Abstract" in draft  # regenerated from sources
+
+
+# --- stale-springer class (2026-07-10 rerun validation: blocked 395d + e2307) --
+
+
+def test_springer_regenerated_from_fresh_draft_on_new_arch(tmp_path: Path) -> None:
+    """A migrated run carries the ORIGINAL run's paper_springer.qmd. Gates and the
+    reviewer judge it, but the healer may not write it (Q5) and nothing re-derived
+    it before render — an unfixable finding that burned review rounds on two jobs.
+    _ensure_paper_springer_source_v3_2 must REGENERATE springer from the fresh
+    draft + IR values on every call for a new-arch run."""
+    import json as _j
+
+    run = make_run(tmp_path)
+    (run / "references.bib").write_text("@article{k1, author={A, B}, year={2024}}", encoding="utf-8")
+    (run / "research_contract.json").write_text(_j.dumps({"topic": "t"}), encoding="utf-8")
+    from engine_v3.assembly import assemble_paper
+
+    assemble_paper(run)
+    # the stale original-run springer with a defect only IT carries
+    (run / "paper_springer.qmd").write_text(
+        "---\ntitle: stale\n---\n\nSTALE DEFECT ONLY IN OLD SPRINGER\n", encoding="utf-8"
+    )
+    changed = paper_pipeline._ensure_paper_springer_source_v3_2(run)
+    springer = (run / "paper_springer.qmd").read_text(encoding="utf-8")
+    assert changed
+    assert "STALE DEFECT ONLY IN OLD SPRINGER" not in springer  # regenerated
+    assert "abstract:" in springer.split("---")[1]  # IR abstract in frontmatter
+    assert "substantive sentence" in springer  # body derived from fresh draft
+
+
+def test_springer_regen_skipped_when_sources_cannot_assemble(tmp_path: Path) -> None:
+    """meta exists but sources broken -> assembly block report gates the run; the
+    springer must be left alone, not derived from a potentially stale draft."""
+    run = make_run(tmp_path)
+    (run / "sections" / "00_abstract.md").unlink()  # break assembly
+    (run / "paper_springer.qmd").write_text("---\ntitle: old\n---\n\nold body\n", encoding="utf-8")
+    changed = paper_pipeline._ensure_paper_springer_source_v3_2(run)
+    assert not changed
+    assert "old body" in (run / "paper_springer.qmd").read_text(encoding="utf-8")
