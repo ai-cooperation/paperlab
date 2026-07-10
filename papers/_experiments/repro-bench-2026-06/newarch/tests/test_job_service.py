@@ -311,3 +311,38 @@ def test_notify_completion_falls_back_to_telegram_when_smtp_unset(monkeypatch):
     assert result["status"] == "telegram_fallback"
     assert result["telegram"]["status"] == "sent"
     assert "done_pass" in sent["message"] and "user@example.com" in sent["message"]
+
+
+def test_notify_completion_prefers_cloudflare_webhook(monkeypatch):
+    """2026-07-10: email now goes via the Cloudflare Email Worker (no SMTP). When
+    NOTIFY_WEBHOOK_URL/TOKEN are configured and the worker answers sent, that IS
+    the notification — no SMTP, no TG fallback needed."""
+    import job_runner
+
+    monkeypatch.setenv("NOTIFY_WEBHOOK_URL", "https://paper-notify.example.workers.dev")
+    monkeypatch.setenv("NOTIFY_WEBHOOK_TOKEN", "tok")
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+    monkeypatch.setattr(
+        job_runner, "_notify_via_webhook",
+        lambda email, subject, text: {"status": "sent", "via": "cloudflare_email_worker"},
+    )
+    result = job_runner.notify_completion(
+        {"notify_email": "user@example.com", "job_id": "v3_x", "topic": "T"},
+        {"status": "done_pass", "blockers": []},
+    )
+    assert result == {"status": "sent", "email": "user@example.com", "via": "cloudflare_email_worker"}
+
+
+def test_notify_completion_webhook_failure_falls_to_telegram(monkeypatch):
+    import job_runner
+
+    monkeypatch.setenv("NOTIFY_WEBHOOK_URL", "https://paper-notify.example.workers.dev")
+    monkeypatch.setenv("NOTIFY_WEBHOOK_TOKEN", "tok")
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+    monkeypatch.setattr(job_runner, "_notify_via_webhook", lambda *a: {"status": "failed", "error": "502"})
+    monkeypatch.setattr(job_runner, "notify_admin", lambda m: {"status": "sent"})
+    result = job_runner.notify_completion(
+        {"notify_email": "user@example.com", "job_id": "v3_x", "topic": "T"},
+        {"status": "blocked", "blockers": ["Z"]},
+    )
+    assert result["status"] == "telegram_fallback"

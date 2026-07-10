@@ -162,3 +162,17 @@ def test_inject_figures_normalizes_foreign_label_refs(tmp_path: Path) -> None:
     assert "@fig-forest" in text               # ...to the canonical id
     assert text.count("{#fig-forest}") == 1    # exactly one canonical embed
     assert "{#fig-effects" not in text         # foreign embed gone (dedup preserved)
+
+
+def test_placeholder_citekey_flagged(tmp_path: Path) -> None:
+    """Fresh E2E audit: Table 1 printed 'Unknown2018' as a representative citekey
+    while the entry's real first author is Wang — citekeys are reader-visible."""
+    r = _validate_bib_metadata_consistency(_bib(
+        tmp_path, "@article{Unknown2018, author = {Wang, Jing and He, Xiangui}, year = {2018}}\n"))
+    assert not r["valid"] and any("Unknown2018" in f and "reader-visible" in f for f in r["findings"])
+
+
+def test_normal_citekey_not_flagged(tmp_path: Path) -> None:
+    r = _validate_bib_metadata_consistency(_bib(
+        tmp_path, "@article{Wang2018, author = {Wang, Jing}, year = {2018}}\n"))
+    assert r["valid"]

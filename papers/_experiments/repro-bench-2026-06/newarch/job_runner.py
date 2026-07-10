@@ -725,10 +725,44 @@ def notify_admin(message: str) -> dict[str, Any]:
         return {"status": "failed", "error": str(exc)[:200]}
 
 
+def _notify_via_webhook(email: str, subject: str, text: str) -> dict[str, Any] | None:
+    """Cloudflare Email Worker path (no SMTP): POST to the paper-notify worker,
+    which sends via the send_email binding to the account's verified destination.
+    Returns None when not configured so the caller falls through the chain."""
+    url = os.environ.get("NOTIFY_WEBHOOK_URL", "").strip()
+    token = os.environ.get("NOTIFY_WEBHOOK_TOKEN", "").strip()
+    if not url or not token:
+        return None
+    payload = json.dumps({"to": email, "subject": subject, "text": text}).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            body = resp.read(500).decode("utf-8", "ignore")
+            return {"status": "sent" if resp.status == 200 else f"http_{resp.status}", "via": "cloudflare_email_worker", "detail": body}
+    except Exception as exc:  # noqa: BLE001 - notification must never break the job
+        return {"status": "failed", "via": "cloudflare_email_worker", "error": str(exc)[:200]}
+
+
 def notify_completion(contract: dict[str, Any], output: dict[str, Any]) -> dict[str, Any]:
     email = str(contract.get("notify_email") or "").strip()
     if not email:
         return {"status": "skipped", "reason": "notify_email not provided"}
+    subject = f"Paper Lab job {output.get('status')}: {contract.get('topic') or contract.get('job_id')}"
+    text = "\n".join([
+        f"Job ID: {contract.get('job_id')}",
+        f"Status: {output.get('status')}",
+        f"Result: {contract.get('status_url') or 'https://paperlab.cooperation.tw/projects/'}",
+        "",
+        f"Blockers: {', '.join(output.get('blockers', [])) if output.get('blockers') else 'none'}",
+    ])
+    # Chain: Cloudflare Email Worker -> SMTP (if ever configured) -> Telegram.
+    webhook = _notify_via_webhook(email, subject, text)
+    if webhook is not None and webhook.get("status") == "sent":
+        return {"status": "sent", "email": email, "via": "cloudflare_email_worker"}
     smtp_host = os.environ.get("SMTP_HOST", "").strip()
     if not smtp_host:
         # ⚠️ 沉默失敗=設計缺陷 (2026-07-10): SMTP was never configured on ac-2012,

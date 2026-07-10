@@ -2911,6 +2911,17 @@ def _validate_bib_metadata_consistency(run_dir: Path) -> dict[str, object]:
                 "bib entry %s carries a placeholder abstract field: the abstract field "
                 "is never rendered and reads as fabricated metadata — remove it" % key
             )
+        # Citekey hygiene (fresh E2E audit 2026-07-10): citekeys are READER-VISIBLE
+        # (Table 1 printed 'Unknown2018' in its representative-citekeys column while
+        # the entry's real first author is Wang). A placeholder-looking citekey ships
+        # as visible junk even when the metadata is real — rename from the first
+        # author (e.g. Wang2018) and update every [@key] reference in the sections.
+        if re.match(r"(?i)^(unknown|placeholder|temp|anon|untitled|tbd|xxx)", key):
+            findings.append(
+                "bib citekey %r looks like a placeholder (citekeys are reader-visible "
+                "in tables): rename it from the entry's first author and update every "
+                "[@%s] reference in the section sources" % (key, key)
+            )
         if len(findings) >= 6:
             break
     return {"valid": not findings, "findings": findings}
