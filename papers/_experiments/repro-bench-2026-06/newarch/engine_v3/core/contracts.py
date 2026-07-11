@@ -150,3 +150,11 @@ class PhaseSpec:
     # A callable keeps the engine core domain-neutral (no artifact-name strings
     # here); the domain pipeline supplies the predicate.
     staleness_probe: Optional[Callable[[Path], bool]] = None
+    # Engine-defect classifier: when this phase ends blocked, the classifier may
+    # attribute the block to the deterministic engine itself (e.g. the delivery
+    # surface fails while every source-level validator passes and the phase has
+    # no model repair route). A returned dict is recorded as engine_defect.json
+    # + dossier evidence so downstream retry loops stop burning model rounds on
+    # a defect only a code change can fix (v3_aebc70c41043 burned its whole
+    # retry budget this way, 2026-07-11).
+    defect_classifier: Optional[Callable[[Path, GateReport], Optional[Dict[str, Any]]]] = None

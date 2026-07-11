@@ -58,11 +58,21 @@ def render_paper(ir: PaperDraftIR) -> str:
         "## Abstract",
         "",
         ir.abstract,
+        "",
         _source_close(ir.abstract_ref),
         "",
     ]
+    # Source-map markers are isolated by blank lines on BOTH sides. In pandoc
+    # markdown a raw-HTML comment on the line directly after text JOINS that
+    # paragraph — when a section ended with a figure embed, the trailing
+    # `<!-- END SOURCE -->` merged into the image paragraph, the image stopped
+    # being a lone-paragraph implicit figure, its {#fig-*} label never
+    # registered, and every @fig-* ref to it rendered as an unresolved "?"
+    # (v3_aebc70c41043, 2026-07-11: blocked at Gate Z on exactly this).
     for section in ir.sections:
-        parts.extend([_source_open(section.rel_path), section.text, _source_close(section.rel_path), ""])
+        parts.extend(
+            [_source_open(section.rel_path), "", section.text, "", _source_close(section.rel_path), ""]
+        )
     parts.append("## References")
     return "\n".join(parts) + "\n"
 

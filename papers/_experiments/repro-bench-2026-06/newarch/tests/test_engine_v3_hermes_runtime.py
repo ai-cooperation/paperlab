@@ -766,3 +766,92 @@ def test_runtime_reports_blocked_when_watcher_killed_hermes_without_changes(tmp_
 
     assert result.status == "blocked"
     assert any("watcher terminated" in b for b in result.blockers)
+
+
+def test_brain_quota_failure_falls_back_to_unmetered_model(tmp_path: Path):
+    """openai-codex quota exhaustion (HTTP 429) says nothing about the task —
+    the brain retries once on the unmetered custom-provider model instead of
+    erroring the phase (2026-07-10: quota outage errored review_heal on two
+    approved jobs and deleted their PDFs)."""
+    calls = []
+
+    def runner(command: list[str], cwd: Path, timeout_s: int):
+        calls.append(list(command))
+        if "openai-codex" in command:
+            return HermesRunResult(
+                exit_code=1,
+                stdout="",
+                stderr="API call failed after 3 retries: HTTP 429: The usage limit has been reached",
+            )
+        (cwd / "gap.md").write_text("gap from fallback", encoding="utf-8")
+        return HermesRunResult(exit_code=0, stdout="CHILD_OK", stderr="")
+
+    runtime = HermesCodexRuntime(runner=runner)
+    result = runtime.run_brain(
+        BrainTask(phase="gap", prompt="write gap", expected_outputs=["gap.md"]),
+        RuntimeContext(job_id="job-1", run_dir=tmp_path),
+    )
+
+    assert result.status == "ok"
+    assert result.changed_files == ["gap.md"]
+    assert len(calls) == 2
+    assert "big-pickle" in calls[1] and "--provider" in calls[1] and "custom" in calls[1]
+    assert "brain fallback: big-pickle" in result.details
+
+
+def test_brain_non_quota_failure_does_not_fall_back(tmp_path: Path):
+    """Auth failures and real errors must surface loudly, not silently degrade
+    to the weaker model."""
+    calls = []
+
+    def runner(command: list[str], cwd: Path, timeout_s: int):
+        calls.append(list(command))
+        return HermesRunResult(exit_code=1, stdout="", stderr="authentication failed: token expired")
+
+    runtime = HermesCodexRuntime(runner=runner)
+    result = runtime.run_brain(
+        BrainTask(phase="gap", prompt="write gap", expected_outputs=["gap.md"]),
+        RuntimeContext(job_id="job-1", run_dir=tmp_path),
+    )
+
+    assert result.status == "error"
+    assert len(calls) == 1  # no fallback attempt
+
+
+def test_brain_fallback_also_quota_failing_returns_error_without_loop(tmp_path: Path):
+    calls = []
+
+    def runner(command: list[str], cwd: Path, timeout_s: int):
+        calls.append(list(command))
+        return HermesRunResult(
+            exit_code=1, stdout="", stderr="HTTP 429: The usage limit has been reached"
+        )
+
+    runtime = HermesCodexRuntime(runner=runner)
+    result = runtime.run_brain(
+        BrainTask(phase="gap", prompt="write gap", expected_outputs=["gap.md"]),
+        RuntimeContext(job_id="job-1", run_dir=tmp_path),
+    )
+
+    assert result.status == "error"
+    assert len(calls) == 2  # exactly one fallback, no recursion
+    assert "brain fallback" in result.details
+
+
+def test_worker_quota_failure_never_falls_back(tmp_path: Path):
+    """The worker already runs the unmetered model; a worker-side rate limit
+    must not trigger any model switch."""
+    calls = []
+
+    def runner(command: list[str], cwd: Path, timeout_s: int):
+        calls.append(list(command))
+        return HermesRunResult(exit_code=1, stdout="", stderr="rate limit exceeded")
+
+    runtime = HermesCodexRuntime(runner=runner)
+    result = runtime.run_worker(
+        WorkerTask(phase="write", prompt="w", expected_outputs=["sections/intro.md"]),
+        RuntimeContext(job_id="job-1", run_dir=tmp_path),
+    )
+
+    assert result.status == "error"
+    assert len(calls) == 1

@@ -747,7 +747,31 @@ def _notify_via_webhook(email: str, subject: str, text: str) -> dict[str, Any] |
         return {"status": "failed", "via": "cloudflare_email_worker", "error": str(exc)[:200]}
 
 
+def trigger_status_reconcile() -> dict[str, Any]:
+    """Best-effort poke of the paperlab-kb worker's status reconciler so the
+    /projects/ listing reflects this terminal state within seconds. The D1
+    projects.status column froze at 'submitted' for every job before this loop
+    existed (2026-07-11: user saw done_pass papers listed as 已送出/執行中);
+    the 10-minute paper-status-reconcile.timer on ac-2012 is the backstop when
+    this immediate poke fails."""
+    url = os.environ.get("RECONCILE_URL", "").strip()
+    token = os.environ.get("RECONCILE_TOKEN", "").strip()
+    if not url or not token:
+        return {"status": "not_configured"}
+    req = urllib.request.Request(
+        url, data=b"", method="POST", headers={"Authorization": f"Bearer {token}"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return {"status": "ok", "code": resp.status}
+    except Exception as exc:  # noqa: BLE001 - reconcile must never break the job
+        return {"status": "error", "error": str(exc)[:200]}
+
+
 def notify_completion(contract: dict[str, Any], output: dict[str, Any]) -> dict[str, Any]:
+    # Status writeback fires on EVERY terminal state, before the email
+    # short-circuit below — jobs without notify_email still own a listing row.
+    trigger_status_reconcile()
     email = str(contract.get("notify_email") or "").strip()
     if not email:
         return {"status": "skipped", "reason": "notify_email not provided"}

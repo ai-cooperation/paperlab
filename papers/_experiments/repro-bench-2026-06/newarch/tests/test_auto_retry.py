@@ -67,3 +67,62 @@ def test_stale_blocked_job_not_selected(tmp_path: Path) -> None:
     old = time.time() - RECENT_WINDOW_S - 3600
     os.utime(dossier, (old, old))
     assert select_retry_candidates(tmp_path) == []
+
+
+def test_quota_outage_detected_from_delegation_blockers(tmp_path: Path) -> None:
+    """HTTP 429 must not burn the bounded retry budget (2026-07-10: quota ran out
+    mid-campaign; each 18s failed attempt said nothing about the job itself)."""
+    from auto_retry_v3 import _quota_outage
+
+    run = tmp_path / "v3_q" / "run"
+    run.mkdir(parents=True)
+    (run / "dossier.v3.json").write_text(json.dumps({
+        "phases": {"review_heal": "error"},
+        "delegations": [
+            {"task_id": "review_heal:brain", "status": "ok", "blockers": []},
+            {"task_id": "review_heal:brain", "status": "error",
+             "blockers": ["API call failed after 3 retries: HTTP 429: The usage limit has been reached"]},
+        ],
+    }), encoding="utf-8")
+    assert _quota_outage(tmp_path, "v3_q") is True
+
+
+def test_non_quota_failure_not_treated_as_outage(tmp_path: Path) -> None:
+    from auto_retry_v3 import _quota_outage
+
+    run = tmp_path / "v3_r" / "run"
+    run.mkdir(parents=True)
+    (run / "dossier.v3.json").write_text(json.dumps({
+        "phases": {"review_heal": "blocked"},
+        "delegations": [
+            {"task_id": "review_heal:brain", "status": "blocked",
+             "blockers": ["review gate failed: floor below threshold"]},
+        ],
+    }), encoding="utf-8")
+    assert _quota_outage(tmp_path, "v3_r") is False
+
+
+def test_successful_retry_not_misread_as_outage_from_old_429(tmp_path: Path) -> None:
+    """Overnight 2026-07-11: two jobs CONVERGED on retry but the outage scan
+    walked past their fresh no-blocker delegations to the pre-retry 429 entry —
+    success was reported as 'quota outage', no ledger record, no success TG,
+    sweep paused. Only delegations from THIS attempt (since=) may count, and a
+    converged status is never an outage."""
+    from auto_retry_v3 import _quota_outage
+
+    run = tmp_path / "v3_s" / "run"
+    run.mkdir(parents=True)
+    (run / "dossier.v3.json").write_text(json.dumps({
+        "phases": {"review_heal": "done"},
+        "delegations": [
+            {"task_id": "review_heal:brain", "status": "error",
+             "blockers": ["API call failed after 3 retries: HTTP 429: The usage limit has been reached"]},
+            {"task_id": "review_heal:brain", "status": "ok", "blockers": []},
+        ],
+    }), encoding="utf-8")
+    # slice guard: the only 429 predates this attempt
+    assert _quota_outage(tmp_path, "v3_s", since=1, status="blocked") is False
+    # status guard: converged is never an outage even if a mid-run 429 was logged
+    assert _quota_outage(tmp_path, "v3_s", since=0, status="done") is False
+    # and the true-outage shape still detects: the 429 IS inside this attempt
+    assert _quota_outage(tmp_path, "v3_s", since=0, status="blocked") is True

@@ -7,8 +7,10 @@ import re
 
 import pytest
 
+from dataclasses import replace
+
 from engine_v3.assembly import layouts
-from engine_v3.assembly.ir import Author, PaperDraftIR, SCHEMA_VERSION
+from engine_v3.assembly.ir import Author, PaperDraftIR, SCHEMA_VERSION, SectionRef
 
 
 def _ir(layout: str = "paper") -> PaperDraftIR:
@@ -40,6 +42,25 @@ def test_paper_layout_single_abstract_no_frontmatter_key() -> None:
 def test_paper_layout_escapes_quotes_in_title() -> None:
     out = layouts.render_ir(_ir())
     assert "'Things'" in out and 'A Study of "Things"' not in out
+
+
+def test_source_markers_isolated_by_blank_lines_around_trailing_figure() -> None:
+    """A section ENDING with a figure embed: the END SOURCE comment must sit in
+    its own paragraph. In pandoc markdown a raw-HTML comment on the line right
+    after the image JOINS the image paragraph, the image stops being a lone-
+    paragraph implicit figure, its {#fig-*} label never registers, and every
+    @fig-* ref renders as an unresolved '?' (v3_aebc70c41043 Gate Z block)."""
+    embed = "![Model comparison.](figures/fig_x.png){#fig-x width=85%}"
+    ir = replace(
+        _ir(),
+        sections=(SectionRef(rel_path="sections/results.md", text="@fig-x shows it.\n\n" + embed),),
+    )
+    out = layouts.render_ir(ir)
+    assert embed + "\n\n<!-- END SOURCE: sections/results.md -->" in out
+    # symmetric: content never glued to the opening marker either
+    assert "<!-- SOURCE: sections/results.md -->\n\n@fig-x" in out
+    # abstract block gets the same isolation
+    assert "\n\n<!-- END SOURCE: sections/00_abstract.md -->" in out
 
 
 def test_unknown_layout_raises_not_silent() -> None:

@@ -10,11 +10,13 @@ from .assembler import (
 from .ir import AssemblyResult, Author, PaperDraftIR, SectionRef
 from .manifest import (
     RENDER_MANIFEST_FILE,
+    assembler_fingerprint,
     assembly_source_files,
     freshness_findings,
     is_delivery_stale,
     read_render_manifest,
     render_source_files,
+    renderer_fingerprint,
     write_render_manifest,
 )
 from .metadata_schema import PAPER_META_FILE, load_paper_meta, validate_paper_meta
@@ -30,6 +32,7 @@ __all__ = [
     "RENDER_MANIFEST_FILE",
     "SectionRef",
     "assemble_paper",
+    "assembler_fingerprint",
     "assembly_source_files",
     "ensure_assembled",
     "freshness_findings",
@@ -40,6 +43,7 @@ __all__ = [
     "migrate_legacy_run",
     "read_render_manifest",
     "render_source_files",
+    "renderer_fingerprint",
     "validate_paper_meta",
     "write_render_manifest",
 ]
