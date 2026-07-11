@@ -138,10 +138,19 @@
   let timer = null, fails = 0;
 
   function currentPhase(s) {
+    if (s.status === 'done') return 'done';
     if (s.phase) return s.phase;
     const phases = s.phases && typeof s.phases === 'object' ? s.phases : {};
     const active = Object.entries(phases).find(([, status]) => ['running', 'blocked', 'failed'].includes(status));
     if (active) return active[0];
+    // Furthest phase along the canonical pipeline order. The engine serializes
+    // the phases dict ALPHABETICALLY (claim_evidence..write), so "last dict
+    // key" is meaningless — it lit finished jobs only to 撰寫/write while the
+    // result box said 完成. human_review_required lands on 格式 (all 8 done,
+    // 完成 withheld until approval), which is the honest display.
+    for (let i = PHASE_ORDER.length - 1; i >= 0; i--) {
+      if (phases[PHASE_ORDER[i]]) return PHASE_ORDER[i];
+    }
     const keys = Object.keys(phases);
     return keys.length ? keys[keys.length - 1] : '';
   }
