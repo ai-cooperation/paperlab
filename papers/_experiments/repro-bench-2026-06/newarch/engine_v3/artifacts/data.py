@@ -1251,6 +1251,11 @@ def _row_two_source_verified(row: dict[str, Any]) -> bool:
         return True
     if row.get("passes_two_of_three") is True or row.get("passes_two_source_rule") is True:
         return True
+    # Audit-producer flat verdict: the producer writes `two_source_verified: true`
+    # per row when both live sources resolved. Honour it before recomputing, so the
+    # row-recount cannot be more brittle than the producer it is meant to double-check.
+    if row.get("two_source_verified") is True:
+        return True
     validation_count = _number(row.get("validation_count"))
     if validation_count is not None and validation_count >= 2:
         return True
@@ -1260,9 +1265,27 @@ def _row_two_source_verified(row: dict[str, Any]) -> bool:
     verified_source_count = _number(row.get("verified_source_count"))
     if verified_source_count is not None and verified_source_count >= 2:
         return True
+    # Audit-producer numeric tally of how many sources passed for this row.
+    verification_sources_passed = _number(row.get("verification_sources_passed"))
+    if verification_sources_passed is not None and verification_sources_passed >= 2:
+        return True
 
-    sources = row.get("verification_sources")
-    if isinstance(sources, list) and len([source for source in sources if source]) >= 2:
+    # Audit-producer list of the source names that verified this row. Note the
+    # producer key is `sources_verified` (distinct from `verification_sources`);
+    # accept both spellings so a schema drift on either side does not false-kill.
+    for sources_key in ("verification_sources", "sources_verified"):
+        sources = row.get(sources_key)
+        if isinstance(sources, list) and len([source for source in sources if source]) >= 2:
+            return True
+
+    # Audit-producer flat per-source booleans (`crossref_ok`/`openalex_ok`); two
+    # positive live sources satisfy the two-source rule.
+    flat_source_oks = [
+        row.get("crossref_ok"),
+        row.get("openalex_ok"),
+        row.get("semantic_scholar_ok"),
+    ]
+    if sum(1 for value in flat_source_oks if value is True) >= 2:
         return True
 
     checks = [

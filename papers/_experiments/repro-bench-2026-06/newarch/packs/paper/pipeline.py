@@ -541,12 +541,32 @@ def _read(p: Path) -> Any:
         return {}
 
 
+_DOI_REAL_RATE_KEYS = (
+    "doi_real_rate",
+    "real_doi_rate",
+    "two_source_verification_rate",
+    "valid_doi_rate",
+    "real_rate",
+)
+
+
 def _doi_real_rate(run_dir: Path) -> float | None:
     """The CrossRef real-existence rate from the DOI audit — so Gate A can evaluate its
-    DOI-realness half (refs>=35 AND doi_real_rate>=0.80), not just the count."""
+    DOI-realness half (refs>=35 AND doi_real_rate>=0.80), not just the count.
+
+    The audit producer has written this rate under several key spellings over the
+    engine's life (`doi_real_rate`, `real_doi_rate`, `two_source_verification_rate`,
+    `valid_doi_rate`); the legacy `real_rate` key is checked last. Only a genuinely
+    absent rate returns None (which fail-closes Gate A) — a schema drift on the key
+    name must not be read as a missing rate."""
     audit = _read(run_dir / "doi_audit.json")
-    r = audit.get("real_rate") if isinstance(audit, dict) else None
-    return float(r) if isinstance(r, (int, float)) else None
+    if not isinstance(audit, dict):
+        return None
+    for key in _DOI_REAL_RATE_KEYS:
+        r = audit.get(key)
+        if isinstance(r, (int, float)) and not isinstance(r, bool):
+            return float(r)
+    return None
 
 
 def _claim_matrix_rows(run_dir: Path) -> list[str]:

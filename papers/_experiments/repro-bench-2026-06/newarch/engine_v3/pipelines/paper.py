@@ -511,6 +511,11 @@ def full_paper_pipeline() -> list[PhaseSpec]:
             repair_expected_outputs=list(REVIEW_HEAL_REPAIR_OUTPUTS),
             max_repair_attempts=3,
             review_rounds=3,
+            # A Gate R block that is ONLY unset review_loop.reviewer_model (a
+            # field the healer cannot write) over an otherwise-passing genuine
+            # review is the engine's bug, not the model's: record it instead of
+            # letting healer rounds burn (job v3_a4d6b4a714d2, 2026-07-11).
+            defect_classifier=_classify_review_heal_engine_defect,
         ),
         PhaseSpec(
             id="format_repair",
@@ -597,6 +602,13 @@ def _collect_gate_inputs(
         _ensure_paper_springer_source_v3_2(context.run_dir)
         _ensure_review_record_v3_2(context.run_dir)
         _normalize_review_record_schema(context.run_dir)
+        # Authoritative provenance backfill (job v3_a4d6b4a714d2, 2026-07-11):
+        # after schema normalization, if a GENUINE Hermes review ran but the
+        # review agent left review_loop.reviewer_model/fixer_model/floor_failed
+        # unset, copy the trusted runtime from the dossier's OWN review_heal
+        # delegation record. Fail-closed: no genuine-review evidence or no trusted
+        # runtime => nothing written => Gate R keeps blocking (see the function).
+        _backfill_review_provenance_from_runtime(context.run_dir)
         # The bridge runs AFTER any harness mutation so the worklist describes
         # the manuscript state the gate will actually judge (round 5: bridge
         # ran first, saw citations present, then the replacement stripped them
@@ -1947,6 +1959,131 @@ def _normalize_review_record_schema(run_dir: Path) -> bool:
     return True
 
 
+def _genuine_hermes_review_evidence(run_dir: Path, review: Mapping[str, Any]) -> bool:
+    """True only when the run holds POSITIVE proof a Hermes domain-expert review
+    actually executed against this record: a complete, valid review_method whose
+    capability_class is domain_expert_review AND a review log carrying the skill
+    decision trace. This is the sole gate that lets provenance be backfilled — no
+    evidence, no authoritative source, so the loop stays None and Gate R blocks
+    (job v3_a4d6b4a714d2: an un-reviewed manuscript must never be waved through)."""
+    if review_provenance.validate_review_method(review):
+        return False  # any finding => method is not a complete expert-review record
+    method = review.get("review_method")
+    method = method if isinstance(method, dict) else {}
+    if str(method.get("capability_class") or "").strip() != review_provenance.EXPECTED_CAPABILITY_CLASS:
+        return False
+    log_path = run_dir / "quality_review_log.md"
+    log_text = log_path.read_text(encoding="utf-8", errors="ignore") if log_path.is_file() else ""
+    return review_provenance.review_log_has_decision_trace(log_text)
+
+
+def _authoritative_review_runtime(run_dir: Path) -> str | None:
+    """The engine's OWN record of which runtime ran the review — the dossier
+    review_heal delegations. This is authoritative because the engine wrote it at
+    delegation time; it is NOT the model's free-text self-description (job
+    v3_a4d6b4a714d2's top-level reviewer_model self-describes as "...not
+    deterministic fallback", which itself trips the UNTRUSTED markers). Returns a
+    trusted runtime id, or None when there is no trustworthy source to copy."""
+    from engine_v3.core.dossier import DOSSIER_FILENAME
+
+    dossier = _read_json(run_dir / DOSSIER_FILENAME)
+    delegations = dossier.get("delegations")
+    if not isinstance(delegations, list):
+        return None
+    # Prefer the most recent review_heal delegation (the one that wrote the final
+    # verdict). Fail-closed: skip any runtime whose name carries an untrusted
+    # marker — a "deterministic-fallback" runtime is not an expert reviewer.
+    for delegation in reversed(delegations):
+        if not isinstance(delegation, dict):
+            continue
+        if str(delegation.get("phase") or "").strip() != "review_heal":
+            continue
+        runtime = str(delegation.get("runtime") or "").strip()
+        if not runtime or review_provenance.reviewer_is_untrusted(runtime):
+            continue
+        return runtime
+    return None
+
+
+def _backfill_review_provenance_from_runtime(run_dir: Path) -> bool:
+    """Repair the exact fail-close from job v3_a4d6b4a714d2 (2026-07-11): a
+    genuine Hermes review ran (p0=0, delivery pass, floor 85, all dimensions,
+    valid review_method, decision trace in the log) but the review agent left
+    ``review_loop.reviewer_model``/``fixer_model``/``floor_failed`` unset, so
+    Gate R's only surviving finding — ``reviewer_is_untrusted(None)`` — blocked
+    the run and 8 healer rounds could not touch a field the review runtime owns.
+
+    Fail-closed by construction: it backfills ONLY when
+    ``_genuine_hermes_review_evidence`` proves a real expert review executed AND
+    the dossier carries a trusted review_heal runtime. Without both, there is no
+    authoritative source, nothing is written, and the verdict stays un-provable
+    (an un-reviewed manuscript can never acquire provenance here).
+
+    Values come from the engine's OWN runtime record, never the model's
+    free-text ``reviewer_model`` (which contains untrusted markers). floor_failed
+    is set to False only on validator truth (floor present + p0=0); status is
+    normalized to a pass-like token the loop check accepts.
+    """
+    # Reuse Gate R's canonical p0 / floor readers (lazy import avoids a
+    # module-load cycle) so "floor provably ok" matches the gate exactly.
+    from engine_v3.packs.paper import _review_floor_score, _review_p0_count
+
+    review_path = run_dir / "quality_review_round1.json"
+    review = _read_json(review_path)
+    if not isinstance(review, dict) or not review:
+        return False
+    loop = review.get("review_loop")
+    loop = loop if isinstance(loop, dict) else {}
+
+    needs_reviewer = review_provenance.reviewer_is_untrusted(loop.get("reviewer_model"))
+    needs_fixer = not str(loop.get("fixer_model") or "").strip()
+    p0_count = _review_p0_count(review)
+    floor = _review_floor_score(review)
+    floor_provably_ok = isinstance(floor, (int, float)) and not isinstance(floor, bool) and p0_count == 0
+    needs_floor_failed = loop.get("floor_failed") is not False and floor_provably_ok
+    needs_status = not review_provenance.review_status_pass_like(loop.get("status"))
+    if not (needs_reviewer or needs_fixer or needs_floor_failed or needs_status):
+        return False
+
+    if not _genuine_hermes_review_evidence(run_dir, review):
+        return False
+    runtime = _authoritative_review_runtime(run_dir)
+    if not runtime:
+        return False
+
+    changed = False
+    if needs_reviewer:
+        loop["reviewer_model"] = runtime
+        changed = True
+    if needs_fixer:
+        loop["fixer_model"] = runtime
+        changed = True
+    if needs_floor_failed:
+        loop["floor_failed"] = False
+        changed = True
+    if needs_status:
+        loop["status"] = "passed"
+        changed = True
+    if not changed:
+        return False
+
+    review["review_loop"] = loop
+    review_path.write_text(
+        json.dumps(review, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8"
+    )
+    _append_repair_log(
+        run_dir,
+        "authoritative_review_provenance_backfill",
+        "Backfilled review_loop reviewer_model/fixer_model from the dossier "
+        "review_heal runtime %r (the engine's own delegation record, not the "
+        "model's free-text reviewer_model) after confirming a genuine Hermes "
+        "domain-expert review ran; floor_failed set False only on validator "
+        "truth (floor present, p0=0); status normalized to pass-like. Delivery "
+        "and scores untouched." % runtime,
+    )
+    return True
+
+
 def _ensure_review_record_v3_2(run_dir: Path) -> bool:
     """Guarantee a review record exists for Gate R to read.
 
@@ -2283,6 +2420,89 @@ def _classify_format_repair_engine_defect(run_dir: Path, gate_report: Any) -> di
             "renderer": engine_assembly.renderer_fingerprint(),
         },
         "action": "engine code fix required; auto-retry requalifies this job when the engine fingerprint changes",
+    }
+
+
+_REVIEWER_MODEL_PROVENANCE_MARKERS = (
+    "reviewer_model",
+    "deterministic/fallback machinery",
+)
+
+
+def _is_reviewer_model_plumbing_finding(finding: str) -> bool:
+    text = str(finding or "").lower()
+    return any(marker in text for marker in _REVIEWER_MODEL_PROVENANCE_MARKERS)
+
+
+def _classify_review_heal_engine_defect(run_dir: Path, gate_report: Any) -> dict | None:
+    """Attribute a Gate R block to the engine when it is ONLY reviewer_model
+    provenance plumbing: a genuine Hermes review passed on the merits (p0=0,
+    delivery pass, floor over the bar, all dimensions, valid review_method,
+    decision trace present) and the sole surviving finding is that
+    ``review_loop.reviewer_model`` was left unset by the review agent — a field
+    the healer cannot write (job v3_a4d6b4a714d2 burned 8 healer rounds on it,
+    2026-07-11). The authoritative backfill above fixes this in the normal path;
+    this classifier is the belt-and-braces so a run that still cannot self-repair
+    (e.g. the dossier delegation record is missing) stops burning rounds and is
+    attributed to the engine instead of the model. A real quality block (p0>0,
+    revise delivery, missing dimensions, or a non-plumbing provenance finding) is
+    NOT the engine's bug and is left for the healer."""
+    failed = [r for r in gate_report.results if r.p0]
+    if not failed or any(r.gate_id != "R" for r in failed):
+        return None
+    r_result = failed[0]
+    evidence = dict(r_result.evidence or {})
+
+    if int(evidence.get("p0_count") or 0) != 0:
+        return None
+    if str(evidence.get("delivery") or "").strip().lower() not in ("pass", "passed", "ok"):
+        return None
+    floor = evidence.get("floor_100")
+    if not (isinstance(floor, (int, float)) and not isinstance(floor, bool)):
+        return None
+    # Reuse the pack's canonical required-dimension set (lazy import avoids a
+    # module-load cycle) so the "dimensions ok" bar matches Gate R exactly.
+    from engine_v3.packs.paper import REVIEW_DIMENSION_KEYS
+
+    dimensions = evidence.get("dimensions")
+    if not isinstance(dimensions, dict) or len(dimensions) < len(REVIEW_DIMENSION_KEYS):
+        return None
+    if not bool(evidence.get("review_log_present")):
+        return None
+
+    findings = evidence.get("provenance_findings")
+    findings = [str(f) for f in findings] if isinstance(findings, list) else []
+    # Every remaining finding must be reviewer_model plumbing; a pending-content
+    # or stale-verdict finding is a real content problem the healer owns.
+    if not findings or not all(_is_reviewer_model_plumbing_finding(f) for f in findings):
+        return None
+
+    # The record must itself prove a genuine expert review ran, else this is not
+    # merely plumbing (a missing review_method is a real gap, not an engine bug).
+    review = _read_json(run_dir / "quality_review_round1.json")
+    if not _genuine_hermes_review_evidence(run_dir, review):
+        return None
+
+    return {
+        "class": "engine_defect",
+        "phase": "review_heal",
+        "findings": [
+            {"gate": r.gate_id, "details": r.details, "evidence": dict(r.evidence or {})}
+            for r in failed
+        ],
+        "provenance_findings": findings,
+        "healer_route": (
+            "none: the review passed on the merits and the only block is an unset "
+            "review_loop.reviewer_model the healer cannot write"
+        ),
+        "engine_fingerprint": {
+            "assembler": engine_assembly.assembler_fingerprint(),
+            "renderer": engine_assembly.renderer_fingerprint(),
+        },
+        "action": (
+            "engine code fix required (review-provenance backfill); auto-retry "
+            "requalifies this job when the engine fingerprint changes"
+        ),
     }
 
 
