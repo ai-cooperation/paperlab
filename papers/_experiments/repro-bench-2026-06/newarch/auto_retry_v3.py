@@ -101,12 +101,13 @@ def main() -> int:
 
     for job_id in candidates:
         print("AUTO_RETRY start %s" % job_id, flush=True)
+        delegations_before = _delegation_count(args.jobs_dir, job_id)
         try:
             rows = revalidate_jobs(args.jobs_dir, [job_id])
             status = rows[0].run.status if rows else "no-result"
         except Exception as exc:  # noqa: BLE001 - one job must not kill the sweep
             status = "exception: %s" % str(exc)[:120]
-        if _quota_outage(args.jobs_dir, job_id):
+        if _quota_outage(args.jobs_dir, job_id, since=delegations_before, status=status):
             # 2026-07-10: the model quota ran out mid-campaign (HTTP 429) and the
             # uplift attempts failed in ~18s each. A 429 says nothing about the JOB —
             # do NOT burn its bounded retry budget on an infrastructure outage, and
@@ -135,17 +136,32 @@ def main() -> int:
     return 0
 
 
-def _quota_outage(jobs_dir: Path, job_id: str) -> bool:
-    """Did this attempt die on a model-quota error (HTTP 429 / usage limit)? Read
-    the run's own delegation blockers — the producing system's ground truth."""
+def _delegation_count(jobs_dir: Path, job_id: str) -> int:
     dossier = _read_json(jobs_dir / job_id / "run" / "dossier.v3.json") or {}
-    for delegation in reversed(dossier.get("delegations") or []):
-        for blocker in delegation.get("blockers") or []:
-            text = str(blocker).lower()
-            if "429" in text or "usage limit" in text or "rate limit" in text:
-                return True
-        if delegation.get("blockers"):
-            return False  # most recent failed delegation had non-quota blockers
+    return len(dossier.get("delegations") or [])
+
+
+def _quota_outage(jobs_dir: Path, job_id: str, *, since: int = 0, status: str = "") -> bool:
+    """Did THIS attempt die on a model-quota error (HTTP 429 / usage limit)? Read
+    the run's own delegation blockers — the producing system's ground truth.
+
+    Only delegations appended during this attempt (index >= since) count: the
+    first version scanned the whole history and, after a SUCCESSFUL retry, still
+    matched the pre-retry 429 delegation (a fresh ok delegation carries no
+    blockers, so the scan walked past it). Overnight 2026-07-11 that misreported
+    two converged jobs as quota outages — no ledger record, no success TG, sweep
+    paused for nothing. A converged status is never an outage regardless.
+    """
+    if status.startswith("done") or status == "human_review_required":
+        return False
+    dossier = _read_json(jobs_dir / job_id / "run" / "dossier.v3.json") or {}
+    new_delegations = (dossier.get("delegations") or [])[since:]
+    for delegation in reversed(new_delegations):
+        blockers = delegation.get("blockers") or []
+        if not blockers:
+            continue
+        text = " ".join(str(b) for b in blockers).lower()
+        return "429" in text or "usage limit" in text or "rate limit" in text
     return False
 
 

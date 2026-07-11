@@ -6,7 +6,7 @@ import signal
 import shutil
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
@@ -38,6 +38,8 @@ class HermesCodexRuntime:
         brain_provider: Optional[str] = None,
         worker_model: str = "big-pickle",
         worker_provider: str = "custom",
+        brain_fallback_model: Optional[str] = "big-pickle",
+        brain_fallback_provider: Optional[str] = "custom",
         worker_toolsets: str = "file,terminal",
         skill_root: Optional[Path] = None,
         require_skill_bundle: bool = True,
@@ -52,6 +54,8 @@ class HermesCodexRuntime:
         self.brain_provider = brain_provider
         self.worker_model = worker_model
         self.worker_provider = worker_provider
+        self.brain_fallback_model = brain_fallback_model
+        self.brain_fallback_provider = brain_fallback_provider
         self.worker_toolsets = worker_toolsets
         self.skill_root = Path(skill_root).expanduser() if skill_root else None
         self.require_skill_bundle = require_skill_bundle
@@ -63,7 +67,7 @@ class HermesCodexRuntime:
         context.run_dir.mkdir(parents=True, exist_ok=True)
 
     def run_brain(self, task: BrainTask, context: RuntimeContext) -> TaskResult:
-        return self._run(
+        result = self._run(
             task_id=task.task_id,
             phase=task.phase,
             prompt=task.prompt,
@@ -73,6 +77,35 @@ class HermesCodexRuntime:
             provider=self.brain_provider,
             worker_mode=False,
         )
+        # Quota fallback: the default brain (openai-codex) has a metered
+        # subscription quota; the custom-provider model is unmetered. A quota
+        # failure says nothing about the TASK, so retry it once on the fallback
+        # instead of erroring the phase (2026-07-10: quota exhaustion mid-
+        # campaign errored review_heal on two approved jobs and deleted their
+        # PDFs). Non-quota failures (auth, timeouts, real errors) do NOT fall
+        # back — those must surface loudly.
+        if (
+            _quota_failure_result(result)
+            and self.brain_fallback_model
+            and self.brain_fallback_model != self.brain_model
+        ):
+            fallback = self._run(
+                task_id=task.task_id,
+                phase=task.phase,
+                prompt=task.prompt,
+                expected_outputs=task.expected_outputs,
+                context=context,
+                model=self.brain_fallback_model,
+                provider=self.brain_fallback_provider,
+                worker_mode=False,
+            )
+            note = "brain fallback: %s after quota failure on %s" % (
+                self.brain_fallback_model,
+                self.brain_model,
+            )
+            details = ("%s [%s]" % (fallback.details, note)).strip() if fallback.details else note
+            return replace(fallback, details=details)
+        return result
 
     def run_worker(self, task: WorkerTask, context: RuntimeContext) -> TaskResult:
         return self._run(
@@ -664,6 +697,19 @@ def _missing_skills(skill_root: Optional[Path], skill_bundle: Iterable[str]) -> 
         if not (skill_root / skill_name / "SKILL.md").is_file():
             missing.append(skill_name)
     return missing
+
+
+_QUOTA_MARKERS = ("429", "usage limit", "rate limit", "quota")
+
+
+def _quota_failure_result(result: TaskResult) -> bool:
+    """Is this an error result whose blockers describe a model-quota outage?
+    Matches the provider's own message (e.g. 'HTTP 429: The usage limit has
+    been reached'), not auth or generic provider errors."""
+    if result.status != "error":
+        return False
+    text = " ".join(str(b) for b in (result.blockers or [])).lower()
+    return any(marker in text for marker in _QUOTA_MARKERS)
 
 
 def _provider_failure(output: str) -> str:
