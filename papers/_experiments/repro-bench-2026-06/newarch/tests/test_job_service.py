@@ -346,3 +346,62 @@ def test_notify_completion_webhook_failure_falls_to_telegram(monkeypatch):
         {"status": "blocked", "blockers": ["Z"]},
     )
     assert result["status"] == "telegram_fallback"
+
+
+def test_notify_completion_triggers_status_reconcile_even_without_email(monkeypatch):
+    """2026-07-11: done_pass papers sat on the site listing as 已送出/執行中
+    because nothing wrote terminal states back to D1. Every terminal
+    notification now pokes the worker reconciler FIRST — including jobs with
+    no notify_email (they still own a listing row)."""
+    import job_runner
+
+    called = {}
+
+    def fake_reconcile():
+        called["hit"] = True
+        return {"status": "ok", "code": 200}
+
+    monkeypatch.setattr(job_runner, "trigger_status_reconcile", fake_reconcile)
+    result = job_runner.notify_completion({"job_id": "v3_x"}, {"status": "done_pass"})
+    assert called.get("hit") is True
+    assert result["status"] == "skipped"  # no notify_email, yet reconcile fired
+
+
+def test_trigger_status_reconcile_not_configured(monkeypatch):
+    import job_runner
+
+    monkeypatch.delenv("RECONCILE_URL", raising=False)
+    monkeypatch.delenv("RECONCILE_TOKEN", raising=False)
+    assert job_runner.trigger_status_reconcile() == {"status": "not_configured"}
+
+
+def test_trigger_status_reconcile_posts_bearer_token(monkeypatch):
+    import job_runner
+
+    monkeypatch.setenv("RECONCILE_URL", "https://mcp.example/api/pipeline/reconcile")
+    monkeypatch.setenv("RECONCILE_TOKEN", "tok123")
+    seen = {}
+
+    class FakeResp:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def fake_urlopen(req, timeout=0):
+        seen["url"] = req.full_url
+        seen["auth"] = req.get_header("Authorization")
+        seen["method"] = req.get_method()
+        return FakeResp()
+
+    monkeypatch.setattr(job_runner.urllib.request, "urlopen", fake_urlopen)
+    out = job_runner.trigger_status_reconcile()
+    assert out == {"status": "ok", "code": 200}
+    assert seen == {
+        "url": "https://mcp.example/api/pipeline/reconcile",
+        "auth": "Bearer tok123",
+        "method": "POST",
+    }

@@ -31,6 +31,7 @@ COOLDOWN_S = 15 * 60
 # scale caught this before the first timer fire).
 RECENT_WINDOW_S = 48 * 3600
 LEDGER_NAME = "auto_retry.json"
+ENGINE_DEFECT_FILE = "engine_defect.json"
 
 
 def _read_json(path: Path):
@@ -59,9 +60,17 @@ def select_retry_candidates(jobs_dir: Path, now: float | None = None) -> list[st
         phases = dossier.get("phases") or {}
         if not phases or not any(v in ("blocked", "error") for v in phases.values()):
             continue  # all-done (incl. awaiting human review) or not started
+        defect = _engine_defect_state(jobs_dir, job_dir.name)
+        if defect == "active":
+            # The engine itself owns this block (sources clean, no model
+            # route): retrying spawns models against a code bug. The job
+            # requalifies automatically once the engine fingerprint changes.
+            continue
         ledger = _read_json(job_dir / LEDGER_NAME) or {}
         attempts = int(ledger.get("attempts") or 0)
-        if attempts >= MAX_ATTEMPTS:
+        if attempts >= MAX_ATTEMPTS and defect != "drift":
+            # fingerprint drift = the engine changed since the defect was
+            # recorded; a code change reopens the question past the budget.
             continue
         last = float(ledger.get("last_attempt_ts") or 0)
         if now - last < COOLDOWN_S:
@@ -122,18 +131,51 @@ def main() -> int:
             return 0
         ledger = record_attempt(args.jobs_dir, job_id, status)
         exhausted = ledger["attempts"] >= MAX_ATTEMPTS and status not in ("done", "human_review_required")
+        defect_note = ""
+        marker = _read_json(args.jobs_dir / job_id / "run" / ENGINE_DEFECT_FILE)
+        if isinstance(marker, dict):
+            top = (marker.get("findings") or [{}])[0]
+            defect_note = (
+                "\nENGINE DEFECT (code fix needed; auto-requalifies when the engine changes): %s"
+                % str(top.get("details") or marker.get("class") or "")[:200]
+            )
         job_runner.notify_admin(
-            "Auto-retry %s -> %s (attempt %d/%d)%s"
+            "Auto-retry %s -> %s (attempt %d/%d)%s%s"
             % (
                 job_id,
                 status,
                 ledger["attempts"],
                 MAX_ATTEMPTS,
                 "\nBUDGET EXHAUSTED: needs a human decision" if exhausted else "",
+                defect_note,
             )
         )
+        job_runner.trigger_status_reconcile()
         print("AUTO_RETRY done %s -> %s" % (job_id, status), flush=True)
     return 0
+
+
+def _engine_defect_state(jobs_dir: Path, job_id: str) -> str:
+    """'none' | 'active' | 'drift'. A marker written by the orchestrator's
+    defect classifier parks the job (code fix required); 'drift' means the
+    engine fingerprint changed since the defect was recorded — the deploy that
+    fixed the code is the retry trigger, no human re-drive needed."""
+    marker = _read_json(jobs_dir / job_id / "run" / ENGINE_DEFECT_FILE)
+    if not isinstance(marker, dict):
+        return "none"
+    recorded = marker.get("engine_fingerprint")
+    if not isinstance(recorded, dict):
+        return "active"
+    try:
+        from engine_v3 import assembly as engine_assembly
+
+        current = {
+            "assembler": engine_assembly.assembler_fingerprint(),
+            "renderer": engine_assembly.renderer_fingerprint(),
+        }
+    except Exception:  # noqa: BLE001 - cannot prove drift: stay parked
+        return "active"
+    return "drift" if current != recorded else "active"
 
 
 def _delegation_count(jobs_dir: Path, job_id: str) -> int:

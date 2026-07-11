@@ -293,6 +293,7 @@ class EngineV3Orchestrator:
             else:
                 if gate_report.blocked:
                     _maybe_record_human_checkpoint(dossier, phase.id, gate_report)
+                    _maybe_record_engine_defect(context.run_dir, dossier, phase, gate_report)
                     dossier.mark_phase(phase.id, "blocked")
                     _trace(
                         dossier,
@@ -304,6 +305,7 @@ class EngineV3Orchestrator:
                     self.dossier_store.save(dossier)
                     break
 
+            _clear_engine_defect(context.run_dir, dossier, phase)
             dossier.mark_phase(phase.id, "done")
             _trace(dossier, "phase_done", phase=phase.id)
             self.dossier_store.save(dossier)
@@ -770,6 +772,51 @@ def _clear_stale_phase_checkpoint(dossier: Dossier) -> None:
     phases = dict(getattr(dossier, "phases", {}) or {})
     if phases and all(status == "done" for status in phases.values()):
         dossier.evidence.pop("human_checkpoint", None)
+
+
+ENGINE_DEFECT_FILE = "engine_defect.json"
+
+
+def _maybe_record_engine_defect(
+    run_dir: Path, dossier: Dossier, phase: PhaseSpec, gate_report
+) -> dict | None:
+    """Attribute a terminal block to the deterministic engine when the phase's
+    classifier says so. The marker + evidence tell every downstream actor (auto
+    retry, admin alerts, the next operator) that model rounds cannot fix this —
+    only a code change can — and carry the finding + engine fingerprint so the
+    retry loop can requalify the job automatically once the engine changes."""
+    if phase.defect_classifier is None:
+        return None
+    try:
+        info = phase.defect_classifier(run_dir, gate_report)
+    except Exception as exc:  # noqa: BLE001 - classification must never break the run
+        _trace(dossier, "engine_defect_classifier_error", phase=phase.id, error=str(exc)[:200])
+        return None
+    if not info:
+        return None
+    payload = dict(info)
+    (run_dir / ENGINE_DEFECT_FILE).write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False, default=str), encoding="utf-8"
+    )
+    dossier.evidence["engine_defect"] = payload
+    _trace(
+        dossier,
+        "engine_defect",
+        phase=phase.id,
+        failed_blocks=list(gate_report.failed_blocks),
+        rationale="delivery-surface block with clean sources and no model repair route",
+    )
+    return payload
+
+
+def _clear_engine_defect(run_dir: Path, dossier: Dossier, phase: PhaseSpec) -> None:
+    if phase.defect_classifier is None:
+        return
+    marker = run_dir / ENGINE_DEFECT_FILE
+    if marker.is_file():
+        marker.unlink()
+        dossier.evidence.pop("engine_defect", None)
+        _trace(dossier, "engine_defect_cleared", phase=phase.id)
 
 
 def _maybe_record_human_checkpoint(dossier: Dossier, phase_id: str, gate_report) -> None:

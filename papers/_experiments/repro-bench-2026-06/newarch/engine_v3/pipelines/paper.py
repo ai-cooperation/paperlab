@@ -519,6 +519,9 @@ def full_paper_pipeline() -> list[PhaseSpec]:
             # ADR-001 §V4-C: a done format_repair must not be skipped on resume
             # while the delivered PDF is stale against its render sources.
             staleness_probe=engine_assembly.is_delivery_stale,
+            # A Z block with clean sources is the engine's own bug, not the
+            # model's: record it instead of letting retry loops burn budget.
+            defect_classifier=_classify_format_repair_engine_defect,
         ),
     ]
 
@@ -2246,6 +2249,41 @@ def _is_confidence_level_number(value: float, claim_text: str) -> bool:
         return False
     pattern = r"\b%s\s*%%\s*(?:CI|confidence interval)\b" % int(value)
     return re.search(pattern, claim_text, flags=re.IGNORECASE) is not None
+
+
+def _classify_format_repair_engine_defect(run_dir: Path, gate_report: Any) -> dict | None:
+    """Attribute a Gate Z block to the deterministic engine when no model can
+    own the repair: the delivery PDF fails while every SOURCE-level validator
+    passes. Sources are all the healer may write (ADR-001 Q5) — if they are
+    clean, the defect lives in the assemble/inject/render chain, and spawning
+    models burns rounds for nothing (v3_aebc70c41043 burned its entire retry
+    budget on the assembler source-map paragraph bug before this existed,
+    2026-07-11). The recorded engine fingerprint lets auto-retry requalify the
+    job automatically once the engine code actually changes."""
+    failed = [r for r in gate_report.results if r.p0]
+    if not failed or any(r.gate_id != "Z" for r in failed):
+        return None
+    # Only new-arch runs can prove "sources clean" — the source suite judges
+    # paper_meta.json + sections/*; a legacy run has no such surface.
+    if not (run_dir / engine_assembly.PAPER_META_FILE).is_file():
+        return None
+    if _surface_pending_content_findings(run_dir):
+        return None  # the healer has a route: its worklist is non-empty
+    return {
+        "class": "engine_defect",
+        "phase": "format_repair",
+        "findings": [
+            {"gate": r.gate_id, "details": r.details, "evidence": dict(r.evidence)}
+            for r in failed
+        ],
+        "source_suite": "clean",
+        "healer_route": "none: sources pass every validator and format_repair has no model repair attempts",
+        "engine_fingerprint": {
+            "assembler": engine_assembly.assembler_fingerprint(),
+            "renderer": engine_assembly.renderer_fingerprint(),
+        },
+        "action": "engine code fix required; auto-retry requalifies this job when the engine fingerprint changes",
+    }
 
 
 def _format_repair_handler(
