@@ -3,7 +3,7 @@ languageCode = "zh-tw"
 title = "論文方法學 — 寫論文 找方法 | Paper Lab"
 paginate = 20
 
-enableRobotsTXT = true
+enableRobotsTXT = false
 buildDrafts = false
 buildFuture = true
 buildExpired = false

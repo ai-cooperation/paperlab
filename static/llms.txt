@@ -1,0 +1,43 @@
+# PaperLab 寫論文找方法（paperlab.cooperation.tw）
+
+> 給研究生的論文方法學網站：12 個 Phase 的完整寫作流程、真實案例演練、
+> 引用驗證工具。AI Cooperation（https://cooperation.tw）旗下專案。
+
+## 方法學（12 Phase）
+
+- [P1 怎麼開始](https://paperlab.cooperation.tw/phase/p1-how-to-start/): 題目選擇與研究起點
+- [P2 AI 假引用](https://paperlab.cooperation.tw/phase/p2-ai-fake-references/): 辨識與避免 AI 產生的假文獻
+- [P3 Research Gap](https://paperlab.cooperation.tw/phase/p3-research-gap/): 研究缺口怎麼找
+- [P4 論文架構](https://paperlab.cooperation.tw/phase/p4-paper-structure/): IMRaD 結構與大綱
+- [P5 實驗設計](https://paperlab.cooperation.tw/phase/p5-experiment-design/): baseline 與 ablation 設計
+- [P6 實驗監控](https://paperlab.cooperation.tw/phase/p6-experiment-monitoring/): 實驗執行與紀錄
+- [P7 統計方法](https://paperlab.cooperation.tw/phase/p7-statistics-fear/): 統計方法怎麼選
+- [P8 寫作卡關](https://paperlab.cooperation.tw/phase/p8-writing-stuck/): 寫不下去怎麼辦
+- [P9 圖表呈現](https://paperlab.cooperation.tw/phase/p9-figures-tables/): 學術圖表製作
+- [P10 退稿處理](https://paperlab.cooperation.tw/phase/p10-paper-rejection/): 論文被退稿怎麼辦
+- [P11 投稿準備](https://paperlab.cooperation.tw/phase/p11-submission-prep/): Cover Letter 與投稿檢查
+- [P12 審稿回覆](https://paperlab.cooperation.tw/phase/p12-rebuttal/): Response to Reviewers
+
+## 寫作攻略（Blog）
+
+- [Research Gap 怎麼找](https://paperlab.cooperation.tw/blog/research-gap-how-to-find/)
+- [SCI 論文完整指南](https://paperlab.cooperation.tw/blog/sci-paper-complete-guide/)
+- [論文被退稿怎麼辦](https://paperlab.cooperation.tw/blog/paper-rejected-what-to-do/)
+- [Response to Reviewers 怎麼寫](https://paperlab.cooperation.tw/blog/response-to-reviewers/)
+- [文獻回顧怎麼寫](https://paperlab.cooperation.tw/blog/literature-review-how-to-write/)
+- [碩士論文題目怎麼選](https://paperlab.cooperation.tw/blog/thesis-topic-selection/)
+- [論文統計方法怎麼選](https://paperlab.cooperation.tw/blog/statistics-method-selection/)
+- [Cover Letter 範本](https://paperlab.cooperation.tw/blog/cover-letter-template/)
+- [AI 寫論文的假引用問題](https://paperlab.cooperation.tw/blog/ai-fake-references/)
+- [論文圖表怎麼做](https://paperlab.cooperation.tw/blog/paper-figures-guide/)
+- [論文引用怎麼確認](https://paperlab.cooperation.tw/blog/citation-check-tool/)
+
+## 工具與案例
+
+- [研究工具](https://paperlab.cooperation.tw/tools/): Zotero、Obsidian、Markdown、翻譯工具
+- [案例演練](https://paperlab.cooperation.tw/cases/): LLM 專利分析、ECG Transformer、信用風險等真實案例
+
+## 聯絡
+
+- Email: ai@cooperation.tw
+- 主站: https://cooperation.tw
