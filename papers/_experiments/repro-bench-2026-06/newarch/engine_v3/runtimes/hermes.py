@@ -8,7 +8,7 @@ import tempfile
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Callable, Iterable, Optional
+from typing import Callable, Iterable, Mapping, Optional
 
 from engine_v3.core.contracts import BrainTask, RuntimeContext, TaskResult, WorkerTask
 
@@ -152,9 +152,6 @@ class HermesCodexRuntime:
 
         expected_output_list = list(expected_outputs)
         fresh_outputs = _fresh_required_outputs(phase, expected_output_list)
-        quarantined_outputs: dict[str, Path] = {}
-        if fresh_outputs:
-            quarantined_outputs = _quarantine_existing_outputs(context.run_dir, fresh_outputs, task_id)
         # Operator-owned files (declared by the domain pack via metadata) are
         # the human-QA channel: only the operator may clear them. Round 10 on
         # v3_0f6a0c83f9cf: Hermes rewrote operator_findings.md into comments
@@ -167,6 +164,19 @@ class HermesCodexRuntime:
         for rel in operator_owned:
             owned_path = context.run_dir / rel
             operator_snapshots[rel] = owned_path.read_bytes() if owned_path.is_file() else None
+        # Transaction snapshot: back up EVERY declared output before the attempt
+        # so a non-ok result can roll the run dir back to its pre-attempt state
+        # (transaction semantics). The old code only quarantined fresh_outputs
+        # (review_heal's two review artifacts), so a repair that edited the
+        # manuscript but left the review stale kept its partial writes on disk
+        # -> "new manuscript + old review" dirty state -> the mtime guard and
+        # Gate R correctly refused it forever (v3_4dc73d199e17 infinite stale
+        # loop). Existing files keep a byte copy; files absent pre-attempt are
+        # recorded so rollback unlinks anything created during the run.
+        # operator_owned files are excluded here: they have their own restore
+        # channel above and must not be double-handled.
+        snapshot_rels = [rel for rel in expected_output_list if rel not in operator_owned]
+        output_snapshot = _snapshot_outputs(context.run_dir, snapshot_rels, task_id)
 
         if self.runner is None:
             baseline = _output_signature_map(_existing_outputs(context.run_dir, expected_output_list))
@@ -196,7 +206,7 @@ class HermesCodexRuntime:
         stdout_tail = _tail(combined)
         provider_failure = _provider_failure(combined)
         if provider_failure:
-            _restore_quarantined_outputs(context.run_dir, quarantined_outputs)
+            _rollback_outputs(context.run_dir, output_snapshot)
             return TaskResult(
                 task_id=task_id,
                 status="error",
@@ -205,7 +215,7 @@ class HermesCodexRuntime:
                 stdout_tail=stdout_tail,
             )
         if result.exit_code != 0:
-            _restore_quarantined_outputs(context.run_dir, quarantined_outputs)
+            _rollback_outputs(context.run_dir, output_snapshot)
             return TaskResult(
                 task_id=task_id,
                 status="error",
@@ -221,7 +231,7 @@ class HermesCodexRuntime:
             # The watcher killed hermes before it changed anything. Reporting
             # ok here fabricates success (run3: repair came back ok/changed=[]
             # and repair_noop burned the budget). Fail honestly instead.
-            _restore_quarantined_outputs(context.run_dir, quarantined_outputs)
+            _rollback_outputs(context.run_dir, output_snapshot)
             return TaskResult(
                 task_id=task_id,
                 status="blocked",
@@ -241,24 +251,29 @@ class HermesCodexRuntime:
         ]
         stale = sorted(stale)
         if missing:
-            _restore_quarantined_outputs(context.run_dir, quarantined_outputs)
+            _rollback_outputs(context.run_dir, output_snapshot)
+            # Recompute against the rolled-back disk state so changed_files
+            # reflects the FINAL state (empty after a full rollback), not the
+            # partial writes that were just reverted.
+            post = _existing_outputs(context.run_dir, expected_output_list)
             return TaskResult(
                 task_id=task_id,
                 status="blocked",
                 details="missing declared outputs",
-                outputs=outputs,
-                changed_files=sorted(_changed_outputs(outputs, baseline)),
+                outputs=post,
+                changed_files=sorted(_changed_outputs(post, baseline)),
                 blockers=["missing declared output: %s" % rel for rel in missing],
                 stdout_tail=stdout_tail,
             )
         if stale:
-            _restore_quarantined_outputs(context.run_dir, quarantined_outputs)
+            _rollback_outputs(context.run_dir, output_snapshot)
+            post = _existing_outputs(context.run_dir, expected_output_list)
             return TaskResult(
                 task_id=task_id,
                 status="blocked",
                 details="stale declared outputs",
-                outputs=outputs,
-                changed_files=sorted(_changed_outputs(outputs, baseline)),
+                outputs=post,
+                changed_files=sorted(_changed_outputs(post, baseline)),
                 blockers=["stale declared output: %s" % rel for rel in stale],
                 stdout_tail=stdout_tail,
             )
@@ -528,21 +543,6 @@ def _existing_outputs(run_dir: Path, expected_outputs: Iterable[str]) -> dict[st
     return outputs
 
 
-def _quarantine_existing_outputs(run_dir: Path, rel_paths: Iterable[str], task_id: str) -> dict[str, Path]:
-    safe_task_id = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in task_id)
-    backup_root = run_dir / "artifacts" / "stale_outputs" / safe_task_id / str(time.time_ns())
-    backups: dict[str, Path] = {}
-    for rel in sorted(set(rel_paths)):
-        source = run_dir / rel
-        if not source.is_file():
-            continue
-        destination = backup_root / rel
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, destination)
-        backups[rel] = destination
-    return backups
-
-
 def _restore_operator_owned_files(run_dir: Path, snapshots: dict[str, Optional[bytes]]) -> None:
     for rel, content in snapshots.items():
         path = run_dir / rel
@@ -554,8 +554,47 @@ def _restore_operator_owned_files(run_dir: Path, snapshots: dict[str, Optional[b
             path.write_bytes(content)
 
 
-def _restore_quarantined_outputs(run_dir: Path, backups: dict[str, Path]) -> None:
-    for rel, backup in sorted(backups.items()):
+@dataclass(frozen=True)
+class _OutputSnapshot:
+    """Pre-attempt state of the declared outputs, for transaction rollback.
+
+    `backups` maps a declared output to a byte-copy of its pre-attempt content
+    (only for files that existed before the attempt). `absent` lists declared
+    outputs that did NOT exist pre-attempt: rollback unlinks anything the run
+    created for them. The backups live under artifacts/stale_outputs so they
+    double as the pre-existing audit trail for quarantined review artifacts.
+    """
+
+    backups: Mapping[str, Path]
+    absent: tuple[str, ...]
+
+
+def _snapshot_outputs(run_dir: Path, rel_paths: Iterable[str], task_id: str) -> _OutputSnapshot:
+    safe_task_id = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in task_id)
+    backup_root = run_dir / "artifacts" / "stale_outputs" / safe_task_id / str(time.time_ns())
+    backups: dict[str, Path] = {}
+    absent: list[str] = []
+    for rel in sorted(set(rel_paths)):
+        source = run_dir / rel
+        if not source.is_file():
+            absent.append(rel)
+            continue
+        destination = backup_root / rel
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        backups[rel] = destination
+    return _OutputSnapshot(backups=backups, absent=tuple(absent))
+
+
+def _rollback_outputs(run_dir: Path, snapshot: _OutputSnapshot) -> None:
+    """Restore the run dir to its pre-attempt state for the snapshotted outputs.
+
+    Existing files are overwritten with their pre-attempt bytes; files that did
+    not exist before the attempt are unlinked (removing partial writes the run
+    created). This gives the attempt transaction semantics: a non-ok result
+    leaves the manuscript exactly as it was, so the next attempt starts clean.
+    """
+    for rel, backup in sorted(snapshot.backups.items()):
         if not backup.is_file():
             continue
         target = run_dir / rel
@@ -563,6 +602,8 @@ def _restore_quarantined_outputs(run_dir: Path, backups: dict[str, Path]) -> Non
         if target.exists():
             target.unlink()
         shutil.copy2(backup, target)
+    for rel in snapshot.absent:
+        (run_dir / rel).unlink(missing_ok=True)
 
 
 def _fresh_required_outputs(phase: str, expected_outputs: Iterable[str]) -> set[str]:

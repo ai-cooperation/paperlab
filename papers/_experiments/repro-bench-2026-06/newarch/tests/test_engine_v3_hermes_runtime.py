@@ -314,7 +314,13 @@ time.sleep(30)
     )
 
     assert result.status == "blocked"
-    assert result.changed_files == ["references.bib"]
+    # Transaction rollback (v3_4dc73d199e17 fix): a non-ok attempt reverts ALL
+    # its partial writes, so the references.bib written before the idle-kill is
+    # rolled back to its (absent) pre-attempt state. changed_files reflects the
+    # rolled-back disk, i.e. empty. Previously this reported ["references.bib"]
+    # and left the partial write on disk.
+    assert result.changed_files == []
+    assert not (tmp_path / "references.bib").exists()
     assert result.blockers == ["missing declared output: figures/fig_forest_plot.svg"]
     assert time.monotonic() - started < 5
     assert "terminated after partial declared outputs stopped changing" in result.stdout_tail
@@ -413,7 +419,15 @@ def test_review_heal_watches_review_artifacts_not_manuscript_edits(tmp_path: Pat
     edits manuscript files cannot complete, is idle-killed once the edits
     stop, and reports the missing review outputs honestly. (Since the batch
     starvation fix, manuscript edits DO keep the session alive as progress -
-    the kill is partial-idle after the last edit, not startup-idle.)"""
+    the kill is partial-idle after the last edit, not startup-idle.)
+
+    This is the exact shape of the v3_4dc73d199e17 infinite stale loop: a
+    repair edits the manuscript (paper_springer.qmd) without rewriting the
+    review artifacts. Under transaction semantics the blocked result now rolls
+    that manuscript edit back to its pre-attempt bytes and reports
+    changed_files=[]; previously the edit stayed on disk (partial write),
+    producing the "new manuscript + old review" dirty state that trapped the
+    job forever."""
     (tmp_path / "paper_draft_v0.qmd").write_text("old draft\n", encoding="utf-8")
     (tmp_path / "paper_springer.qmd").write_text("old springer\n", encoding="utf-8")
 
@@ -456,7 +470,9 @@ time.sleep(30)
         "missing declared output: quality_review_round1.json",
         "missing declared output: quality_review_log.md",
     ]
-    assert result.changed_files == ["paper_springer.qmd"]
+    # rolled back: the manuscript edit is reverted, nothing reported as changed
+    assert result.changed_files == []
+    assert (tmp_path / "paper_springer.qmd").read_text(encoding="utf-8") == "old springer\n"
     assert time.monotonic() - started < 5
 
 
