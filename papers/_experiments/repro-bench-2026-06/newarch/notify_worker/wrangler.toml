@@ -2,6 +2,10 @@ name = "paper-notify"
 main = "src/index.js"
 compatibility_date = "2026-07-01"
 
+# Email Service transactional sending (recipient comes from the payload; the
+# from domain cooperation.tw must be onboarded: npx wrangler email sending list).
+# Was: Email Routing binding with destination_address pinned to the account
+# owner - that shape can never reach external users.
 send_email = [
-  { name = "NOTIFY", destination_address = "alan.chen75@gmail.com" }
+  { name = "EMAIL" }
 ]

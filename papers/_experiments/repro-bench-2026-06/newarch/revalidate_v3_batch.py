@@ -13,6 +13,7 @@ from batch_validate_v3 import JobValidation, decide_batch_gate, validate_jobs
 from engine_v3.core import DossierStore
 from engine_v3.core.orchestrator import EngineV3Orchestrator
 from engine_v3.job_lock import acquire_job_lock, release_job_lock
+from engine_v3.notify import ensure_user_notified
 from engine_v3.packs.paper import PaperPack
 from engine_v3.pipelines.paper import full_paper_pipeline
 from engine_v3.runtime_config import (
@@ -134,6 +135,10 @@ def revalidate_jobs(
         row = RevalidationRow(run=outcome, validation=validation)
         rows.append(row)
         print("REVALIDATE_RESULT\t%s" % json.dumps(_row_dict(row), ensure_ascii=False), flush=True)
+        # Terminal driver duty: the notify primitive itself decides whether the
+        # job is deliverable, owed an email, and not yet notified.
+        notified = ensure_user_notified(jobs_dir, job_id)
+        print("USER_NOTIFY\t%s" % json.dumps(notified, ensure_ascii=False), flush=True)
     return rows
 
 

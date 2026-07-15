@@ -18,6 +18,7 @@ from acceptance_gate_v3 import evaluate_run_acceptance
 from engine_v3.core import DossierStore
 from engine_v3.core.dossier import hash_file
 from engine_v3.core.orchestrator import EngineV3Orchestrator
+from engine_v3.notify import ensure_user_notified, phase_status
 from engine_v3.packs.paper import PaperPack
 from engine_v3.pipelines.paper import full_paper_pipeline
 from engine_v3.runtime_config import runtime_from_env
@@ -245,6 +246,7 @@ def register(
                     "status_url": status_url,
                 },
             )
+        ensure_user_notified(jobs_dir, job_id)
 
     @app.get("/v3/jobs/{job_id}/status")
     def v3_status(job_id: str) -> dict[str, Any]:
@@ -341,6 +343,8 @@ def register(
                 "options": ["approve_delivery", "request_revision", "stop_job"],
             }
         store.save(dossier)
+        if decision == "approve":
+            ensure_user_notified(jobs_dir, job_id)
         return {"job_id": job_id, "decision": decision, "human_checkpoint": dossier.evidence["human_checkpoint"]}
 
     @app.get("/v3/jobs/{job_id}/artifact/{artifact_id:path}")
@@ -387,20 +391,9 @@ def _request_hash(contract: dict[str, Any]) -> str:
     return hashlib.sha256(blob).hexdigest()
 
 
-def _status(phases: dict[str, str]) -> str:
-    if not phases:
-        return "accepted"
-    if any(status == "error" for status in phases.values()):
-        return "failed"
-    if any(status == "blocked" for status in phases.values()):
-        return "blocked"
-    if phases.get("format_repair") == "done":
-        return "done"
-    if any(phase in phases for phase in ("gap", "structure", "write", "claim_evidence", "review_heal")):
-        return "running"
-    if phases.get("render_gates") == "done":
-        return "done"
-    return "running"
+# Single source lives in engine_v3.notify so the status endpoint and the
+# user-notification deliverable check can never disagree about "done".
+_status = phase_status
 
 
 def _accepted_job(job_id: str, status_url: str, *, idempotent_replay: bool) -> dict[str, Any]:
