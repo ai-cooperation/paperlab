@@ -99,6 +99,15 @@ class PaperPack:
                 "target_journal": {"type": "string"},
                 "synthesis": {"type": "object"},
                 "data_source": {"type": "object"},
+                # "x-user-promise" marks a field whose consumption is owed to
+                # the submitting user. Adding the marker obligates a consumer
+                # reachable from every v3 terminal driver — enforced by
+                # tests/test_v3_user_promise_consumers.py (the class-level
+                # guard for the 2026-07-15 unconsumed-notify_email incident).
+                "notify_email": {
+                    "type": "string",
+                    "x-user-promise": "completion email when the paper is deliverable done",
+                },
             },
         }
 
