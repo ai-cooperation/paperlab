@@ -65,7 +65,7 @@ def phase_status(phases: dict[str, str]) -> str:
 def ensure_user_notified(jobs_dir: Path, job_id: str, *, send: Send | None = None) -> dict[str, Any]:
     """Idempotent, never-raising. Safe to call from any driver at any time."""
     try:
-        return _ensure(Path(jobs_dir), job_id, send=send or _send_webhook)
+        return _ensure(Path(jobs_dir), job_id, send=send or _send_default)
     except Exception as exc:  # noqa: BLE001 - notification must never break the job
         return {"status": "error", "job_id": job_id, "error": str(exc)[:300]}
 
@@ -147,6 +147,42 @@ def _compose_email(job_id: str, topic: str) -> tuple[str, str]:
     return subject, text
 
 
+def _send_default(to: str, subject: str, text: str) -> dict[str, Any]:
+    """Production sender. GAS relay first (free path — Cloudflare Email
+    Sending is Workers-Paid-only, decision 2026-07-15), Cloudflare worker as
+    the fallback shape when GAS is not configured."""
+    if os.environ.get("NOTIFY_GAS_URL", "").strip():
+        return _send_gas(to, subject, text)
+    return _send_webhook(to, subject, text)
+
+
+def _send_gas(to: str, subject: str, text: str) -> dict[str, Any]:
+    """POST to the notify_gas Apps Script relay (deployed under
+    aicooperation.tw@gmail.com; see notify_gas/Code.js). GAS cannot read
+    request headers, so the token rides INSIDE the JSON body, and GAS answers
+    HTTP 200 even for failures — the JSON body is the verdict."""
+    url = os.environ.get("NOTIFY_GAS_URL", "").strip()
+    token = os.environ.get("NOTIFY_GAS_TOKEN", "").strip()
+    if not url or not token:
+        return {"status": "failed", "error": "NOTIFY_GAS_URL/TOKEN not configured"}
+    try:
+        status_code, body = _post_json(
+            url,
+            {"token": token, "to": to, "subject": subject, "text": text},
+            {"Content-Type": "application/json"},
+            30,
+        )
+    except Exception as exc:  # noqa: BLE001 - network failure is a retryable outcome
+        return {"status": "failed", "error": str(exc)[:300]}
+    parsed = _parse_json(body)
+    if status_code == 200 and isinstance(parsed, dict) and parsed.get("status") == "sent":
+        return {"status": "sent", "via": "notify_gas", "detail": body[:300]}
+    error = ""
+    if isinstance(parsed, dict):
+        error = str(parsed.get("error") or "")
+    return {"status": "failed", "error": ("http_%s %s" % (status_code, error or body[:200])).strip()}
+
+
 def _send_webhook(to: str, subject: str, text: str) -> dict[str, Any]:
     """POST to the paper-notify Cloudflare worker (same env contract as
     job_runner._notify_via_webhook; kept separate so engine_v3 stays free of
@@ -155,24 +191,38 @@ def _send_webhook(to: str, subject: str, text: str) -> dict[str, Any]:
     token = os.environ.get("NOTIFY_WEBHOOK_TOKEN", "").strip()
     if not url or not token:
         return {"status": "failed", "error": "NOTIFY_WEBHOOK_URL/TOKEN not configured"}
-    payload = json.dumps({"to": to, "subject": subject, "text": text}).encode("utf-8")
-    request = urllib.request.Request(
-        url,
-        data=payload,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": "Bearer %s" % token,
-        },
-        method="POST",
-    )
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            body = response.read().decode("utf-8", errors="replace")[:500]
-            if response.status == 200:
-                return {"status": "sent", "via": "notify_webhook", "detail": body}
-            return {"status": "failed", "error": "http_%s %s" % (response.status, body)}
+        status_code, body = _post_json(
+            url,
+            {"to": to, "subject": subject, "text": text},
+            {"Content-Type": "application/json", "Authorization": "Bearer %s" % token},
+            20,
+        )
     except Exception as exc:  # noqa: BLE001 - network failure is a retryable outcome
         return {"status": "failed", "error": str(exc)[:300]}
+    if status_code == 200:
+        return {"status": "sent", "via": "notify_webhook", "detail": body[:300]}
+    return {"status": "failed", "error": "http_%s %s" % (status_code, body[:200])}
+
+
+def _post_json(url: str, payload: dict[str, Any], headers: dict[str, str], timeout: int) -> tuple[int, str]:
+    """Returns (status_code, body). Follows redirects — the GAS /exec endpoint
+    302s to script.googleusercontent.com for the actual response body."""
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=dict(headers),
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return response.status, response.read().decode("utf-8", errors="replace")[:1000]
+
+
+def _parse_json(body: str) -> Any:
+    try:
+        return json.loads(body)
+    except ValueError:
+        return None
 
 
 def _notify_admin_best_effort(message: str) -> None:

@@ -186,6 +186,77 @@ def test_ensure_never_raises(tmp_path: Path):
     assert missing["status"] == "not_ready"
 
 
+def test_default_sender_prefers_gas_when_configured(monkeypatch):
+    """Free-path decision 2026-07-15: Cloudflare Email Sending is Workers-Paid,
+    so the production sender is the GAS relay (aicooperation.tw@gmail.com).
+    When NOTIFY_GAS_URL/TOKEN are configured the default sender must route to
+    the GAS payload shape (token INSIDE the body — GAS cannot read headers);
+    without them it falls back to the Cloudflare webhook."""
+    monkeypatch.setenv("NOTIFY_GAS_URL", "https://script.google.com/macros/s/x/exec")
+    monkeypatch.setenv("NOTIFY_GAS_TOKEN", "tok123")
+    captured = {}
+
+    def fake_post_json(url, payload, headers, timeout):
+        captured["url"] = url
+        captured["payload"] = payload
+        captured["headers"] = headers
+        return 200, json.dumps({"status": "sent", "to": payload["to"]})
+
+    monkeypatch.setattr(notify, "_post_json", fake_post_json)
+
+    result = notify._send_default("reader@example.com", "S", "T")
+
+    assert result["status"] == "sent"
+    assert captured["url"].endswith("/exec")
+    assert captured["payload"] == {
+        "token": "tok123",
+        "to": "reader@example.com",
+        "subject": "S",
+        "text": "T",
+    }
+    assert "Authorization" not in captured["headers"]
+
+
+def test_default_sender_falls_back_to_webhook_without_gas_env(monkeypatch):
+    monkeypatch.delenv("NOTIFY_GAS_URL", raising=False)
+    monkeypatch.delenv("NOTIFY_GAS_TOKEN", raising=False)
+    monkeypatch.setenv("NOTIFY_WEBHOOK_URL", "https://paper-notify.example.workers.dev")
+    monkeypatch.setenv("NOTIFY_WEBHOOK_TOKEN", "cf-token")
+    captured = {}
+
+    def fake_post_json(url, payload, headers, timeout):
+        captured["url"] = url
+        captured["payload"] = payload
+        captured["headers"] = headers
+        return 200, json.dumps({"status": "sent"})
+
+    monkeypatch.setattr(notify, "_post_json", fake_post_json)
+
+    result = notify._send_default("reader@example.com", "S", "T")
+
+    assert result["status"] == "sent"
+    assert captured["url"] == "https://paper-notify.example.workers.dev"
+    assert captured["headers"]["Authorization"] == "Bearer cf-token"
+    assert "token" not in captured["payload"]
+
+
+def test_gas_http_200_with_failed_body_counts_as_failed(monkeypatch):
+    """GAS always answers 200 (errors ride in the JSON body) — the sender must
+    judge the body, not the HTTP status."""
+    monkeypatch.setenv("NOTIFY_GAS_URL", "https://script.google.com/macros/s/x/exec")
+    monkeypatch.setenv("NOTIFY_GAS_TOKEN", "tok123")
+    monkeypatch.setattr(
+        notify,
+        "_post_json",
+        lambda url, payload, headers, timeout: (200, json.dumps({"status": "failed", "error": "unauthorized"})),
+    )
+
+    result = notify._send_default("reader@example.com", "S", "T")
+
+    assert result["status"] == "failed"
+    assert "unauthorized" in result["error"]
+
+
 def test_phase_status_is_the_single_source_shared_with_routes():
     """Drift guard: routes' terminal-status logic and the notification's
     deliverable check must be the SAME function, not a diverging copy."""
