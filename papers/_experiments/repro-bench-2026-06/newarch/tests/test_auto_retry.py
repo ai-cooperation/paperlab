@@ -126,3 +126,38 @@ def test_successful_retry_not_misread_as_outage_from_old_429(tmp_path: Path) -> 
     assert _quota_outage(tmp_path, "v3_s", since=0, status="done") is False
     # and the true-outage shape still detects: the 429 IS inside this attempt
     assert _quota_outage(tmp_path, "v3_s", since=0, status="blocked") is True
+
+
+def test_locked_outcome_consumes_no_budget_and_stays_quiet(tmp_path: Path, monkeypatch) -> None:
+    """2026-07-15 live: the timer collided twice with a manual revalidate
+    holding the job lock; both lock refusals were recorded as real attempts
+    (2/2 budget gone) and each fired a TG alert — the second claimed BUDGET
+    EXHAUSTED for a job nothing had actually tried. A lock refusal is an
+    infrastructure signal (same family as the HTTP-429 carve-out): it says
+    nothing about the JOB, so it must not consume the bounded budget, must
+    not alert the admin, and must leave the job selectable next sweep."""
+    import sys
+
+    import auto_retry_v3
+    import job_runner
+    import revalidate_v3_batch
+
+    _job(tmp_path, "v3_lock", {"write": "done", "review_heal": "blocked"})
+
+    class _Run:
+        status = "locked"
+
+    class _Row:
+        run = _Run()
+
+    monkeypatch.setattr(revalidate_v3_batch, "revalidate_jobs", lambda jobs_dir, ids: [_Row()])
+    alerts: list[str] = []
+    monkeypatch.setattr(job_runner, "notify_admin", lambda msg: alerts.append(msg))
+    monkeypatch.setattr(job_runner, "trigger_status_reconcile", lambda: {"status": "skipped"})
+    monkeypatch.setattr(sys, "argv", ["auto_retry_v3.py", "--jobs-dir", str(tmp_path)])
+
+    assert auto_retry_v3.main() == 0
+
+    assert not (tmp_path / "v3_lock" / "auto_retry.json").exists()  # no budget burned
+    assert alerts == []  # no false-alarm TG
+    assert select_retry_candidates(tmp_path) == ["v3_lock"]  # still selectable

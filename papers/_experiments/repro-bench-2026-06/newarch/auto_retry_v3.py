@@ -129,6 +129,16 @@ def main() -> int:
             )
             print("AUTO_RETRY quota-outage, sweep paused", flush=True)
             return 0
+        if status == "locked":
+            # 2026-07-15: the timer collided twice with a manual revalidate
+            # holding the job lock; both refusals were booked as real attempts
+            # (2/2 budget gone) and the second TG alert claimed BUDGET
+            # EXHAUSTED for a job nothing had tried. A lock refusal is an
+            # infrastructure signal like the 429 above — it says nothing about
+            # the JOB. No budget, no alert; the job stays selectable and the
+            # timer simply retries next window once the lock is released.
+            print("AUTO_RETRY skipped %s: locked by another live process (no budget consumed)" % job_id, flush=True)
+            continue
         ledger = record_attempt(args.jobs_dir, job_id, status)
         exhausted = ledger["attempts"] >= MAX_ATTEMPTS and status not in ("done", "human_review_required")
         defect_note = ""
