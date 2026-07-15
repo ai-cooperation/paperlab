@@ -157,6 +157,24 @@ paper_meta.json contract (STRICT — unknown keys are rejected, no prose inside)
   hand-written copy on every phase.
 """
 
+# Optional peer-review contract fields (grill steps 5 + 7). Each instruction is a
+# no-op when its field is absent from research_contract.json, so a contract without
+# these fields produces the same manuscript as before (graceful degradation).
+PEER_REVIEW_WRITE_PROMPT = """
+Peer-review contract fields (consume from research_contract.json when present):
+- method.design_rationale (if present): state it in sections/methods.md as an
+  explicit design-adequacy sentence — why this design, model, and sample size
+  license the research question. Being told "the design does not support the claim"
+  is the largest reviewer score penalty after novelty.
+- scope_boundary.cannot_claim (if present): list every entry in
+  sections/limitations.md as an explicit boundary, and do NOT assert any of those
+  claims anywhere in the manuscript (the claim-evidence gate treats them as a hard
+  ceiling on overclaiming).
+- differentiation (if present): ground sections/related_work.md in those concrete
+  prior_doi / they_did / we_do contrasts instead of generic novelty language.
+If a field is absent, write that section from the data artifacts as usual.
+"""
+
 GAP_PHASE_PROMPT = """Write the required research positioning artifact.
 
 You are continuing an existing run directory. Inspect research_contract.json,
@@ -168,6 +186,10 @@ Hard requirements:
   and claim boundaries.
 - Align the gap with the actual data artifacts. If the data does not support the original
   method claim, downgrade the paper framing honestly instead of leaving the phase blocked.
+- If research_contract.json contains a `differentiation` array (rows of prior_doi /
+  they_did / we_do), build the differentiation statement and related-work positioning
+  ON those concrete prior-work contrasts rather than generic novelty language. If the
+  field is absent, position against the verified bibliography as usual.
 - Do not stop after explaining uncertainty; produce the declared artifact.
 """
 
@@ -182,6 +204,13 @@ Hard requirements:
 - Include the manuscript architecture: Abstract, Introduction, Related Work, Methods,
   Results, Discussion, Limitations, and Conclusion.
 - Include key claims, evidence sources, planned figures/tables, and claim boundaries.
+- If research_contract.json contains `method.design_rationale`, carry it into the
+  Methods architecture as an explicit statement of why this design, model, and sample
+  size license the research question (design adequacy is the largest reviewer score
+  penalty after novelty). If absent, describe the method as usual.
+- If research_contract.json contains `scope_boundary.cannot_claim`, list every entry
+  in the Limitations architecture as an explicit boundary the manuscript must not
+  cross. If absent, derive limitations from the data artifacts as usual.
 - Align the structure with the actual research method and data artifacts; if the data
   only supports an evidence map, protocol, or observational association, explicitly
   downgrade the structure and title claims.
@@ -218,7 +247,7 @@ Hard requirements:
 - Use real citation keys from references.bib and real figure paths from figures/.
 - Keep the paper aligned with phase4_structure.md and real_results.json.
 - Do not stop after explaining the blocker; produce the missing files.
-""" + PAPER_META_CONTRACT_PROMPT
+""" + PEER_REVIEW_WRITE_PROMPT + PAPER_META_CONTRACT_PROMPT
 
 CLAIM_EVIDENCE_REPAIR_PROMPT = """Repair Gate B claim-evidence failures.
 
@@ -475,6 +504,7 @@ def full_paper_pipeline() -> list[PhaseSpec]:
                 "Draft isolated section sources under sections/ (including "
                 "sections/00_abstract.md) and write paper_meta.json; the harness "
                 "assembles paper_draft_v0.qmd deterministically from them.\n"
+                + PEER_REVIEW_WRITE_PROMPT
                 + PAPER_META_CONTRACT_PROMPT
             ),
             expected_outputs=list(WRITE_OUTPUTS),
@@ -667,6 +697,9 @@ def _ensure_phase3_positioning_v3_2(run_dir: Path) -> bool:
     title = str(contract.get("topic") or "Untitled Paper").strip()
     research_question = str(contract.get("research_question") or "TBD").strip()
     contribution = str(contract.get("contribution") or "TBD").strip()
+    # Optional grill step 7 differentiation table (no-op section when absent).
+    differentiation_block = _differentiation_block(contract)
+    differentiation_section = ("\n" + differentiation_block + "\n") if differentiation_block else ""
     body = f"""# Research Positioning
 
 ## Literature Landscape
@@ -691,7 +724,7 @@ The literature framing should therefore be conservative: compare the proposed pa
 ## Differentiation Statement
 
 Unlike a generic literature summary, this paper is positioned as an auditable V3.2 manuscript whose claims must be traceable to verified references and real_results.json. The differentiator is not rhetorical novelty alone; it is the bounded link between the research contract, verified bibliography, generated figures, and explicit claim limits.
-
+{differentiation_section}
 ## Contribution Echo
 
 1. Define a focused research question and make the evidence boundary explicit.
@@ -724,6 +757,14 @@ def _ensure_phase4_structure_v3_2(run_dir: Path) -> bool:
     research_question = str(contract.get("research_question") or "TBD").strip()
     contribution = str(contract.get("contribution") or "TBD").strip()
     gap_excerpt = _positioning_excerpt(positioning)
+    # Optional peer-review contract fields (no-op text when absent).
+    design_rationale = _contract_design_rationale(contract)
+    methods_design_note = (
+        "\n\nDesign adequacy (state explicitly so a reviewer cannot conclude the design "
+        "does not license the claim): %s" % design_rationale
+    ) if design_rationale else ""
+    cannot_claim_block = _cannot_claim_block(contract)
+    limitations_scope_note = ("\n\n" + cannot_claim_block) if cannot_claim_block else ""
     body = f"""# Phase 4 Structure
 
 ## Source Alignment
@@ -766,7 +807,7 @@ Organize prior work around the gaps identified in phase3_positioning.md. Use the
 
 ### 3. Methods
 
-Describe the verified data source, evidence acquisition process, DOI/reference verification, and the analysis type reported in real_results.json. If the run is non-poolable or evidence-map based, state that explicitly and do not imply completed meta-analysis.
+Describe the verified data source, evidence acquisition process, DOI/reference verification, and the analysis type reported in real_results.json. If the run is non-poolable or evidence-map based, state that explicitly and do not imply completed meta-analysis.{methods_design_note}
 
 ### 4. Results
 
@@ -778,7 +819,7 @@ Interpret the findings conservatively. Explain how the result changes the litera
 
 ### 6. Limitations
 
-Include data coverage, measurement, omitted-variable, publication metadata, non-poolability, and external-validity limits as applicable.
+Include data coverage, measurement, omitted-variable, publication metadata, non-poolability, and external-validity limits as applicable.{limitations_scope_note}
 
 ### 7. Conclusion
 
@@ -1358,6 +1399,111 @@ def _positioning_excerpt(text: str) -> str:
     if not stripped:
         return "phase3_positioning.md is unavailable; preserve contract-level gap framing."
     return stripped[:700]
+
+
+# ── peer-review contract consumption (b-side grill steps 5 + 7) ───────────────
+# These three OPTIONAL contract fields carry the captured answers to the three
+# largest reviewer score levers (docs/12 peer-review reverse engineering):
+#   method.design_rationale     — "the design does not support the claim" (Δ−0.93)
+#   scope_boundary.cannot_claim — honest limitation disclosure (Δ+1.05, the only
+#                                 concern reviewers REWARD)
+#   differentiation             — prior-art differentiation vs novelty (Δ−1.08)
+# The a-side CONSUMES them so the captured answers become manuscript content.
+# ALL THREE ARE OPTIONAL: a contract without them behaves exactly as before —
+# every reader below returns an empty value and every injector is a no-op. This
+# is deliberate content enrichment, NOT a gate: a missing field must never block
+# (a mechanical check cannot verify "the rationale is correct"; see a64ad5b).
+
+
+def _contract_design_rationale(contract: Mapping[str, Any]) -> str:
+    """method.design_rationale (grill step 5) or "" when absent."""
+    method = contract.get("method")
+    if not isinstance(method, Mapping):
+        return ""
+    value = method.get("design_rationale")
+    return str(value).strip() if isinstance(value, str) else ""
+
+
+def _contract_cannot_claim(contract: Mapping[str, Any]) -> list[str]:
+    """scope_boundary.cannot_claim (grill step 7) as a clean list, or []."""
+    scope = contract.get("scope_boundary")
+    if not isinstance(scope, Mapping):
+        return []
+    raw = scope.get("cannot_claim")
+    if not isinstance(raw, list):
+        return []
+    return [str(item).strip() for item in raw if isinstance(item, str) and str(item).strip()]
+
+
+def _contract_differentiation(contract: Mapping[str, Any]) -> list[dict[str, str]]:
+    """differentiation rows (grill step 7) with the {prior_doi, they_did, we_do}
+    shape, dropping malformed rows. Returns [] when absent."""
+    rows = contract.get("differentiation")
+    if not isinstance(rows, list):
+        return []
+    clean: list[dict[str, str]] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        we_do = str(row.get("we_do") or "").strip()
+        if not we_do:
+            continue
+        clean.append(
+            {
+                "prior_doi": str(row.get("prior_doi") or "").strip(),
+                "they_did": str(row.get("they_did") or "").strip(),
+                "we_do": we_do,
+            }
+        )
+    return clean
+
+
+def _design_rationale_block(contract: Mapping[str, Any]) -> str:
+    """Markdown block stating why the design licenses the claim, or "" when the
+    contract carries no design_rationale (graceful degradation)."""
+    rationale = _contract_design_rationale(contract)
+    if not rationale:
+        return ""
+    return (
+        "## Design Adequacy\n\n"
+        "State explicitly why this design, model, and sample size can support the "
+        "research question, so a reviewer cannot conclude the design does not license "
+        "the claim: " + rationale
+    )
+
+
+def _cannot_claim_block(contract: Mapping[str, Any]) -> str:
+    """Markdown block listing what the study cannot claim, or "" when the contract
+    carries no scope_boundary.cannot_claim (graceful degradation)."""
+    items = _contract_cannot_claim(contract)
+    if not items:
+        return ""
+    bullets = "\n".join("- This study cannot claim %s." % item for item in items)
+    return (
+        "## Scope Boundary — What This Study Cannot Claim\n\n"
+        "The manuscript must state these boundaries explicitly and must not assert "
+        "any of them anywhere in the text:\n" + bullets
+    )
+
+
+def _differentiation_block(contract: Mapping[str, Any]) -> str:
+    """Markdown differentiation table vs the nearest prior work, or "" when the
+    contract carries no differentiation rows (graceful degradation)."""
+    rows = _contract_differentiation(contract)
+    if not rows:
+        return ""
+    lines = [
+        "## Prior-Art Differentiation",
+        "",
+        "Position the contribution against the nearest prior work, not generic novelty claims:",
+        "",
+        "| Prior work (DOI) | What they did | What we do differently |",
+        "|------------------|---------------|------------------------|",
+    ]
+    for row in rows:
+        prior = row["prior_doi"] or "(unspecified prior work)"
+        lines.append("| %s | %s | %s |" % (prior, row["they_did"], row["we_do"]))
+    return "\n".join(lines)
 
 
 def _downgrade_unsupported_qualitative_overclaims(run_dir: Path) -> bool:
@@ -2854,6 +3000,26 @@ def _validate_render_log_overflow(run_dir: Path) -> dict[str, object]:
     log_path = run_dir / "paper_springer.log"
     if not log_path.is_file():
         return {"valid": True, "log_present": False, "overfull_count": 0, "findings": []}
+    # ADR-001 V2-C: the render log is a DERIVED artifact — judge it only when
+    # the delivery is FRESH. A stale delivery (sources or renderer fingerprint
+    # changed since this log's render) means format_repair will re-render and
+    # replace it; judging the old log manufactures pending findings the healer
+    # cannot fix (they describe a render that no longer exists), which blocked
+    # review_heal while the only cure — the re-render — lives in format_repair:
+    # a circular deadlock (v3_4dc73d199e17, 2026-07-15, right after the
+    # texttt-preamble deploy changed the renderer fingerprint). Gate Z judges
+    # the FRESH log immediately after the re-render, so nothing ships unjudged.
+    try:
+        if engine_assembly.is_delivery_stale(run_dir):
+            return {
+                "valid": True,
+                "log_present": True,
+                "log_stale": True,
+                "overfull_count": 0,
+                "findings": [],
+            }
+    except Exception:
+        pass  # freshness undecidable: fail closed to judging the log as before
     text = log_path.read_text(encoding="utf-8", errors="ignore")
     findings: list[str] = []
     count = 0
