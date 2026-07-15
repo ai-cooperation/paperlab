@@ -80,17 +80,33 @@ def test_longtable_hook_carries_scriptsize_sloppy_and_emergencystretch(tmp_path)
 
 
 def test_emergencystretch_and_sloppy_are_scoped_not_global(tmp_path):
-    """\\sloppy / \\emergencystretch must appear ONLY inside AtBeginEnvironment
-    hooks, never as bare document-global commands (a global \\sloppy would loosen
-    every body paragraph's spacing)."""
+    """\\sloppy / \\emergencystretch must appear ONLY inside a scoping construct,
+    never as a bare document-global command (a global \\sloppy would loosen every
+    body paragraph's spacing). Two legal scopes exist:
+      - table environments via \\AtBeginEnvironment{...} (slash-break class), and
+      - the redefined \\texttt via \\renewcommand{\\texttt}... (prose-texttt
+        class): \\emergencystretch is set INSIDE \\texttt so it is read at the
+        enclosing \\par and thus applies to ONLY paragraphs that contain a
+        \\texttt (texttt-free prose keeps tight justification). \\sloppy must
+        still never leak: it is NOT used in the texttt path."""
     preamble = _preamble(tmp_path)
     for line in preamble.splitlines():
         stripped = line.strip()
         if stripped.startswith("%"):
             continue  # LaTeX comment lines may mention the levers in prose
-        if "\\sloppy" in stripped or "\\emergencystretch" in stripped:
+        # \sloppy is only ever legal inside a table hook.
+        if "\\sloppy" in stripped:
             assert stripped.startswith("\\AtBeginEnvironment{"), (
-                f"typesetting lever must be scoped to an environment, got: {stripped!r}"
+                f"\\sloppy must be scoped to a table environment, got: {stripped!r}"
+            )
+        # \emergencystretch is legal inside a table hook OR inside the \texttt
+        # redefinition (paragraph-scoped to texttt-bearing paragraphs only).
+        if "\\emergencystretch" in stripped:
+            assert stripped.startswith("\\AtBeginEnvironment{") or stripped.startswith(
+                "\\renewcommand{\\texttt}"
+            ), (
+                "\\emergencystretch must be scoped to a table hook or the \\texttt "
+                f"redefinition, never bare document-global, got: {stripped!r}"
             )
 
 
@@ -184,3 +200,134 @@ def test_slashbreak_armed_only_inside_table_hooks(tmp_path):
         assert stripped.startswith("\\AtBeginEnvironment{") or stripped.startswith(
             "\\newcommand{\\PLbreakslashes}"
         ), f"\\PLbreakslashes must only appear in a table hook or its definition, got: {stripped!r}"
+
+
+# --- prose \texttt break class (job v3_4dc73d199e17, accounting) --------------
+# A THIRD Overfull class, distinct from both table classes above: long \texttt{}
+# INLINE CODE in body PROSE. On job v3_4dc73d199e17 the tokens
+#   \texttt{real\_experiments/real\_results.json}
+#   \texttt{analysis\_type\ =\ deterministic\_reference\_evidence\_map}
+# were single unbreakable boxes overflowing by 8.44pt and 49.53pt (>=5pt each ->
+# 2 Gate Z blocks). The table-scoped \PLbreakslashes never fires in prose, so the
+# slash-break fix could not reach them.
+#
+# FAKE-SOLUTION LOG (each tried live on the real render, each failed):
+#   1. hyphenat[htt] / seqsplit          -> no break point at snake_case '_' or '='.
+#   2. active-catcode _ . = / document-wide -> the active '.' broke \hsize=1.2in
+#      dimension parsing and math; too invasive for prose.
+#   3. \str_map_inline over the argument -> STRINGIFIES the pandoc \_ and \ escapes
+#      into literal backslashes -> rendered "real\_experiments" (glyph corrupted).
+#   4. \discretionary{}{}{} / \- / \penalty0 breakpoints WITHOUT tolerance -> TeX
+#      refuses the break (no interword glue -> infinite badness on the short line);
+#      still overflowed. Breakpoints are inert alone.
+#   5. \begingroup...\endgroup around \setlength{\emergencystretch} inside \texttt
+#      -> reverts emergencystretch before the \par reads it -> overflow WORSENED
+#      to 70pt.
+#   6. \PLttbreak:n called from \renewcommand{\texttt} under \ExplSyntaxOff ->
+#      ':' is catcode-12 there, so ':n' leaked as literal glyphs into the PDF
+#      (":nreal_experiments..."). Must expose an l3 fn via \NewDocumentCommand.
+#
+# WINNING MECHANISM (live-verified: Gate Z 2 -> 0, log total 3 -> 0, 15pp PDF
+# unchanged, every glyph intact via pdftotext whitespace-stripped compare):
+#   - \tl_map_inline (TOKEN list, preserves \_ / \ control seqs) re-emits each
+#     token UNTOUCHED then appends \penalty0 after break-worthy tokens (\_ / . =).
+#     Glyph-faithful by construction (original char emitted first, never replaced).
+#   - \emergencystretch set INSIDE the redefined \texttt (read at the enclosing
+#     \par) supplies the tolerance so the breakpoints are actually taken, scoped
+#     to texttt-bearing paragraphs only (no global prose loosening).
+
+
+def test_prose_texttt_break_helper_defined(tmp_path):
+    """The prose-\\texttt fix must define an expl3 token-list walker and expose it
+    via a \\NewDocumentCommand wrapper so it is callable in normal catcodes (a raw
+    \\pl_ttbreak:n call under \\ExplSyntaxOff leaked ':n' glyphs into the PDF)."""
+    preamble = _preamble(tmp_path)
+    assert "\\cs_new_protected:Npn \\pl_ttbreak:n" in preamble, (
+        "preamble must define the expl3 token-list break walker \\pl_ttbreak:n"
+    )
+    assert "\\NewDocumentCommand{\\PLttbreak}{m}{\\pl_ttbreak:n{#1}}" in preamble, (
+        "\\pl_ttbreak:n must be exposed via a \\NewDocumentCommand wrapper so the "
+        "':' in its l3 name is not parsed as text when \\texttt calls it"
+    )
+
+
+def _code_lines(preamble: str) -> str:
+    """Preamble with LaTeX comment lines stripped — assertions about the ACTUAL
+    mechanism must not trip over rejected alternatives named in the prose comments
+    (the slash-break comment legitimately mentions \\discretionary/\\slash/\\str)."""
+    return "\n".join(
+        ln for ln in preamble.splitlines() if not ln.strip().startswith("%")
+    )
+
+
+def test_prose_texttt_walks_token_list_not_string(tmp_path):
+    """It must use \\tl_map_inline (token list), NOT \\str_map: \\str_map would
+    stringify pandoc's \\_ / \\  escapes into literal backslashes and corrupt the
+    glyph. The escaped underscore is matched as a control sequence via \\tl_if_eq."""
+    preamble = _preamble(tmp_path)
+    code = _code_lines(preamble)
+    assert "\\tl_map_inline:nn" in code, (
+        "must walk the argument as a token list (\\tl_map_inline), never \\str_map"
+    )
+    assert "\\str_map" not in code, (
+        "\\str_map stringifies the pandoc \\_/\\  escapes -> corrupts the glyph"
+    )
+    # The escaped underscore is a control sequence -> matched with \tl_if_eq, the
+    # literal punctuation with \str_if_eq.
+    assert "\\tl_if_eq:nnT {##1} {\\_}" in preamble, (
+        "escaped underscore \\_ must be matched as a control seq via \\tl_if_eq"
+    )
+    for ch in ("/", ".", "="):
+        assert "\\str_if_eq:nnT {##1} {%s}" % ch in preamble, (
+            f"break-worthy char {ch!r} must add a \\penalty0"
+        )
+
+
+def test_prose_texttt_preserves_glyph_by_reemitting_original_token(tmp_path):
+    """Glyph safety is by CONSTRUCTION: the loop emits the original token (##1)
+    FIRST, then only appends a neutral \\penalty0 — it never replaces the char
+    with \\char/\\slash/\\discretionary (all of which dropped glyphs in testing)."""
+    preamble = _preamble(tmp_path)
+    code = _code_lines(preamble)
+    m = re.search(r"\\tl_map_inline:nn \{#1\} \{\s*##1", code)
+    assert m, "the token-map body must emit the original token ##1 before any penalty"
+    # The break is a bare \penalty0 (an optional breakpoint), never a glyph-eating
+    # \discretionary/\char/\slash substitution (checked against CODE, not the
+    # comment prose which legitimately names these rejected alternatives).
+    assert "\\discretionary" not in code and "\\slash" not in code, (
+        "must not use \\discretionary/\\slash (they dropped the char in live testing)"
+    )
+
+
+def test_prose_texttt_scopes_emergencystretch_inside_texttt(tmp_path):
+    """\\emergencystretch (the tolerance that lets the breakpoints be taken) must
+    live INSIDE the \\texttt redefinition, NOT in a \\begingroup that reverts it
+    before \\par (that reverted too early and worsened overflow to 70pt), and NOT
+    document-global (would loosen texttt-free prose)."""
+    preamble = _preamble(tmp_path)
+    m = re.search(r"^\s*\\renewcommand\{\\texttt\}\[1\]\{.*$", preamble, re.MULTILINE)
+    assert m, "no \\renewcommand{\\texttt}[1]{...} in preamble"
+    line = m.group(0)
+    assert "\\setlength{\\emergencystretch}{3em}" in line, (
+        "\\texttt redefinition must raise \\emergencystretch so the breakpoints are taken"
+    )
+    assert "\\PLorigtexttt{\\PLttbreak{#1}}" in line, (
+        "\\texttt must break its argument via \\PLttbreak then typeset with the saved "
+        "original \\texttt (\\PLorigtexttt) to keep the monospace font"
+    )
+    assert "\\begingroup" not in line, (
+        "\\emergencystretch must NOT be wrapped in \\begingroup — that reverts it "
+        "before the enclosing \\par reads it and worsened overflow to 70pt in testing"
+    )
+
+
+def test_prose_texttt_saves_original_before_renewcommand(tmp_path):
+    """\\PLorigtexttt must capture the real \\texttt via \\let BEFORE the
+    \\renewcommand, otherwise the redefinition recurses into itself (infinite loop
+    / TeX capacity exceeded)."""
+    preamble = _preamble(tmp_path)
+    save_at = preamble.index("\\let\\PLorigtexttt\\texttt")
+    renew_at = preamble.index("\\renewcommand{\\texttt}")
+    assert save_at < renew_at, (
+        "\\let\\PLorigtexttt\\texttt must precede \\renewcommand{\\texttt} to avoid recursion"
+    )
