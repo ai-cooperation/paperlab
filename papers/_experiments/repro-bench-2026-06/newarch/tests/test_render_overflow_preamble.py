@@ -331,3 +331,24 @@ def test_prose_texttt_saves_original_before_renewcommand(tmp_path):
     assert save_at < renew_at, (
         "\\let\\PLorigtexttt\\texttt must precede \\renewcommand{\\texttt} to avoid recursion"
     )
+
+
+def test_table_texttt_breaks_after_every_token(tmp_path):
+    """Live residual (v3_e9f0eae7e200 claim-evidence longtable, 8.6pt): tables
+    are already scriptsize and \\PLttbreak gives break points after _ / . = —
+    but a narrow p-column cannot fit even one unbroken fragment
+    ("experiments"), so the cell still overflows by a few pt. Inside table
+    environments a tt path token may break ANYWHERE: \\PLttbreakall re-emits
+    every token followed by \\penalty0 (same tl_map mechanism as \\PLttbreak —
+    glyph-preserving, pandoc \\_ escapes stay intact), and longtable/tabular
+    scope \\texttt to it. Prose \\texttt is untouched."""
+    preamble = _preamble(tmp_path)
+
+    assert "\\NewDocumentCommand{\\PLttbreakall}{m}{\\pl_ttbreakall:n{#1}}" in preamble
+    assert "\\tl_map_inline:nn" in preamble  # same safe token-list walk
+    # table environments rebind \texttt to the break-anywhere variant
+    assert preamble.count("\\PLorigtexttt{\\PLttbreakall{#1}}") >= 2, (
+        "longtable AND tabular must scope \\texttt to the break-anywhere variant"
+    )
+    # prose \texttt keeps the separator-only breaker
+    assert "\\PLorigtexttt{\\PLttbreak{#1}}" in preamble
