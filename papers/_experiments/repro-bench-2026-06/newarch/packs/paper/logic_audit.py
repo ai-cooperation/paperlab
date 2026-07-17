@@ -62,7 +62,18 @@ def _infer_direction(context):
 # ============================================================
 # Scan 2: Claim 量詞精確度 + 數字來源追溯
 # ============================================================
-NUMBER_PATTERN = re.compile(r'(?<![\w.])([≥≤<>]?\s*\d{1,6}(?:\.\d{1,4})?[%×]?)(?![\w.])')
+# Thousands-separated form FIRST so 365,049.852 matches as one token instead
+# of fragments (365 / 049.852) that can never trace back to evidence — a
+# scanner-manufactured unfixable finding (live: v3_e9f0eae7e200, 2026-07-17,
+# healer burned 6 repair rounds against it). The ',' in the lookbehind stops
+# fragment matches after a misplaced separator (980510,598302 yields one
+# untraceable token, not two), keeping malformed groupings flagged yet
+# healable: reformat to well-formed groups -> normalizes -> traces -> passes.
+NUMBER_PATTERN = re.compile(
+    r'(?<![\w.,])'
+    r'([≥≤<>]?\s*(?:\d{1,3}(?:,\d{3})+(?:\.\d{1,4})?|\d{1,6}(?:\.\d{1,4})?)[%×]?)'
+    r'(?![\w.])'
+)
 APPROX_NUMBER = re.compile(r'[≥≤<>]\s*\d+(?:\.\d+)?[%]?')
 
 
@@ -86,14 +97,18 @@ def scan_quantifiers(text, result_files):
 
         # Skip trivial numbers (likely formula constants, not empirical claims)
         try:
-            v = float(re.sub(r'[≥≤<>%×\s]', '', num_str))
+            v = float(re.sub(r'[≥≤<>%×\s,]', '', num_str))
         except ValueError:
             continue
         if v == 0 or v == 1 or v == 100 and '%' not in num_str:
             continue
 
-        # Check if number appears in any source JSON
-        trace_found = any(abs(v - s) < 0.05 * max(abs(v), 1) for s in source_numbers if s)
+        # Check if number appears in any source JSON. Magnitude comparison on
+        # both sides: the pattern never captures a leading minus (hyphens are
+        # ambiguous in prose), so signed evidence values could never trace.
+        trace_found = any(
+            abs(abs(v) - abs(s)) < 0.05 * max(abs(v), 1) for s in source_numbers if s
+        )
         is_approx = bool(APPROX_NUMBER.search(num_str))
 
         if not trace_found:
