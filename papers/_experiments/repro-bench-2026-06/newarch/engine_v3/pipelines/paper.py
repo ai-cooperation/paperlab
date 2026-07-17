@@ -94,18 +94,26 @@ RENDER_GATE_OUTPUTS = [
 RENDER_REPAIR_PROMPT = """Repair the manuscript render/readability gates.
 
 You are continuing an existing run directory. Inspect the blocking gate report below,
-paper_draft_v0.qmd, paper_springer.qmd, section files, claim_evidence_map.md,
-real_experiments/real_results.json, and references.bib. Update the declared manuscript
-artifacts in place.
+the section sources under sections/ (including sections/00_abstract.md), paper_meta.json,
+claim_evidence_map.md, real_experiments/real_results.json, and references.bib.
+
+EDIT TARGET (ADR-001 §7 Q5 — this is the difference between fixing and looping):
+- Fix prose/content findings by editing the SECTION SOURCES (sections/*.md) and
+  paper_meta.json. The harness re-assembles paper_draft_v0.qmd and paper_springer.qmd
+  deterministically from those sources every round — a fix written directly into the
+  qmd files is OVERWRITTEN on re-assembly and the same gate finding returns forever.
+- The same defect often appears in MULTIPLE sources (abstract + results prose + tables):
+  grep all sections for the flagged token and fix every occurrence.
 
 Hard requirements:
 - Expand the manuscript body to satisfy the readability floor (at least 3000 words).
-- For Gate F failures, inspect evidence.fail_items and fix each concrete logic-audit item.
+- For Gate F failures, inspect evidence.fail_items and fix each concrete logic-audit item
+  in the section sources (e.g. reformat malformed number groupings so the value is
+  well-formed and traceable to real_results.json).
 - Preserve factual consistency with real_results.json and claim_evidence_map.md.
 - Keep figures and citations referenced by existing artifact paths/keys.
 - Remove placeholders, outline fragments, and underdeveloped sections.
-- Ensure paper_springer.qmd remains renderable after the expansion.
-- Do not stop after explaining the blocker; produce the repaired files.
+- Do not stop after explaining the blocker; produce the repaired section sources.
 """
 
 BOUNDED_GOLDEN_OUTPUTS = DATA_OUTPUTS + RENDER_GATE_OUTPUTS
@@ -526,9 +534,15 @@ def full_paper_pipeline() -> list[PhaseSpec]:
             id="render_gates",
             handler=_collect_gate_inputs,
             prompt="Render journal source and run manuscript gates.",
-            expected_outputs=list(RENDER_GATE_OUTPUTS),
+            # ADR-001 §7 Q5: brain and repair fix attempts must be ALLOWED to
+            # edit the section sources — qmd-only contracts made every healer
+            # fix land in a derived artifact that ensure_assembled overwrote
+            # next round (live rut: v3_e9f0eae7e200, six repairs, zero source
+            # changes, identical Gate F items each round).
+            expected_outputs=list(WRITE_SOURCE_OUTPUTS + RENDER_GATE_OUTPUTS),
             gate_ids=["C", "D", "F"],
             repair_prompt=RENDER_REPAIR_PROMPT,
+            repair_expected_outputs=list(WRITE_SOURCE_OUTPUTS + RENDER_GATE_OUTPUTS),
             max_repair_attempts=2,
         ),
         PhaseSpec(
@@ -603,6 +617,7 @@ def _collect_gate_inputs(
         _ensure_paper_springer_source_v3_2(context.run_dir)
         _repair_generated_content_quality_v3_2(context.run_dir)
         _normalize_thousands_separators_for_gate_f(context.run_dir)
+        _repair_malformed_groupings_anchored_to_evidence(context.run_dir)
     pending_content: list[str] = []
     if _task.phase == "review_heal":
         # The delivery PDF is the PREVIOUS format_repair's render and is
@@ -1600,6 +1615,63 @@ def _normalize_thousands_separators_for_gate_f(run_dir: Path) -> bool:
         path.write_text(normalized, encoding="utf-8")
         changed = True
     return changed
+
+
+_MALFORMED_GROUP_PATTERN = re.compile(r"(?<![\w.])(-?\d+(?:,\d+)+)(?![\w.])")
+
+
+def _repair_malformed_groupings_anchored_to_evidence(run_dir: Path) -> bool:
+    """Rewrite MISPLACED thousands separators to canonical plain digits, but
+    only when the digits match an evidence number exactly — ground-truth
+    anchored, so year lists (2011,2024) and genuinely wrong numbers are never
+    touched. Live rut: -980510,598302 in abstract+results (v3_e9f0eae7e200);
+    the Gate F item's 160-char line snippet truncates before the number, so
+    the healer rewrote whole sections three rounds running without ever
+    localizing the token. Runs AFTER the well-formed normalizer, so anything
+    still containing commas here is an illegal grouping by construction."""
+    source_numbers = _evidence_digit_strings(run_dir)
+    if not source_numbers:
+        return False
+    changed = False
+
+    def _fix(match: re.Match) -> str:
+        token = match.group(1)
+        digits = token.replace(",", "")
+        return digits if digits.lstrip("-") in source_numbers else token
+
+    for path in _manuscript_paths(run_dir):
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        repaired = _MALFORMED_GROUP_PATTERN.sub(_fix, text)
+        if repaired == text:
+            continue
+        path.write_text(repaired, encoding="utf-8")
+        changed = True
+    return changed
+
+
+def _evidence_digit_strings(run_dir: Path) -> set[str]:
+    results_path = run_dir / "real_experiments" / "real_results.json"
+    data = _read_json(results_path)
+    if data is None:
+        return set()
+    digits: set[str] = set()
+
+    def _walk(obj: Any) -> None:
+        if isinstance(obj, bool):
+            return
+        if isinstance(obj, int):
+            digits.add(str(abs(obj)))
+        elif isinstance(obj, float):
+            digits.add(str(abs(obj)).rstrip("0").rstrip("."))
+        elif isinstance(obj, dict):
+            for value in obj.values():
+                _walk(value)
+        elif isinstance(obj, list):
+            for value in obj:
+                _walk(value)
+
+    _walk(data)
+    return digits
 
 
 def _manuscript_paths(run_dir: Path) -> list[Path]:

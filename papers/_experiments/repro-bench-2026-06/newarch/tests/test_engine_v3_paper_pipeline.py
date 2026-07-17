@@ -420,6 +420,47 @@ def test_render_gate_handler_normalizes_thousands_commas_before_logic_audit(tmp_
     assert "5432 observations" in (run_dir / "paper_draft_v0.qmd").read_text(encoding="utf-8")
 
 
+def test_render_gate_handler_repairs_malformed_groupings_anchored_to_evidence(tmp_path: Path):
+    """Live rut closure (v3_e9f0eae7e200, 2026-07-17): the writer emitted
+    -980510,598302 (misplaced separator) in abstract + results; the healer
+    rewrote whole sections across three rounds without touching the token
+    (the Gate F item's 160-char line snippet truncates before the number
+    appears, so the model cannot localize it). Deterministic fix, anchored
+    to ground truth: if stripping the commas from an ILLEGAL grouping yields
+    a digit string that exactly matches an evidence number, rewrite it to
+    the canonical plain form. Tokens that do not match evidence stay
+    untouched (they are genuine defects the healer must own), and legal
+    year-list constructs are never corrupted."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    body = (
+        "Aggregate after-tax losses of -980510,598302 thousand TWD were extracted. "
+        "Deltas total 736065,398 TWD. The window 2011,2024 stays a list. "
+        "An unmatched 123456,789 stays for the healer."
+    )
+    for rel in ["paper_draft_v0.qmd", "paper_springer.qmd", "sections/results.md"]:
+        path = run_dir / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+    (run_dir / "real_experiments").mkdir()
+    (run_dir / "real_experiments" / "real_results.json").write_text(
+        '{"totals":{"after_tax_loss_thousand_twd":-980510598302,"delta_twd":736065398}}',
+        encoding="utf-8",
+    )
+
+    paper_pipeline._collect_gate_inputs(
+        BrainTask(phase="render_gates", task_id="render_gates:brain"),
+        RuntimeContext(job_id="job-1", run_dir=run_dir),
+    )
+
+    fixed = (run_dir / "sections" / "results.md").read_text(encoding="utf-8")
+    assert "-980510598302 thousand TWD" in fixed
+    assert "736065398 TWD" in fixed
+    assert "-980510,598302" not in fixed
+    assert "2011,2024" in fixed  # year list: no evidence match, untouched
+    assert "123456,789" in fixed  # unmatched malformed token: healer's problem
+
+
 def test_review_heal_applies_exact_replacements_but_keeps_delivery_revise(tmp_path: Path):
     run_dir = tmp_path / "run"
     run_dir.mkdir()
@@ -2293,3 +2334,32 @@ def test_operator_findings_channel(tmp_path: Path):
     result = _operator_findings(tmp_path)
     assert result["valid"] is False
     assert any("Figure 2 box texts collide" in f for f in result["findings"])
+
+
+def test_render_gates_repair_contract_targets_section_sources():
+    """ADR-001 §7 Q5 drift guard for render_gates (live rut: v3_e9f0eae7e200,
+    2026-07-17). The healer fixed Gate F items by editing paper_draft_v0.qmd /
+    paper_springer.qmd — the DERIVED artifacts — because the repair contract
+    declared only those two files ("Update the declared manuscript artifacts
+    in place"). ensure_assembled then re-derived the qmds from the UNFIXED
+    sections every round, silently wiping the fix: two full revalidate rounds,
+    six repairs, zero source changes, identical Gate F items. review_heal
+    already consumes WRITE_SOURCE_OUTPUTS with the exact Q5 comment; render_gates
+    must point the healer at the same sources."""
+    from engine_v3.pipelines.paper import WRITE_SOURCE_OUTPUTS, full_paper_pipeline
+
+    spec = {phase.id: phase for phase in full_paper_pipeline()}["render_gates"]
+
+    repair_outputs = set(spec.repair_expected_outputs or [])
+    for rel in WRITE_SOURCE_OUTPUTS:
+        assert rel in repair_outputs, "healer must be allowed to fix the source: %s" % rel
+    assert "sections/results.md" in repair_outputs
+
+    brain_outputs = set(spec.expected_outputs or [])
+    assert "sections/results.md" in brain_outputs, "brain fix attempts hit the same clobber"
+
+    prompt = (spec.repair_prompt or "").lower()
+    assert "sections/" in prompt
+    assert "derived" in prompt or "re-derive" in prompt or "assembles" in prompt, (
+        "the prompt must explain that qmd edits are overwritten by assembly"
+    )
