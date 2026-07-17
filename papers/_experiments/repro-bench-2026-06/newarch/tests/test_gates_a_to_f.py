@@ -1167,3 +1167,28 @@ def test_paperctl_legacy_phase_gate_still_works(tmp_path, golden_dir, fixtures_d
     rc = paperctl.main(["gate", "phase9", "--run-dir", str(run_dir)])
     out = json.loads(capsys.readouterr().out)
     assert out["gate"] == "phase9" and rc in (0, 1)   # routes to the legacy backend
+
+
+def test_gate_d_allows_descriptive_lowercase_placeholder_prose():
+    """Live false-kill (v3_bcee9fcada9f, 2026-07-17): the manuscript's honest
+    disclosure sentence "9 entries with placeholder audit abstract notes"
+    (describing the bib abstract audit) tripped Gate D, because markers were
+    matched case-insensitively — the ordinary English word "placeholder" in
+    prose was treated as template residue. The healer cannot fix that without
+    deleting honest disclosure language: a gate-manufactured unfixable
+    finding that burned the job's whole auto-retry budget. Residue tokens are
+    ALL-CAPS by convention; descriptive lowercase prose must pass."""
+    prose = (
+        "The audit reports 26 entries with real metadata abstracts and 9 "
+        "entries with placeholder audit abstract notes. " + "Sound academic prose. " * 1200
+    )
+    report, res = _run_one({"draft_text": prose, "render_ok": True}, "D")
+    assert res.passed is True and report.blocked is False
+
+
+def test_gate_d_still_blocks_allcaps_residue_and_bracketed_forms():
+    base = "Sound academic prose. " * 1200
+    for residue in ("PLACEHOLDER", "[placeholder]", "[Placeholder]", "TODO:", "TBD"):
+        _, res = _run_one({"draft_text": base + " " + residue + " ", "render_ok": True}, "D")
+        assert res.passed is False, residue
+        assert "placeholder text present" in " ".join(res.evidence["problems"]), residue

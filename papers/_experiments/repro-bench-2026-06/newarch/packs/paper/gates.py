@@ -43,8 +43,14 @@ DOI_REAL_RATE_FLOOR = 0.80
 # share one floor. (Hard nothing-pools block is at phase0_calibration.MIN_POOLABLE_K.)
 POOLABLE_FLOOR = 8           # exercise max-k=8 -> viable; mindfulness max-k=6 -> thin
 PROSE_WORD_FLOOR = 3000       # Gate D: a paper body under this is "too thin" (matches compile_review)
-PLACEHOLDER_MARKERS = ("PLACEHOLDER", "[placeholder]", "TODO:", "TODO ", "TBD",
-                       "lorem ipsum", "XXX", "FIXME", "<!-- todo")
+# Residue tokens are ALL-CAPS by convention and must match case-SENSITIVELY:
+# lowercasing the text treated the ordinary word "placeholder" in honest
+# disclosure prose ("9 entries with placeholder audit abstract notes") as
+# template residue — a gate-manufactured unfixable finding that burned a real
+# user job's whole auto-retry budget (v3_bcee9fcada9f, 2026-07-17). Bracketed
+# and phrase forms stay case-insensitive (unambiguous in any casing).
+PLACEHOLDER_MARKERS_CASED = ("PLACEHOLDER", "TODO:", "TODO ", "TBD", "XXX", "FIXME")
+PLACEHOLDER_MARKERS_ANYCASE = ("[placeholder]", "lorem ipsum", "<!-- todo")
 NUMBER_TOLERANCE = 1e-6       # Gate B/C exact-match tolerance
 
 
@@ -280,13 +286,71 @@ def _claim_listed(claim: dict[str, Any], matrix_text: str,
     return any(w in matrix_text for w in salient[:6]) if salient else False
 
 
+# A cannot_claim entry is VIOLATED only by an AFFIRMATIVE assertion. Sentences that
+# NEGATE/DISCLAIM the forbidden claim ("we cannot claim causality", "this does not
+# establish X", "no evidence of Y") are honest scope statements — the exact behaviour
+# the contract asks for — so they must NOT flag.
+_SCOPE_DISCLAIMER = re.compile(
+    r"\b(cannot|can't|could not|couldn't|do(?:es)? not|did not|is not|are not|was not|"
+    r"were not|no\b|not\b|without|rather than|neither|nor|unable to|should not|"
+    r"we make no|make no|beyond the scope|out of scope|outside the scope|"
+    r"limitation|caution|caveat|future work)\b"
+)
+_SCOPE_STOPWORDS = {
+    "study", "studies", "cannot", "claim", "claims", "results", "result", "method",
+    "methods", "these", "those", "which", "there", "their", "about", "using", "based",
+    "under", "between", "across", "within", "while", "where", "would", "could", "should",
+    "being", "cannot", "evidence", "analysis", "research", "paper", "manuscript",
+}
+
+
+def _scope_salient_tokens(entry: str) -> list[str]:
+    """Distinctive content words of a cannot_claim entry (>=5 chars, minus scope
+    stopwords). These identify whether a sentence is TALKING ABOUT the forbidden claim."""
+    return [
+        w for w in re.findall(r"[a-z]{5,}", (entry or "").lower())
+        if w not in _SCOPE_STOPWORDS
+    ]
+
+
+def cannot_claim_violations(draft_text: str, cannot_claim: list[str]) -> list[dict[str, Any]]:
+    """Sentences that AFFIRMATIVELY assert something the contract's scope_boundary
+    says the study cannot claim. A sentence violates an entry when it contains a strong
+    majority of that entry's salient tokens AND does not negate/disclaim the claim.
+    Empty list when there is no scope boundary (graceful degradation)."""
+    if not draft_text or not cannot_claim:
+        return []
+    prose = _prose_only(draft_text)
+    sentences = [s.strip() for s in _SENTENCE_SPLIT.split(prose.replace("\n", " ")) if s.strip()]
+    violations: list[dict[str, Any]] = []
+    for entry in cannot_claim:
+        tokens = _scope_salient_tokens(entry)
+        if len(tokens) < 2:
+            # too generic to match deterministically without false positives — skip
+            continue
+        needed = max(2, (len(tokens) + 1) // 2)   # a strong majority of salient tokens
+        for sent in sentences:
+            low = sent.lower()
+            hits = sum(1 for t in tokens if t in low)
+            if hits < needed:
+                continue
+            if _SCOPE_DISCLAIMER.search(low):
+                continue                          # the sentence disclaims it — honest
+            violations.append({"claim": sent[:240], "cannot_claim": entry})
+            break                                 # one violation per entry is enough
+    return violations
+
+
 def gate_claim_evidence(dossier: dict[str, Any]) -> GateResult:
     """B (BLOCK, the spine): claim <= evidence with independent extraction.
 
     P0 if ANY of: (a) an extracted claim has NO matrix row (unlisted claim);
     (b) a claimed number does not exact-match real_results; (c) a universal
     quantifier / strong causal verb is used (these always exceed abstract-level
-    evidence in this engine's contribution tier). Fail-closed on missing draft.
+    evidence in this engine's contribution tier); (d) a sentence affirmatively
+    asserts something the contract's scope_boundary.cannot_claim forbids (a HARD
+    ceiling on overclaiming, when the optional field is present). Fail-closed on
+    missing draft.
     """
     draft = dossier.get("draft_text")
     if not draft:
@@ -344,6 +408,16 @@ def gate_claim_evidence(dossier: dict[str, Any]) -> GateResult:
             reasons.append(f"scope overreach '{c['overreach']}' not in evidence")
         if reasons:
             flagged.append({"claim": c["text"], "reasons": reasons})
+
+    # Contract scope boundary (optional grill step 7): the operator's own explicit
+    # "this study cannot claim X" list is a HARD ceiling. A manuscript sentence that
+    # AFFIRMATIVELY asserts a forbidden claim is a P0 overclaim. Absent field -> no-op.
+    cannot_claim = ((dossier.get("scope_boundary") or {}).get("cannot_claim")) or []
+    for v in cannot_claim_violations(draft, cannot_claim):
+        flagged.append({
+            "claim": v["claim"],
+            "reasons": [f"asserts a claim the contract scope_boundary forbids: {v['cannot_claim']}"],
+        })
 
     ok = not flagged
     return GateResult(
@@ -430,7 +504,8 @@ def gate_readability(dossier: dict[str, Any]) -> GateResult:
                           evidence={"reason": "missing_draft"})
 
     low = draft.lower()
-    found = [m for m in PLACEHOLDER_MARKERS if m.lower() in low]
+    found = [m for m in PLACEHOLDER_MARKERS_CASED if m in draft]
+    found += [m for m in PLACEHOLDER_MARKERS_ANYCASE if m.lower() in low]
     words = _prose_word_count(draft)
     render_ok = dossier.get("render_ok", True)
 

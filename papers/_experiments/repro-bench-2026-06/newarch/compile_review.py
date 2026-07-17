@@ -31,7 +31,12 @@ SEVEN_DIMS = (
     "result_interpretation", "limitation_honesty", "writing_coherence",
 )
 PROSE_WORD_FLOOR = 3000
-PLACEHOLDER_MARKERS = ("PLACEHOLDER", "<!-- PLACEHOLDER", "TODO:", "TBD", "lorem ipsum")
+# ALL-CAPS residue tokens match case-SENSITIVELY; lowercasing the text treated
+# the ordinary word "placeholder" in honest disclosure prose as template
+# residue (gate-manufactured unfixable finding, v3_bcee9fcada9f 2026-07-17).
+# Same split as packs/paper/gates.py — keep the two in lockstep.
+PLACEHOLDER_MARKERS_CASED = ("PLACEHOLDER", "<!-- PLACEHOLDER", "TODO:", "TBD")
+PLACEHOLDER_MARKERS_ANYCASE = ("lorem ipsum",)
 
 
 def _last_json_block(text: str) -> dict[str, Any] | None:
@@ -80,8 +85,11 @@ def _has_placeholder(run_dir: Path) -> bool:
     qmd = run_dir / "paper_draft_v0.qmd"
     if not qmd.is_file():
         return True
-    text = qmd.read_text(encoding="utf-8", errors="ignore").lower()
-    return any(m.lower() in text for m in PLACEHOLDER_MARKERS)
+    text = qmd.read_text(encoding="utf-8", errors="ignore")
+    low = text.lower()
+    return any(m in text for m in PLACEHOLDER_MARKERS_CASED) or any(
+        m.lower() in low for m in PLACEHOLDER_MARKERS_ANYCASE
+    )
 
 
 def compile_reviews(run_dir: Path, content_threshold: float = 6.0, elite_required: bool = False) -> dict[str, Any]:
