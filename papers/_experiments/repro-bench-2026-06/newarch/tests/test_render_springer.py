@@ -121,3 +121,43 @@ def test_sanitize_bib_collapses_double_escaped_ampersand(tmp_path):
     assert "Already \\& Fine" in once
     render_springer.sanitize_bib(tmp_path)
     assert bib.read_text(encoding="utf-8") == once  # idempotent
+
+
+def test_table_colwidths_floor_covers_longest_unbreakable_token():
+    """Live blocker (v3_e9f0eae7e200, Gate Z 8.6pt): the claim-evidence table's
+    relation column got 7% from the content-weight formula, but its single
+    word 'documents' needs ~10.4% at scriptsize — a narrow p-column cannot
+    fit one unbreakable word and TeX will not hyphenate a cell's first word.
+    The width allocator must give every column at least its longest PLAIN
+    token (code spans are excluded — tt breaks anywhere inside tables since
+    the PLttbreakall preamble), reclaiming the deficit from columns with
+    slack, and the total must stay 100."""
+    from render_springer import _normalize_tables
+
+    body = "\n".join([
+        "| Claim | Allowed verb | Evidence file | N support | Prohibited extension | Next evidence needed |",
+        "|---|---|---|---:|---|---|",
+        "| MOPS t119sb05 is an official extractable treatment source. | documents |"
+        " `real_experiments/real_results.json` | 28 source files; 2840 firm-years |"
+        " proves misconduct or tunneling | none for source validity |",
+        "| The treatment universe motivates loss-restricted design. | motivates |"
+        " `real_experiments/real_results.json`; `research_contract.json` |"
+        " 2840 firm-years; 800 firms | establishes comparability differences |"
+        " loss-making non-listed control pool |",
+        "",
+        ": Claim-evidence-boundary map. {#tbl-claim-boundary}",
+    ])
+
+    out = _normalize_tables(body)
+
+    import re
+
+    m = re.search(r'tbl-colwidths="\[([0-9, ]+)\]"', out)
+    assert m, "wide table must receive explicit tbl-colwidths"
+    widths = [int(w) for w in m.group(1).split(",")]
+    assert sum(widths) == 100
+    # column 2 (Allowed verb): longest plain token 'documents' = 9 chars ->
+    # floor ~= ceil(9 * 1.15) = 11 percent
+    assert widths[1] >= 11, "relation column must fit its longest word: %s" % widths
+    # code-span-only column must NOT be inflated by path tokens (they break anywhere)
+    assert widths[2] <= 30, "evidence column is breakable tt, no giant share: %s" % widths

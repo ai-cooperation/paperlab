@@ -215,7 +215,36 @@ def _table_colwidths(lines: list[str], sep_idx: int, caption_idx: int, ncol: int
     while sum(widths) < 100:
         idx = max(range(len(widths)), key=lambda k: weights[k])
         widths[idx] += 1
+    # Content-weight shares can starve a column below its longest UNBREAKABLE
+    # word ("documents" = 9 chars needed ~10.4% but got 7% -> Overfull 8.6pt,
+    # Gate Z block, v3_e9f0eae7e200). A p-column cannot fit less than one word
+    # and TeX will not hyphenate a cell's first word, so enforce a per-column
+    # floor of ~1.15% per character of the longest plain token (code spans are
+    # excluded: tt breaks anywhere inside tables via the PLttbreakall
+    # preamble). Deficits are reclaimed from columns with the most slack above
+    # their own floor; floors are capped so one huge token cannot eat the row.
+    floors = [
+        min(28, max(6, -(-int(_longest_plain_token(rows, col) * 115) // 100)))
+        for col in range(ncol)
+    ]
+    for col in range(ncol):
+        while widths[col] < floors[col]:
+            donors = [k for k in range(ncol) if k != col and widths[k] > floors[k]]
+            if not donors:
+                break  # physics limit: floors exceed 100, deliver best effort
+            donor = max(donors, key=lambda k: widths[k] - floors[k])
+            widths[donor] -= 1
+            widths[col] += 1
     return widths
+
+
+def _longest_plain_token(rows: list[list[str]], col: int) -> int:
+    longest = 0
+    for row in rows:
+        cell = re.sub(r"`[^`]*`", " ", row[col] or "")  # code spans break anywhere
+        for token in cell.split():
+            longest = max(longest, len(token))
+    return longest
 
 
 _FIG_IMG = re.compile(r"!\[[^\]]*\]\([^)]*\)\{#fig-[^}]*\}")
