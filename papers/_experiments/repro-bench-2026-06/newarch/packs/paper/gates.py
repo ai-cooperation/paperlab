@@ -294,7 +294,11 @@ _SCOPE_DISCLAIMER = re.compile(
     r"\b(cannot|can't|could not|couldn't|do(?:es)? not|did not|is not|are not|was not|"
     r"were not|no\b|not\b|without|rather than|neither|nor|unable to|should not|"
     r"we make no|make no|beyond the scope|out of scope|outside the scope|"
-    r"limitation|caution|caveat|future work)\b"
+    # "limited to" is the most common English scoping verb — its absence flagged
+    # the honest sentence "the contribution is limited to a calibration-assisted
+    # deployment framework" as a P0 overclaim (v3_9bb7921f4f2f, 2026-07-21,
+    # gate-manufactured unfixable finding #6).
+    r"limitation|limited to|restricted to|confined to|caution|caveat|future work)\b"
 )
 _SCOPE_STOPWORDS = {
     "study", "studies", "cannot", "claim", "claims", "results", "result", "method",
@@ -305,10 +309,20 @@ _SCOPE_STOPWORDS = {
 
 
 def _scope_salient_tokens(entry: str) -> list[str]:
-    """Distinctive content words of a cannot_claim entry (>=5 chars, minus scope
-    stopwords). These identify whether a sentence is TALKING ABOUT the forbidden claim."""
+    """Distinctive content words of a cannot_claim entry (latin >=5 chars plus
+    CJK runs >=2 chars, minus scope stopwords). These identify whether a
+    sentence is TALKING ABOUT the forbidden claim.
+
+    CJK runs must participate: a mostly-Chinese entry reduced to latin-only
+    tokens degenerates to just the contract's own term of art (e.g.
+    calibration/assisted), and 'strong majority of 2 tokens' collapses into
+    'any sentence containing the mandated term' — flagging every COMPLIANT
+    sentence (v3_9bb7921f4f2f, 2026-07-21). With CJK compounds in the token
+    pool, an English sentence carrying only the term of art can no longer
+    reach a majority; entries this checker can genuinely discriminate keep
+    their full coverage."""
     return [
-        w for w in re.findall(r"[a-z]{5,}", (entry or "").lower())
+        w for w in re.findall(r"[a-z]{5,}|[一-鿿]{2,}", (entry or "").lower())
         if w not in _SCOPE_STOPWORDS
     ]
 
