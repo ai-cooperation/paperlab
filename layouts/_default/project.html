@@ -129,10 +129,11 @@
 
   // known paper-pack phases (labels); UNKNOWN phases still render generically so a
   // different pack / legacy / future phase name does not blank the whole timeline.
-  const PHASE_LABEL = { data: '資料', gap: '缺口', structure: '結構', claim_evidence: '證據',
+  const PHASE_LABEL = { capability_gate: '能力檢查', data: '資料', gap: '缺口', structure: '結構', claim_evidence: '證據',
     write: '撰寫', render_gates: '渲染', review_heal: '審查', format_repair: '格式', done: '完成' };
   const PHASE_ORDER = Object.keys(PHASE_LABEL);
   const BADGE = { running: ['執行中', 'bg-amber-100 text-amber-700'], done: ['完成', 'bg-green-100 text-green-700'],
+    needs_custom_experiment: ['需要人工評估', 'bg-red-100 text-red-800'],
     blocked: ['卡住', 'bg-red-100 text-red-700'], failed: ['失敗', 'bg-red-100 text-red-700'],
     incomplete: ['未完成', 'bg-gray-200 text-gray-700'] };
   let timer = null, fails = 0;
@@ -243,13 +244,14 @@
     if (phase && !order.includes(phase)) order = order.concat([phase]);
     const curIdx = order.indexOf(phase);
     $('pp-steps').innerHTML = order.map((p, i) => {
-      const done = curIdx >= 0 && i <= curIdx;
-      const cls = done ? 'bg-primary text-white border-primary' : 'bg-white text-gray-500 border-gray-300';
+      const done = curIdx > i;
+      const blockedHere = p === phase && s.status === 'needs_custom_experiment';
+      const cls = blockedHere ? 'bg-red-100 text-red-800 border-red-300' : done ? 'bg-primary text-white border-primary' : 'bg-white text-gray-500 border-gray-300';
       return `<span class="px-3 py-1 rounded-full text-sm border ${cls}">${esc(PHASE_LABEL[p] || p)}</span>`;
     }).join('');
 
     // terminal result (done | blocked | failed | incomplete) — show blockers/error, not just generic text
-    const terminal = ['done', 'blocked', 'failed', 'incomplete'].includes(s.status);
+    const terminal = ['done', 'blocked', 'failed', 'incomplete', 'needs_custom_experiment'].includes(s.status);
     if (terminal) {
       const sum = s.summary || {};
       const [lbl, badge] = BADGE[s.status] || ['—', 'bg-gray-100 text-gray-600'];
@@ -262,6 +264,12 @@
       html += `</div>`;
       if (s.blocked && (s.blockers || []).length)
         html += `<div class="text-base text-red-700 mt-1">卡住原因：${(s.blockers || []).map(esc).join('；')}</div>`;
+      if (s.status === 'needs_custom_experiment') {
+        const gate = s.capability_gate || {};
+        const reasonMap = { EMPIRICAL_EVIDENCE_REQUIRED:'研究問題要求實證證據', EXECUTABLE_RECIPE_NOT_FOUND:'目前沒有可執行的實驗方案', RECIPE_CONTRACT_INVALID:'實驗方案契約不完整', DATA_CONTRACT_MISSING:'缺少資料契約', ORACLE_CONTRACT_MISSING:'缺少判定標準', EVALUATION_CONTRACT_MISSING:'缺少評估契約' };
+        const reasons = (gate.reason_codes || []).map((code) => reasonMap[code] || code);
+        html += `<div class="text-base text-red-800 mt-2"><b>流程已停止，等待管理員人工評估。</b><br>${esc(reasons.join('；') || '需要客製實驗能力')}<br><span class="text-sm">目前沒有撰寫論文、通過審查或產生 PDF。</span></div>`;
+      }
       if (s.error) html += `<div class="text-sm text-red-700 mt-2">執行中發生錯誤（${esc(String(s.error).slice(0, 200))}）</div>`;
       const pdfUrl = paperUrl(s);
       if (s.artifacts && s.artifacts.has_pdf && pdfUrl)
